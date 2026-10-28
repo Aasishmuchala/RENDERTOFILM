@@ -1,0 +1,75 @@
+# What `bay deploy` excludes from the build context. This matches `docker build`
+# — `.gitignore` is NOT consulted. To ship a path excluded below, delete its
+# line; to ship one file under an excluded glob, add `!path/to/file`.
+
+# Secrets and env files — never ship these.
+.env
+.env.*
+!.env.example
+*.pem
+# Bay injects the Aurora CA into the build context at deploy time; keep it.
+!aws-rds-ca.pem
+*.key
+*.p12
+twingate.json
+*-service-key.json
+
+# Version control
+.git/
+.gitignore
+
+# Bay-internal
+.bay/
+bay.zip
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Node
+node_modules/
+.pnpm-store/
+dist/
+.build/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Rust (Cargo.lock is intentionally committed)
+target/
+
+# Coverage / logs
+/coverage/
+/.nyc_output/
+*.log
+
+# Core dumps (core.<pid>) at the app root
+/core.[0-9]
+/core.[0-9][0-9]
+/core.[0-9][0-9][0-9]
+/core.[0-9][0-9][0-9][0-9]
+/core.[0-9][0-9][0-9][0-9][0-9]
+/core.[0-9][0-9][0-9][0-9][0-9][0-9]
+/core.[0-9][0-9][0-9][0-9][0-9][0-9][0-9]
+
+# bay-studio: internal session files, not part of the app
+events.jsonl
+/.events.jsonl.checkpoint-swap
+.bay-studio-install.json
+.claude-config/
+.bay-studio-deploy-state.json
+.bay-studio-last-deploy.json
+.bay-prewarm/
+/.bay-deps-snapshot/

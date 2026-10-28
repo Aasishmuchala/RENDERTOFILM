@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "still-nano-banana-pro",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Nano Banana Pro preset)",
+      "alias": "gemini_3_pro"
+    },
+    {
+      "id": "still-nano-banana-2-1",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Nano Banana 2.1 preset)",
+      "alias": "nano_banana_2_1"
+    },
+    {
+      "id": "still-nano-banana-2",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Nano Banana 2 preset)",
+      "alias": "gemini_3_1_flash_image"
+    },
+    {
+      "id": "still-gpt-image-2-5-sunburst",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (GPT Image 2.5 Sunburst preset)",
+      "alias": "gpt_image_2_5_sunburst"
+    },
+    {
+      "id": "still-gpt-image-2-5-flare",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (GPT Image 2.5 Flare preset)",
+      "alias": "gpt_image_2_5_flare"
+    },
+    {
+      "id": "still-gpt-image-2",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (GPT Image 2 preset)",
+      "alias": "gpt_image_2"
+    },
+    {
+      "id": "still-seedream-5-pro",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Seedream 5.0 Pro preset)",
+      "alias": "seedream_5_pro"
+    },
+    {
+      "id": "still-seedream-5",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Seedream 5.0 preset)",
+      "alias": "seedream_5"
+    },
+    {
+      "id": "still-flux-2-max",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (FLUX.2 [max] preset)",
+      "alias": "bfl_flux_2_max"
+    },
+    {
+      "id": "still-grok-imagine-2",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Grok Imagine Image 2 preset)",
+      "alias": "grok_imagine_image_2"
+    },
+    {
+      "id": "still-krea-image-3",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Krea Image 3 preset)",
+      "alias": "krea_image_3"
+    },
+    {
+      "id": "still-gen-4-image",
+      "purpose": "Re-shoot a render, a Director frame or a Google Earth screenshot (Location tab) as a photoreal still (Gen-4 Image preset)",
+      "alias": "ref_image_to_image"
+    },
+    {
+      "id": "video-seedance-2",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Seedance 2.0 preset)",
+      "alias": "seedance_2"
+    },
+    {
+      "id": "video-seedance-2-5",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Seedance 2.5 preset)",
+      "alias": "seedance_2_5"
+    },
+    {
+      "id": "video-seedance-2-fast",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Seedance 2.0 Fast preset)",
+      "alias": "seedance_2_fast"
+    },
+    {
+      "id": "video-kling-3-pro",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Kling 3.0 Pro preset)",
+      "alias": "kling_3_0_pro"
+    },
+    {
+      "id": "video-kling-3-4k",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Kling 3.0 4K preset)",
+      "alias": "kling_3_0_4k"
+    },
+    {
+      "id": "video-kling-o3-pro",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Kling O3 Pro preset)",
+      "alias": "kling_o3_pro"
+    },
+    {
+      "id": "video-veo-3-1",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Veo 3.1 preset)",
+      "alias": "veo3_1"
+    },
+    {
+      "id": "video-veo-3-1-fast",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Veo 3.1 Fast preset)",
+      "alias": "veo3_1"
+    },
+    {
+      "id": "video-gen-4-5",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Gen-4.5 preset)",
+      "alias": "gen4.5"
+    },
+    {
+      "id": "video-gen-4-turbo",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Gen-4 Turbo preset)",
+      "alias": "gen4_turbo"
+    },
+    {
+      "id": "video-minimax-h3",
+      "purpose": "Animate a film still or a chosen Director frame into a video (MiniMax H3 preset)",
+      "alias": "minimax_hailuo_3_0"
+    },
+    {
+      "id": "video-ltx-2-5-pro",
+      "purpose": "Animate a film still or a chosen Director frame into a video (LTX-2.5 Pro preset)",
+      "alias": "ltx_2_5_pro"
+    },
+    {
+      "id": "video-wan-2-6",
+      "purpose": "Animate a film still or a chosen Director frame into a video (Wan 2.6 preset)",
+      "alias": "wan_2_6"
+    },
+    {
+      "id": "still-upscale-precision",
+      "purpose": "Upscale a finished film still or a Location aerial, adding detailed textures (Magnific Precision)",
+      "alias": "magnific_precision_upscaler_v2"
+    },
+    {
+      "id": "still-upscale-creative",
+      "purpose": "Upscale a finished film still or a Location aerial, adding detailed textures (Magnific Creative)",
+      "alias": "magnific_creative_upscaler"
+    },
+    {
+      "id": "clip-upscale-runway",
+      "purpose": "Upscale a finished video clip (Runway Video Upscale)",
+      "alias": "media_upscale"
+    },
+    {
+      "id": "clip-upscale-flux",
+      "purpose": "Upscale a finished video clip (FLUX Video Upscale)",
+      "alias": "flux_video_upscale"
+    },
+    {
+      "id": "people-check",
+      "purpose": "Review people in a still for height, physics, light, faces and realism",
+      "alias": "claude_api"
+    },
+    {
+      "id": "edit-grade",
+      "purpose": "Colour grade a cut on the Edit tab with a preset (Aleph 2.0)",
+      "alias": "workflow_aleph_2"
+    },
+    {
+      "id": "edit-ai",
+      "purpose": "Make a plain-language visual edit on a cut (Aleph 2.0)",
+      "alias": "workflow_aleph_2"
+    },
+    {
+      "id": "edit-export",
+      "purpose": "Trim, stitch and export the final film from the timeline",
+      "alias": "media_processing_v2"
+    },
+    {
+      "id": "edit-agent",
+      "purpose": "The AI editor that plans timeline changes from chat",
+      "alias": "claude_api"
+    },
+    {
+      "id": "closeup-frames",
+      "purpose": "Take frames from a video to look for close-ups",
+      "alias": "media_processing_v2"
+    },
+    {
+      "id": "closeup-finder",
+      "purpose": "Find the best cinematic close-up shots in a video, still or image",
+      "alias": "claude_api"
+    },
+    {
+      "id": "storyboard-planner",
+      "purpose": "Plan a storyboard: order, light, camera and people for each project image",
+      "alias": "claude_api"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+/* The Location tab's own pieces; the layout and stage come from Studio.module.css. */
+
+.dropEmpty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px 20px 56px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  text-align: center;
+}
+
+/* Latitude and longitude side by side. */
+.coords {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--bay-err-fg);
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .coords {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Earlier takes, as a shelf of thumbnails under the stage. */
+.earlier {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px 16px;
+}
+
+.earlierCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.earlierCard:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 3px;
+  border-radius: var(--bay-r-md);
+}
+
+.earlierThumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  transition: opacity var(--bay-dur-fast) var(--bay-ease);
+}
+
+.earlierCard:hover .earlierThumb {
+  opacity: 0.85;
+}
+
+.upscaleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 10px;
+  align-items: start;
+}
+
+@media (max-width: 560px) {
+  .upscaleRow {
+    grid-template-columns: 1fr;
+  }
+}

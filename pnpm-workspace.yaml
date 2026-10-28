@@ -1,0 +1,28 @@
+# pnpm 9 and pnpm < 10.5 refuse a pnpm-workspace.yaml that declares no members
+# ("packages field missing or empty"), and Bay seeds this file into every app.
+# Declaring the app itself keeps `pnpm install` working on those versions;
+# newer pnpm resolves the same single member with or without this key.
+packages:
+  - '.'
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+allowBuilds:
+  esbuild: true
+  sharp: true
+# pnpm 11 quarantines packages published in the last 24h; without this a
+# scaffold cut on the day of an SDK release fails with
+# ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION on its own lockfile.
+minimumReleaseAgeExclude:
+  - '@runway/*'
+# Transitive pins. These live here rather than under `pnpm.overrides` in
+# package.json, which pnpm 11 no longer reads.
+overrides:
+  hono: '4.12.28'
+  baseline-browser-mapping: '2.10.31'
+  electron-to-chromium: '1.5.360'
+  node-releases: '2.0.44'
+  browserslist: '4.28.4'
+  caniuse-lite: '1.0.30001799'
+  nanoid: '3.3.15'
+  postcss: '8.5.16'

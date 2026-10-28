@@ -1,0 +1,109 @@
+/* Settings reads like a document: one column at a comfortable measure. */
+.screen {
+  padding: 48px clamp(20px, 4vw, 72px) 96px;
+}
+
+@media (max-width: 680px) {
+  .screen {
+    padding: 28px 16px 56px;
+  }
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* A connection is a hairline-bordered card, not a filled one. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+  background: var(--bay-bg-surface);
+}
+
+.cardHead,
+.account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardTitle,
+.accountText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dotOn,
+.dotOff {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--bay-r-pill);
+}
+
+.dotOn {
+  background: var(--bay-brand);
+}
+
+.dotOff {
+  background: var(--bay-border-strong);
+}
+
+.tools > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--bay-text-2);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.tools > summary:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--bay-r-xs);
+}
+
+.code {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-subtle);
+  font-family: var(--bay-font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

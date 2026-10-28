@@ -1,0 +1,48 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bay-text-2);
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-surface);
+}
+
+.group[data-focus-within] {
+  border-color: var(--bay-accent);
+  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.18);
+}
+
+.group[data-disabled] {
+  opacity: 0.6;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text);
+}
+
+.unit {
+  font-size: 12px;
+  color: var(--bay-text-3);
+}

@@ -1,0 +1,89 @@
+/* The Close-ups tab's own pieces; the layout and stage come from Studio.module.css. */
+
+.dropEmpty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px 20px 56px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  text-align: center;
+}
+
+/* A contact sheet of close-ups: as many columns as fit, each at least 280px. */
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 28px 24px;
+}
+
+.shot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shotFrame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  overflow: hidden;
+}
+
+.shotFrame > * {
+  grid-area: 1 / 1;
+}
+
+.shotButton {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.shotButton:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.shotText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subject {
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.shotActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.saved {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.retry {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.pollError {
+  margin-top: 16px;
+}

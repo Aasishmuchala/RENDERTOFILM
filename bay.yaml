@@ -1,0 +1,102 @@
+name: render-to-film
+version: 1
+title: Render to Film
+
+features:
+  webapp-runway-api: {}
+  runway-api:
+    env: production
+  bay-sdk: {}
+  storage:
+    type: s3
+installable: false
+
+# Image work (full-size renders decoded for composites and big-screen copies)
+# needs more than the automatic 256Mi ceiling, which kept killing the pod.
+resources:
+  memory: 2Gi
+
+# All options below are optional.
+
+# What this app does
+description: Turn a 3D architectural or landscape render into a photorealistic,
+  cinematic film still in a chosen light.
+
+# Free-text label shown by `bay list` and matched by launcher search. It does not set the launcher category.
+# group: ml-tools
+
+# Emoji icon shown in the launcher
+# icon: 🚀
+
+# Brand color for the launcher card (6-digit hex)
+# color: "#5B7FE7"
+
+# Set false to stop this app appearing as installable to the dock
+# installable: false
+
+# Set true for a Runway-ported, pre-built app (shown in the cell's Featured Apps instead of the customer's own apps)
+# store: true
+
+# App type: 'app' (HTTP, default) or 'job' (scheduled CronJob)
+# type: job
+
+# Schedule (cron, UTC) — required when type: job
+# job:
+#   schedule: "0 9 * * 1-5"
+
+# Port the container listens on (default: 3000)
+# port: 8080
+
+# Health check probe configuration
+# healthCheck:
+#   path: /healthz
+#   disabled: false
+
+# Pin each browser to one instance (realtime/SSE apps)
+# routing:
+#   stickySessions: true
+
+# Run exactly one instance (apps that can't run concurrently; accepts downtime)
+# singleReplica: true
+
+# Defer automatic CPU/memory resizes to 06:00–09:00 UTC (apps with long in-process work)
+# rightsizing: quiet-window
+
+# Who can access: everyone, private, public, or { users: [...], groups: [...] }
+# visibility: everyone
+
+# GitHub repo (owner/repo format)
+# repo: runwayml/my-app
+
+# Per-app cloud identity: AWS, GCP, CoreWeave object storage
+# infra:
+#   iamRole: true
+#   caios: true
+
+# Per-pod CPU/memory burst ceiling (no default CPU limit; default memory 8Gi; max 8 cores / 32Gi)
+# resources:
+#   cpu: 4
+#   memory: 8Gi
+
+# Deploy hooks. `release` runs as a one-shot Job in your image before each rollout.
+# deploy:
+#   release: node_modules/.bin/tsx node_modules/typeorm/cli.js migration:run -d typeorm.config.ts
+
+# Internet-facing app (public, no Twingate). Requires approval, CI-only deploys, no shared db/storage.
+# internetFacing: true
+
+# Require Runway sign-in at the edge (internetFacing only). Implies runway-api with env: production.
+# runwayAuth: required
+
+# Limit edge Runway sign-in to these email domains (requires runwayAuth: required).
+# runwayAuthEmailDomains:
+#   - acme.com
+
+# Custom hostnames (in addition to <app>.ext.runwayml.com). Each must be approved separately.
+# domains:
+#   - app.runwayml.com
+
+# Internal apps this external app may call over M2M (internetFacing only).
+# egress:
+#   internalApps:
+#     - paper-tracker

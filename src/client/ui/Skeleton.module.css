@@ -1,0 +1,36 @@
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar {
+  height: 12px;
+  border-radius: var(--bay-r-sm);
+}
+
+.bar,
+.block {
+  background: linear-gradient(
+    90deg,
+    var(--bay-bg-sunken) 25%,
+    var(--bay-bg-subtle) 50%,
+    var(--bay-bg-sunken) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.block {
+  width: 100%;
+  border-radius: var(--bay-r-md);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

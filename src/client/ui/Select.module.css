@@ -1,0 +1,171 @@
+/* Positioned, so the hidden native select react-aria keeps for forms stays
+   next to the trigger and focusing it never scrolls the page. */
+.select {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bay-text-2);
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-surface);
+  color: var(--bay-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--bay-dur) var(--bay-ease),
+    box-shadow var(--bay-dur) var(--bay-ease);
+}
+
+.trigger[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.trigger[data-focus-visible] {
+  outline: none;
+  border-color: var(--bay-accent);
+  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.18);
+}
+
+.trigger[data-disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.valueName {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.valueGroup {
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.chevron {
+  flex: none;
+  color: var(--bay-text-3);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.popover {
+  width: var(--trigger-width);
+  min-width: 260px;
+  max-height: min(440px, 70vh);
+  overflow: auto;
+  padding: 6px;
+  border-radius: var(--bay-r-lg);
+  border: 1px solid var(--bay-border-hair);
+  background: var(--bay-bg-surface);
+  box-shadow: var(--bay-shadow-pop);
+}
+
+.popover[data-entering] {
+  animation: fade var(--bay-dur-fast) var(--bay-ease);
+}
+
+.list {
+  outline: none;
+}
+
+.section + .section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.header {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--bay-text-3);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--bay-r-sm);
+  cursor: pointer;
+  outline: none;
+}
+
+.item[data-focused] {
+  background: var(--bay-bg-sunken);
+}
+
+.item[data-selected] {
+  background: var(--bay-accent-soft);
+}
+
+.item[data-focus-visible] {
+  box-shadow: inset 0 0 0 2px var(--bay-border-focus);
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.itemName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.itemHint {
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.check {
+  flex: none;
+  color: var(--bay-accent);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

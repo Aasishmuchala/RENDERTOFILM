@@ -1,0 +1,86 @@
+.tabs {
+  display: block;
+}
+
+/* Refined text tabs: muted until current, a thin accent rule under the
+   selected one. */
+.list {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 28px;
+  height: 100%;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 2px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--bay-text-3);
+  cursor: pointer;
+  outline: none;
+  transition: color var(--bay-dur) var(--bay-ease);
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--bay-accent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--bay-dur-slow) var(--bay-ease);
+}
+
+.tab[data-hovered] {
+  color: var(--bay-text);
+}
+
+.tab[data-selected] {
+  color: var(--bay-text);
+}
+
+.tab[data-selected]::after {
+  transform: scaleX(1);
+}
+
+.tab[data-selected] svg {
+  color: var(--bay-accent);
+}
+
+.tab[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+  border-radius: var(--bay-r-sm);
+}
+
+@media (max-width: 680px) {
+  .list {
+    display: flex;
+    width: 100%;
+    gap: 0;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 0 8px;
+  }
+}
+
+.panel {
+  outline: none;
+}
+
+.panel[data-inert] {
+  display: none;
+}

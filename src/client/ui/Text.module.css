@@ -1,0 +1,38 @@
+.text {
+  line-height: 1.55;
+}
+
+.default {
+  color: var(--bay-text);
+}
+
+.secondary {
+  color: var(--bay-text-3);
+}
+
+.muted {
+  color: var(--bay-text-4);
+}
+
+.sm {
+  font-size: 13px;
+}
+
+.md {
+  font-size: 14px;
+}
+
+.link {
+  color: var(--bay-accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link[data-hovered] {
+  text-decoration: underline;
+}
+
+.link[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}

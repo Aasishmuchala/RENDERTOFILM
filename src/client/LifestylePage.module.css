@@ -1,0 +1,43 @@
+/* The Lifestyle tab's own pieces; everything else is Studio.module.css. */
+
+.momentNote {
+  margin-top: 8px;
+}
+
+.earlier {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px 16px;
+}
+
+.earlierCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.earlierCard:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 3px;
+  border-radius: var(--bay-r-md);
+}
+
+.earlierThumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  transition: opacity var(--bay-dur-fast) var(--bay-ease);
+}
+
+.earlierCard:hover .earlierThumb {
+  opacity: 0.85;
+}

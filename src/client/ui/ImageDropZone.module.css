@@ -1,0 +1,44 @@
+.zone {
+  position: relative;
+  border-radius: var(--bay-r-md);
+  outline: 2px dashed transparent;
+  outline-offset: 3px;
+  transition: outline-color var(--bay-dur) var(--bay-ease);
+}
+
+.zone[data-drop-target] {
+  outline-color: var(--bay-accent);
+}
+
+.trigger {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--bay-r-pill);
+  background: rgba(30, 27, 24, 0.78);
+  color: #f6f1e9;
+  font-family: var(--bay-font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.trigger[data-hovered] {
+  background: rgba(30, 27, 24, 0.88);
+}
+
+.trigger[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.trigger[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

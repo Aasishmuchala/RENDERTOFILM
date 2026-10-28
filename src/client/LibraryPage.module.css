@@ -1,0 +1,217 @@
+/* The library fills the window under the header, with generous gutters. */
+.screen {
+  padding: 48px clamp(20px, 4vw, 72px) 96px;
+}
+
+@media (max-width: 680px) {
+  .screen {
+    padding: 28px 16px 56px;
+  }
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Search, kind and tags on one surface, so filtering reads as one control. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--bay-border-hair);
+  border-radius: 0;
+  background: transparent;
+}
+
+.tags {
+  flex-basis: 100%;
+  padding-top: 4px;
+}
+
+/* FilterChips brings its own bottom margin; the toolbar's gap replaces it. */
+.toolbar > * {
+  margin-bottom: 0;
+}
+
+.search {
+  flex: 1 1 280px;
+  max-width: 420px;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 44px 28px;
+  align-items: start;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+}
+
+/* One landscape frame for every thumbnail: the grid reads as a contact
+   sheet. Portrait takes sit whole inside it on the stage black. */
+.media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow: inset 0 0 0 1px rgba(246, 241, 233, 0.06);
+}
+
+.img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bay-stage-frame);
+}
+
+.media[data-portrait] .img {
+  object-fit: contain;
+}
+
+.zoom {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.zoom:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.zoomIcon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--bay-r-sm);
+  background: rgba(30, 27, 24, 0.6);
+  color: #fff;
+  pointer-events: none;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--bay-r-sm);
+  background: rgba(30, 27, 24, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+
+.pending {
+  position: relative;
+  height: 100%;
+}
+
+.pending > :first-child {
+  height: 100%;
+}
+
+.pendingLabel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.caption {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.titleText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cardActions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.autoTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.autoTag {
+  padding: 1px 7px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-pill);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--bay-text-3);
+  cursor: pointer;
+  transition: border-color var(--bay-dur) var(--bay-ease);
+}
+
+.autoTag:hover {
+  border-color: var(--bay-border-strong);
+}
+
+.autoTag:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+}
+
+.saveState {
+  min-height: 18px;
+}
+
+.saveError {
+  color: var(--bay-err-fg);
+}
+
+.more {
+  align-self: center;
+}

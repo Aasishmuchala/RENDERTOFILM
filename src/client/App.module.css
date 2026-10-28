@@ -1,0 +1,10 @@
+/* The app's mark: an aperture on the garden green. */
+.mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--bay-brand);
+  color: var(--bay-brand-fg);
+}

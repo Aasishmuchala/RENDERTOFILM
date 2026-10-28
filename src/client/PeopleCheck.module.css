@@ -1,0 +1,105 @@
+.panel {
+  margin-top: 20px;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--bay-border-hair);
+  border-radius: 0;
+  background: transparent;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.pass,
+.issues {
+  padding: 2px 10px;
+  border-radius: var(--bay-r-pill);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pass {
+  background: var(--bay-ok-bg);
+  color: var(--bay-ok-fg);
+}
+
+.issues {
+  background: var(--bay-warn-bg);
+  color: var(--bay-warn-fg);
+}
+
+.lead {
+  margin: 0 0 12px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--bay-text-2);
+}
+
+.item svg {
+  margin-top: 3px;
+}
+
+.itemName {
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.okIcon {
+  color: var(--bay-ok-fg);
+}
+
+.badIcon {
+  color: var(--bay-warn-fg);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fixes {
+  margin: 10px 0 0;
+}
+
+.note {
+  margin: 12px 0 0;
+}

@@ -1,0 +1,51 @@
+.alert {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--bay-r-lg);
+}
+
+.icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.content {
+  font-size: 13px;
+  line-height: 1.55;
+  margin-top: 2px;
+}
+
+.content a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.err {
+  background: var(--bay-err-bg);
+  color: var(--bay-err-fg);
+}
+
+.warn {
+  background: var(--bay-warn-bg);
+  color: var(--bay-warn-fg);
+}
+
+.info {
+  background: var(--bay-info-bg);
+  color: var(--bay-info-fg);
+}
+
+.ok {
+  background: var(--bay-ok-bg);
+  color: var(--bay-ok-fg);
+}

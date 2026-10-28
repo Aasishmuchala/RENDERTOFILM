@@ -1,0 +1,191 @@
+/* Positioned, so the visually hidden radio inputs stay beside their cards. */
+.group {
+  display: block;
+  position: relative;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* One row that scrolls sideways once the takes outgrow the stage. */
+.row {
+  display: flex;
+  gap: 12px;
+  padding: 2px 2px 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-border) transparent;
+}
+
+.card {
+  flex: 0 0 176px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color var(--bay-dur) var(--bay-ease),
+    background var(--bay-dur) var(--bay-ease);
+}
+
+.card[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.card[data-selected] {
+  border-color: var(--bay-accent);
+  background: var(--bay-accent-soft);
+}
+
+.card[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.frame {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 4px;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  overflow: hidden;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity var(--bay-dur) var(--bay-ease);
+}
+
+/* A take still in the camera reads dimmer than a finished one. */
+.card[data-state='rendering'] .thumb,
+.card[data-state='queued'] .thumb {
+  opacity: 0.45;
+}
+
+.card[data-state='failed'] .thumb,
+.card[data-state='lost'] .thumb {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+.nextCard .thumb {
+  opacity: 0.6;
+}
+
+.nextBadge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--bay-text);
+}
+
+.nextBadge > svg {
+  box-sizing: content-box;
+  padding: 6px;
+  border-radius: var(--bay-r-pill);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.badge {
+  position: absolute;
+  left: 6px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 5px;
+  border-radius: var(--bay-r-pill);
+  background: rgba(0, 0, 0, 0.62);
+  color: var(--bay-stage-text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card[data-state='ready'] .badge {
+  color: var(--bay-ok-fg);
+}
+
+.card[data-state='failed'] .badge,
+.card[data-state='lost'] .badge {
+  color: var(--bay-err-fg);
+}
+
+/* Progress along the frame's foot: a fill when the model reports it, a
+   moving glint when it doesn't. */
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(246, 241, 233, 0.12);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  background: var(--bay-accent);
+  transition: width 600ms var(--bay-ease);
+}
+
+.sweep {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--bay-accent);
+  will-change: transform;
+  animation: glint 1.8s var(--bay-ease) infinite;
+}
+
+@keyframes glint {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep {
+    animation: none;
+    transform: translateX(75%);
+  }
+}
+
+.title {
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--bay-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub {
+  padding: 0 2px 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--bay-text-3);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,135 @@
+/**
+ * App design tokens. This file owns every colour the app uses (text, canvas,
+ * surfaces, borders, accent, status, shadows); `@runway/bay-react/tokens.css`
+ * (imported first in main.tsx) only adds radii, motion and the avatar palette.
+ * Re-skin here, in both blocks, and note the palette in design.md.
+ *
+ * Light-only (default): `index.html` pins `<html data-theme="light">`, so a
+ * dark OS never switches the app. The dark block applies only once a toggle
+ * picks dark (`bay add agent` brings one).
+ *
+ * Always dark: set `data-theme="dark"` in `index.html` and put the palette in
+ * the dark block, text included. Never put dark surfaces in the light block.
+ *
+ * Follow the OS: delete `data-theme="light"` from `index.html`, add
+ * `import '@runway/bay-react/theme';` to `main.tsx` (the store that sets the
+ * attribute), and give every colour token a dark value here.
+ */
+
+:root {
+  color-scheme: light;
+  /* The brand face global.css loads via @font-face, ahead of bay-react's own
+     stack — every component reads this one var, so body and controls match. */
+  --bay-font-sans:
+    'ABC Normal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica,
+    sans-serif;
+  --bay-text: #1e1b18;
+  --bay-text-2: #4a443d;
+  --bay-text-3: #7a7266;
+  --bay-text-4: #a89f93;
+  --bay-text-5: #d6cec2;
+  --bay-text-on-accent: #ffffff;
+  --bay-bg-canvas: #f6f1e9;
+  --bay-border-hair: #e9e2d6;
+  --bay-bg-surface: #fffdf9;
+  --bay-bg-subtle: #f1ebe0;
+  --bay-bg-sunken: #ebe4d7;
+  --bay-border: #e2dacd;
+  --bay-border-strong: #d3c9b9;
+  --bay-border-focus: #c9703f;
+  --bay-accent: #b5562b;
+  --bay-accent-hover: #9a4723;
+  --bay-accent-soft: #f6e6db;
+  --bay-accent-fg: #7e3a1c;
+  --bay-accent-rgb: 181, 86, 43;
+  --bay-ok-bg: #e2ebe3;
+  --bay-ok-fg: #2f4b3a;
+  --bay-warn-bg: #fbeed0;
+  --bay-warn-fg: #946800;
+  --bay-err-bg: #fde7e6;
+  --bay-err-fg: #c1281c;
+  --bay-info-bg: #e2ebe3;
+  --bay-info-fg: #2f4b3a;
+  --bay-shadow-1: none;
+  --bay-shadow-pop:
+    0 18px 48px -12px rgba(30, 27, 24, 0.18), 0 0 0 1px var(--bay-border-hair);
+  /* The stage's one deep, soft shadow. */
+  --bay-shadow-stage: 0 40px 80px -40px rgba(30, 27, 24, 0.55);
+  /* Radii: controls stay tight, containers and overlays are softer. */
+  --bay-r-lg: 12px;
+  --bay-r-xl: 16px;
+  /* The result stage: the one dark, cinematic surface in the app. */
+  --bay-stage-bg: #1e1b18;
+  --bay-stage-frame: #000000;
+  --bay-stage-raised: #2b2723;
+  --bay-stage-line: #3a352f;
+  --bay-stage-text: #f6f1e9;
+  --bay-stage-text-2: #d9d0c3;
+  --bay-stage-text-3: #a59c90;
+  /* The garden green: the app mark and calm confirmations. */
+  --bay-brand: #2f4b3a;
+  --bay-brand-fg: #f6f1e9;
+  --bay-font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Inside the result stage every block re-themes to the dark palette, so
+   buttons, text, alerts and panels there need no stage-specific styles. */
+[data-stage] {
+  color-scheme: dark;
+  color: var(--bay-stage-text);
+  --bay-text: var(--bay-stage-text);
+  --bay-text-2: var(--bay-stage-text-2);
+  --bay-text-3: var(--bay-stage-text-3);
+  --bay-text-4: #7d756b;
+  --bay-bg-surface: var(--bay-stage-raised);
+  --bay-bg-subtle: #34302b;
+  --bay-bg-sunken: #2b2723;
+  --bay-border-hair: var(--bay-stage-line);
+  --bay-border: #48423b;
+  --bay-border-strong: #5a5249;
+  --bay-border-focus: #e08a5c;
+  --bay-accent-soft: #3d2a1f;
+  --bay-accent-fg: #f0b48f;
+  --bay-ok-bg: #1f2e25;
+  --bay-ok-fg: #9fd0ae;
+  --bay-warn-bg: #352b14;
+  --bay-warn-fg: #e9c06a;
+  --bay-err-bg: #3a1d1a;
+  --bay-err-fg: #f2948b;
+  --bay-info-bg: #1f2e25;
+  --bay-info-fg: #9fd0ae;
+  --bay-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bay-text: #f5f5f7;
+  --bay-text-2: #c8c9cf;
+  --bay-text-3: #8c8e96;
+  --bay-text-4: #6b6d75;
+  --bay-text-5: #43454c;
+  --bay-text-on-accent: #ffffff;
+  --bay-bg-canvas: #0e1014;
+  --bay-border-hair: #23262d;
+  --bay-bg-surface: #16181d;
+  --bay-bg-subtle: #1c1f25;
+  --bay-bg-sunken: #23262d;
+  --bay-border: #2e323a;
+  --bay-border-strong: #3b3f48;
+  --bay-border-focus: #5fb6db;
+  --bay-accent: #3d9bc1;
+  --bay-accent-hover: #5fb6db;
+  --bay-accent-soft: #1d3a48;
+  --bay-accent-fg: #cfe4ec;
+  --bay-accent-rgb: 61, 155, 193;
+  --bay-ok-bg: #14271e;
+  --bay-ok-fg: #5fd39c;
+  --bay-warn-bg: #2a2410;
+  --bay-warn-fg: #e6b34a;
+  --bay-err-bg: #2a1716;
+  --bay-err-fg: #ef7a72;
+  --bay-info-bg: #1d3a48;
+  --bay-info-fg: #5fb6db;
+  --bay-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --bay-shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--bay-border);
+}

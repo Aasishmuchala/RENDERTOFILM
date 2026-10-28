@@ -1,0 +1,527 @@
+/* Step 1: the clips on offer, a compact list with a thumbnail. */
+.clipGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.clipCard {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+}
+
+.clipThumb {
+  width: 56px;
+  height: 34px;
+  border-radius: var(--bay-r-xs);
+  object-fit: cover;
+  background: var(--bay-bg-sunken);
+}
+
+.clipMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.clipLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Step 2: the strip is the film at a glance, each block as long as its cut. */
+.timelineBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timelineBox:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 4px;
+  border-radius: var(--bay-r-xs);
+}
+
+.lockNote,
+.shortcutHint {
+  margin: 0;
+}
+
+.showMore {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.versionRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.strip {
+  display: flex;
+  gap: 2px;
+  height: 22px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.segmentItem {
+  display: flex;
+  flex-basis: 0;
+  min-width: 18px;
+}
+
+.segment {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-bg-subtle);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
+  cursor: pointer;
+}
+
+.segment[data-selected] {
+  border-color: var(--bay-accent);
+  background: var(--bay-accent-soft);
+  color: var(--bay-accent-fg);
+}
+
+.segment[data-pending] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--bay-bg-subtle) 0 6px,
+    var(--bay-bg-sunken) 6px 12px
+  );
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+}
+
+.cuts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cut {
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+  background: transparent;
+}
+
+.cut[data-open] {
+  border-color: var(--bay-border-strong);
+}
+
+.cutHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.cutMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--bay-r-lg);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cutMain:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.cutNumber {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--bay-r-pill);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
+}
+
+.cut[data-open] .cutNumber {
+  border-color: var(--bay-accent);
+  color: var(--bay-accent-fg);
+}
+
+.cutThumb {
+  flex: none;
+  width: 48px;
+  height: 30px;
+  border-radius: var(--bay-r-xs);
+  object-fit: cover;
+  background: var(--bay-bg-sunken);
+}
+
+.cutText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cutLabel,
+.cutSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cutLabel {
+  font-size: 13px;
+  color: var(--bay-text);
+}
+
+.cutSub {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
+}
+
+.cutTools {
+  display: flex;
+  flex: none;
+}
+
+.cutStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 10px 8px;
+}
+
+.cutBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px 14px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.trimRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.trimNote {
+  padding-bottom: 7px;
+}
+
+.editRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.cutFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.fadeRow {
+  max-width: 140px;
+}
+
+.inlineLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--bay-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.pulse {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: var(--bay-r-pill);
+  background: var(--bay-accent);
+  animation: pulse 1.2s var(--bay-ease) infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+/* The stage: export status, chat and memory. */
+.exportStatus {
+  margin-top: 14px;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(52vh, 560px);
+  margin: 0;
+  padding: 2px 4px 2px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.message {
+  max-width: 92%;
+  padding: 10px 14px 12px;
+  border-radius: var(--bay-r-xl);
+  background: var(--bay-bg-subtle);
+}
+
+.message[data-role='user'] {
+  align-self: flex-end;
+  background: var(--bay-accent-soft);
+}
+
+.message[data-error] {
+  background: var(--bay-err-bg);
+}
+
+.who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--bay-text-3);
+}
+
+.messageText {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--bay-text);
+}
+
+.actions {
+  margin: 6px 0 0;
+  padding: 6px 0 0 16px;
+  border-top: 1px solid var(--bay-border-hair);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--bay-text-2);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.suggestions > p {
+  margin: 0 0 2px;
+}
+
+.suggestion {
+  padding: 7px 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--bay-text-2);
+  cursor: pointer;
+}
+
+.suggestion:hover,
+.suggestion:focus-visible {
+  border-color: var(--bay-accent);
+  color: var(--bay-text);
+}
+
+.suggestion:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composerBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.composerButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.memory {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memoryItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 4px 4px 14px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-md);
+  font-size: 13px;
+  color: var(--bay-text);
+}
+
+@media (max-width: 520px) {
+  .trimRow {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .trimNote {
+    display: none;
+  }
+}
+
+/* The stage's players share one cell; the next cut waits, loaded, underneath.
+   Each carries its built-in grade: a filter on the video plus two layers. */
+.graded {
+  grid-area: 1 / 1;
+  display: grid;
+  width: 100%;
+  height: 100%;
+}
+
+.graded[data-hidden] {
+  visibility: hidden;
+}
+
+.graded > * {
+  grid-area: 1 / 1;
+}
+
+.balance,
+.lift {
+  pointer-events: none;
+}
+
+.balance {
+  mix-blend-mode: multiply;
+}
+
+/* The grade's own controls inside an open cut. */
+.gradeBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-canvas);
+}
+
+.gradePanel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.gradeWide {
+  grid-column: 1 / -1;
+}
+
+.gradeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .gradePanel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.alertActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

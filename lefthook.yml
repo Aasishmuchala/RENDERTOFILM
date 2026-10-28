@@ -1,0 +1,153 @@
+pre-commit:
+  commands:
+    secretlint:
+      # Scan every staged file. No `glob` filter: lefthook's default matcher
+      # (`*`) doesn't traverse path separators, so a glob would silently
+      # exclude everything under src/, lib/, etc. — i.e. almost all source
+      # code. A `secretlint` already on PATH whose `--version` equals the
+      # pin runs first (Bay Studio images ship one), so no registry is
+      # needed; if it cannot run, the script falls through to npx. When
+      # there is none, `npx --yes` runs secretlint without requiring it in
+      # package.json, so this works for Node, Python, Rust, anything
+      # (Node is always present because the `bay` CLI itself runs on Node).
+      # `-p` flags pull both secretlint and its preset into the same npx
+      # install — the preset is referenced from .secretlintrc.json but is
+      # not a dependency of the secretlint package, so without this it
+      # fails to load.
+      #
+      # Both `-p` specs are pinned to the same exact version on purpose.
+      # `secretlint` pins its own `@secretlint/*` dependencies to exact
+      # versions, so two `latest` specs can resolve to a release whose
+      # siblings are still publishing, and npx then fails ETARGET on every
+      # commit until the window closes. Bumping the pin is a manual edit to
+      # this file; `bay update --base` and `bay deploy` push it to existing
+      # apps.
+      #
+      # The pin stays the first attempt because it is the only spec that
+      # cannot straddle a half-published release. When a registry has simply
+      # not synced the pinned version yet, the script retries once with the
+      # bare major range — a fallback, never the default, since a range is
+      # exactly what the pin exists to avoid.
+      #
+      # The script classifies the failure itself: lefthook prints `fail_text`
+      # on any non-zero exit, so it cannot tell "npx could not install
+      # secretlint" apart from "secretlint found a secret". secretlint exits
+      # 1 only for findings; 2 means it crashed (bad config, bad arguments).
+      #
+      # `--` ends option parsing before the file list, so a staged file whose
+      # name starts with `-` (say `--clip`) is scanned instead of rejected as
+      # an unknown option.
+      #
+      # The script below must contain no double quote — comments included.
+      # On Windows lefthook builds the child command line by hand as
+      # `"sh" -c "<script>"` with no escaping, so every unescaped `"` inside
+      # the script toggles quoting and Windows argument parsing truncates it
+      # at the first space outside quotes. The hook then dies with
+      # `syntax error: unexpected end of file` before scanning anything.
+      run: |
+        # bay-managed secret scan — `bay update --base` refreshes this hook.
+        # No double quotes below, on purpose — see the comment above run:.
+        pinned=13.0.5   # exact pin: secretlint pins its own @secretlint/* deps exactly
+        range=13        # fallback when a registry has not synced the pin yet
+        # Sandboxes may forbid /tmp: fall back to $TMPDIR, then the git directory.
+        # A path with whitespace is skipped, because $log is used unquoted.
+        tmp_dirs=/tmp
+        case ${TMPDIR:-} in ''|*[[:space:]]*) ;; *) tmp_dirs=$tmp_dirs' '$TMPDIR ;; esac
+        git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null)
+        case $git_dir in ''|*[[:space:]]*) ;; *) tmp_dirs=$tmp_dirs' '$git_dir ;; esac
+        log=
+        for dir in $tmp_dirs; do
+          # Explicit template: macOS mktemp ignores TMPDIR when given none.
+          log=$(mktemp $dir/secretlint.XXXXXX 2>/dev/null) && break
+          log=
+        done
+        case $log in '')
+          echo 'secretlint could NOT RUN — no writable temporary file (tried /tmp, $TMPDIR and the git directory).'
+          echo 'Nothing was scanned. Free space in /tmp, or: git commit --no-verify'
+          exit 1 ;;
+        esac
+        trap 'rm -f $log' EXIT
+
+        run_scan() {  # $1 = version spec, or installed; writes output to $log, sets $status
+          case $1 in
+            installed) set -- secretlint ;;
+            *) set -- npx --yes -p secretlint@$1 -p @secretlint/secretlint-rule-preset-recommend@$1 secretlint ;;
+          esac
+          $@ --secretlintrc .secretlintrc.json -- {staged_files} >$log 2>&1
+          status=$?
+        }
+        show() { [ -s $log ] && cat $log; return 0; }
+        # Keep the colon anchored: a bare `not found` also matches secretlint's own
+        # `Not found target files`, which would mislabel a real finding.
+        npx_missing() {
+          [ $status -eq 127 ] || grep -Eqi 'command not found|: not found' $log
+        }
+        install_failure() {
+          grep -Eqi 'npm (error|ERR!)|ENOTFOUND|EAI_AGAIN|Failed to load rule module|secretlint loading errors' $log
+        }
+        tool_failure() {  # secretlint exits 1 for findings only
+          npx_missing || install_failure || [ $status -ne 1 ]
+        }
+        findings_exit() {
+          show
+          echo
+          echo 'secretlint found likely secrets in the files listed above.'
+          echo 'Remove them or document an exception in .secretlintrc.json, then retry.'
+          exit $status
+        }
+        tool_failure_exit() {  # $1 = version spec to name in the retry hint
+          show
+          echo
+          echo 'secretlint could NOT RUN — this is a tool failure, not a secret finding.'
+          echo 'The tool output is above.'
+          if npx_missing; then
+            echo 'npx is not on PATH, so nothing could be installed or run.'
+            echo 'Install Node.js (it ships npx) and make sure it is on PATH:'
+            echo '  node --version && npx --version'
+          elif ! install_failure; then
+            printf 'secretlint crashed (exit status %s) before it could report findings.\n' $status
+          else
+            echo 'npx could not install or load secretlint. Check your registry:'
+            echo '  npm config get registry   (and ~/.npmrc)'
+            case ${STUDIO_SESSION_ID:-} in
+            ?*)
+              echo 'This Bay Studio session cannot reach public npm, so retrying against it will not help.' ;;
+            *)
+              echo 'Retry against public npm:'
+              printf '  npx --yes --registry=https://registry.npmjs.org -p %s \\\n' secretlint@$1
+              printf '    -p %s secretlint \\\n' @secretlint/secretlint-rule-preset-recommend@$1
+              echo '    --secretlintrc .secretlintrc.json -- <files>' ;;
+            esac
+          fi
+          echo 'Nothing was scanned. If you are sure no secrets are staged: git commit --no-verify'
+          exit 1
+        }
+
+        # A secretlint already on PATH at the pin (Bay Studio images ship one)
+        # needs no registry. If it cannot run, fall through to npx.
+        if command -v secretlint >/dev/null 2>&1; then
+          case $(secretlint --version 2>/dev/null) in
+            $pinned)
+              run_scan installed
+              [ $status -eq 0 ] && { show; exit 0; }
+              tool_failure || findings_exit ;;
+          esac
+        fi
+
+        run_scan $pinned
+        [ $status -eq 0 ] && { show; exit 0; }
+        tool_failure || findings_exit
+        # No retry when npx is missing or secretlint itself crashed: another
+        # version spec cannot fix either.
+        if npx_missing || ! install_failure; then tool_failure_exit $pinned; fi
+
+        run_scan $range
+        [ $status -eq 0 ] && {
+          show
+          printf 'warning: secretlint@%s did not resolve from your registry;\n' $pinned
+          printf 'warning: scanned with secretlint@%s instead.\n' $range
+          exit 0
+        }
+        tool_failure || findings_exit
+        tool_failure_exit $range
+      fail_text: "secretlint pre-commit check failed — see the output above."

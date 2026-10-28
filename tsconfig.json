@@ -1,0 +1,34 @@
+{
+  // No `extends` — this config is standalone, not layered on Bay's own
+  // tsconfig.base.json, so the two flags dropped below are isolated to this
+  // template and change nothing for Bay's own packages.
+  //
+  // `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` are
+  // deliberately NOT enabled here. Both are Bay's own strictness bar
+  // elsewhere, but in a corpus of real Studio sessions they produced most of
+  // the TypeScript diagnostics an agent hit against the unmodified template,
+  // none corresponding to a real bug. Concretely,
+  // `exactOptionalPropertyTypes` is what would force
+  // `aspect_ratio: snapAspectRatio(w, h, 'gemini_image')` in src/api.ts into
+  // a conditional spread — the helper's `| undefined` return is otherwise
+  // directly assignable to the optional `aspect_ratio?:` field. Do not
+  // restore either flag "for consistency" without re-litigating that
+  // tradeoff.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "noImplicitOverride": true
+  },
+  "include": ["src", "vite.config.ts"]
+}

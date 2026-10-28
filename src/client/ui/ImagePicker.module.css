@@ -1,0 +1,81 @@
+/* Positioned, so the visually hidden radio inputs stay beside their cards:
+   otherwise focusing one on click scrolls the panel to its top. */
+.group {
+  display: block;
+  position: relative;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-md);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color var(--bay-dur) var(--bay-ease),
+    background var(--bay-dur) var(--bay-ease);
+}
+
+.card[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.card[data-selected] {
+  border-color: var(--bay-accent);
+  background: var(--bay-accent-soft);
+  box-shadow: none;
+}
+
+.card[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.card[data-disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-bg-sunken);
+}
+
+.missing {
+  display: grid;
+  place-items: center;
+  color: var(--bay-text-4);
+}
+
+.caption {
+  padding: 0 2px 2px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--bay-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,78 @@
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--bay-text-2);
+}
+
+.output {
+  font-size: 12px;
+  color: var(--bay-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  position: relative;
+  height: 22px;
+  cursor: pointer;
+}
+
+.rail,
+.fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: var(--bay-r-pill);
+}
+
+.rail {
+  left: 0;
+  right: 0;
+  background: var(--bay-bg-sunken);
+}
+
+.fill {
+  background: var(--bay-accent);
+}
+
+.thumb {
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bay-bg-surface);
+  border: 2px solid var(--bay-accent);
+  box-shadow: var(--bay-shadow-1);
+  transition: transform var(--bay-dur-fast) var(--bay-ease);
+}
+
+.thumb[data-hovered],
+.thumb[data-dragging] {
+  transform: scale(1.12);
+}
+
+.thumb[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.slider[data-disabled] {
+  opacity: 0.55;
+}
+
+.slider[data-disabled] .track {
+  cursor: not-allowed;
+}

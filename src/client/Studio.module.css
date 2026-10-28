@@ -1,0 +1,714 @@
+/* The workspace: a control rail on the left and the screening room filling
+   the rest of the window, each scrolling on its own, edge to edge. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+  height: calc(100vh - var(--app-header, 60px));
+  min-height: 560px;
+}
+
+@media (min-width: 1680px) {
+  .layout {
+    grid-template-columns: 480px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+}
+
+/* The rail: the page title, the numbered steps between hairlines, and the
+   action pinned to its foot. */
+/* `position: relative` keeps react-aria's visually hidden inputs inside the
+   rail, so focusing one on click doesn't scroll the panel back to the top. */
+.controls {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 36px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--bay-border-hair);
+  background: var(--bay-bg-surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-border) transparent;
+}
+
+.controls > [data-bay-block='page-header'] {
+  margin: 0;
+  padding: 40px 0 28px;
+}
+
+.controls > [data-bay-block='section'] {
+  margin: 0;
+  padding: 26px 0 30px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.actionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto -36px 0;
+  padding: 18px 36px 24px;
+  border-top: 1px solid var(--bay-border-hair);
+  background: var(--bay-bg-surface);
+}
+
+.actionBar .meta {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .controls {
+    padding: 0 20px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--bay-border-hair);
+  }
+
+  .controls > [data-bay-block='page-header'] {
+    padding: 28px 0 20px;
+  }
+
+  .actionBar {
+    margin: 0 -20px;
+    padding: 14px 20px 18px;
+  }
+}
+
+.frame {
+  position: relative;
+  margin: 0;
+  border-radius: var(--bay-r-md);
+  overflow: hidden;
+  background: var(--bay-bg-sunken);
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.meta {
+  margin: 8px 0 0;
+}
+
+.generate {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  border-radius: var(--bay-r-lg);
+}
+
+/* The screening room: the one dark surface, filling the window beside the
+   rail. `data-stage` re-themes every block inside it (tokens.css). */
+.result {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 36px clamp(24px, 4vw, 72px) 64px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bay-stage-bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-stage-line) transparent;
+}
+
+/* Everything on the stage shares one measure, centred under the frame. */
+.result > * {
+  max-width: 1680px;
+  margin-inline: auto;
+}
+
+.result > [data-bay-block='section'] {
+  margin-bottom: 0;
+}
+
+.result > [data-bay-block='section'] + [data-bay-block='section'] {
+  margin-top: 48px;
+}
+
+/* The stage's own section titles read as quiet captions, not headings. */
+.result h2 {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--bay-stage-text-3);
+}
+
+@media (max-width: 900px) {
+  .result {
+    overflow: visible;
+    padding: 24px 16px 40px;
+  }
+}
+
+/* The projected frame: as wide as the stage allows while the whole picture
+   (plus the actions under it) stays inside the window. `--ar` is the
+   frame's aspect ratio, set inline beside `aspect-ratio`. */
+.resultFrame {
+  display: grid;
+  place-items: center;
+  width: min(100%, calc((100vh - var(--app-header, 60px) - 200px) * (var(--ar, 16 / 9))));
+  margin-inline: auto;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow:
+    0 0 0 1px rgba(246, 241, 233, 0.06),
+    0 50px 120px -40px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .resultFrame {
+    width: 100%;
+  }
+}
+
+.resultFrame > img {
+  object-fit: contain;
+  animation: stageIn 600ms var(--bay-ease) both;
+}
+
+@keyframes stageIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.frameAlert {
+  width: min(440px, 90%);
+}
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 20px;
+}
+
+.resultNote {
+  flex-basis: 100%;
+  margin-top: 2px;
+  text-align: center;
+}
+
+/* Video's clip shelf, on the stage under the current shot. */
+.below {
+  margin-top: 64px;
+  padding-top: 36px;
+  border-top: 1px solid var(--bay-stage-line);
+}
+
+.panelHeader {
+  margin-bottom: 4px;
+}
+
+.resultFrame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.clipFrame {
+  display: block;
+  width: 100%;
+  border-radius: var(--bay-r-lg);
+  background: #000;
+}
+
+.pickerTools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pickerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.clips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 32px 24px;
+}
+
+.clipCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.clipCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.clipCaptionText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clipFailed {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  padding: 12px;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-sunken);
+  text-align: center;
+}
+
+.more {
+  margin-top: 12px;
+}
+
+/* Model + resolution side by side; the resolution column stays narrow. */
+.selectRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 10px;
+  align-items: start;
+}
+
+.upscale {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.upscaleTitle {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.upscaleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.upscaleRowClip {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.upscaleRow > button {
+  height: 38px;
+}
+
+.upscaleResult {
+  margin-top: 12px;
+}
+
+@media (max-width: 560px) {
+  .selectRow,
+  .cameraRow,
+  .upscaleRow,
+  .upscaleRowClip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* People options and the cast sheet */
+.peopleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  align-items: start;
+}
+
+@media (max-width: 560px) {
+  .peopleGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cast {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.castHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.castTitle {
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--bay-text-2);
+}
+
+.castBody {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.castSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.castName {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.castThumb {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--bay-r-lg);
+  overflow: hidden;
+  background: var(--bay-bg-sunken);
+}
+
+.castThumb img[data-dimmed] {
+  opacity: 0.45;
+}
+
+.castEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  aspect-ratio: 4 / 3;
+  padding: 8px;
+  border: 1px dashed var(--bay-border);
+  border-radius: var(--bay-r-lg);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.castLoader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--bay-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.castSpin {
+  animation: castSpin 0.9s linear infinite;
+}
+
+@keyframes castSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .castSpin,
+  .resultFrame > img {
+    animation: none;
+  }
+}
+
+/* Aspect ratio picker, below the model row */
+.aspectField {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Movement style and speed, side by side under the camera move */
+.cameraRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.markRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* The lighting reference, above the look presets in the Look step */
+.lightRef {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--bay-border-hair);
+}
+
+.lightPick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.lightPick > :first-child:not(button) {
+  align-self: stretch;
+}
+
+/* Video frames and extra images */
+.frameList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.frameRow {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-lg);
+  background: transparent;
+}
+
+.frameOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.frameRow[data-locked] {
+  opacity: 0.6;
+}
+
+.frameThumb {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--bay-r-sm);
+  overflow: hidden;
+  background: var(--bay-bg-sunken);
+}
+
+.frameEmpty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-bg-sunken);
+  color: var(--bay-text-3);
+}
+
+.frameBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.frameTitle {
+  font-weight: 500;
+  color: var(--bay-text-2);
+}
+
+.frameName {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frameActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.framePosition {
+  width: 100%;
+  max-width: 220px;
+  margin-top: 4px;
+}
+
+.frameNote {
+  margin: 0;
+}
+
+.refGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.refCard {
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-md);
+  background: transparent;
+}
+
+.refCard .frameThumb {
+  aspect-ratio: 4 / 3;
+}
+
+.refFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.handleChip {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--bay-r-pill);
+  background: var(--bay-accent-soft);
+  color: var(--bay-accent);
+  font-family: var(--bay-font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.handleChip[data-hovered] {
+  filter: brightness(0.96);
+}
+
+.handleChip[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.handleChip[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.frameBusy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(246, 241, 233, 0.6);
+  color: var(--bay-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chooserUpload {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 14px 14px 40px;
+  border: 1px dashed var(--bay-border);
+  border-radius: var(--bay-r-lg);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .frameRow {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+}
+
+.frameThumb img[data-dimmed] {
+  opacity: 0.45;
+}
+
+/* Video's "only what's in the image" switch, under the page title. */
+.strictSwitch {
+  padding-bottom: 24px;
+}
+
+.frameDuplicate {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--bay-err-fg);
+}
+
+/* Video: the line under the action button while takes render. */
+.queueNote {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--bay-accent-fg);
+}
+
+.queueNote:empty {
+  display: none;
+}
+
+/* Video: the takes strip's caption with its "Clear finished" action. */
+.takesHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}

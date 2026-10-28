@@ -1,0 +1,146 @@
+.editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor[data-disabled] {
+  opacity: 0.6;
+}
+
+.group,
+.list {
+  display: contents;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 8px;
+  border-radius: var(--bay-r-pill);
+  background: var(--bay-accent-soft);
+  color: var(--bay-accent-fg);
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
+}
+
+.tag[data-focus-visible] {
+  box-shadow: 0 0 0 2px var(--bay-border-focus);
+}
+
+.remove {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--bay-r-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.remove[data-hovered] {
+  background: rgba(var(--bay-accent-rgb), 0.16);
+}
+
+.remove[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 90px;
+  flex: 1;
+  padding: 1px 6px;
+  border: 1px dashed var(--bay-border);
+  border-radius: var(--bay-r-pill);
+  color: var(--bay-text-3);
+}
+
+.field:focus-within {
+  border-style: solid;
+  border-color: var(--bay-border-focus);
+}
+
+.at {
+  flex: none;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: var(--bay-text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--bay-text-4);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.pickerList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-pill);
+  background: transparent;
+  font-size: 12px;
+  color: var(--bay-text-2);
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color var(--bay-dur) var(--bay-ease),
+    background var(--bay-dur) var(--bay-ease);
+}
+
+.pick[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.pick[data-selected] {
+  border-color: var(--bay-accent);
+  background: transparent;
+  color: var(--bay-accent-fg);
+}
+
+.pick[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.count {
+  font-size: 11px;
+  color: var(--bay-text-4);
+}
+
+.pick[data-selected] .count {
+  color: var(--bay-accent-fg);
+}

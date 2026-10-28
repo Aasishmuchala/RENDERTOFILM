@@ -1,0 +1,58 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(20, 17, 14, 0.92);
+}
+
+.overlay[data-entering] {
+  animation: fade var(--bay-dur) var(--bay-ease);
+}
+
+.modal {
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 48px);
+  outline: none;
+  --bay-text: #f6f1e9;
+  --bay-text-2: #f6f1e9;
+  --bay-bg-sunken: rgba(246, 241, 233, 0.12);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #f6f1e9;
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.image {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 100px);
+  object-fit: contain;
+  border-radius: var(--bay-r-lg);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}

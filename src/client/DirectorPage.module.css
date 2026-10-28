@@ -1,0 +1,367 @@
+/* The Director tab's own pieces; the layout and stage come from Studio.module.css. */
+
+.dropEmpty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 140px;
+  padding: 20px 20px 56px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  text-align: center;
+}
+
+/* The uploaded set: small 16:10 tiles, three or four to a row. */
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-bg-sunken);
+  overflow: hidden;
+}
+
+.thumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity var(--bay-dur) var(--bay-ease);
+}
+
+.thumbImg[data-dimmed] {
+  opacity: 0.45;
+}
+
+.thumbState {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--bay-text-2);
+  background: var(--bay-bg-surface);
+}
+
+.thumbRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--bay-bg-surface);
+}
+
+.uploadError {
+  min-width: 0;
+}
+
+.boardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 24px;
+}
+
+.boardHead > p {
+  max-width: 64ch;
+}
+
+/* The storyboard: frames in story order, as many columns as fit. */
+.frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: 36px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cardFrame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  overflow: hidden;
+}
+
+.cardFrame > * {
+  grid-area: 1 / 1;
+}
+
+/* The source image reads as a sketch until its frame is shot. */
+.source {
+  opacity: 0.6;
+}
+
+.sourceChip {
+  align-self: end;
+  justify-self: start;
+  margin: 8px;
+  padding: 2px 8px;
+  border-radius: var(--bay-r-pill);
+  font-size: 11px;
+  color: var(--bay-text-2);
+  background: rgba(30, 27, 24, 0.7);
+}
+
+.frameButton {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.frameButton:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cardTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.cardNo {
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-accent-fg);
+}
+
+.space {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--bay-text-3);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.saveState {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.saved {
+  margin-top: 32px;
+  text-align: center;
+}
+
+.retry {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.pollError {
+  margin-top: 16px;
+}
+
+/* A done frame chosen for the film carries an accent ring. */
+.cardFrame[data-chosen] {
+  box-shadow: 0 0 0 2px var(--bay-accent);
+}
+
+/* ---- The big-screen viewer (FullscreenDialog). */
+.viewerPicture {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, calc(var(--fit-h, 70vh) * var(--ar, 16 / 9)));
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  overflow: hidden;
+}
+
+.viewerPicture > * {
+  grid-area: 1 / 1;
+}
+
+.viewerPicture > .viewerCompare {
+  width: 100%;
+  border-radius: 0;
+}
+
+.viewerImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.viewerNote {
+  width: min(440px, 90%);
+  text-align: center;
+}
+
+.viewerCaption {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.viewerAside {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.viewerTakes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viewerShoot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---- The film step: chosen frames made into clips. */
+.film {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.filmGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .filmGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filmControls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.filmRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.filmPick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filmAction {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.clips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 24px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.clipFrame {
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  overflow: hidden;
+}
+
+.clipFrame > * {
+  grid-area: 1 / 1;
+}
+
+.clipVideo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bay-stage-frame);
+}
+
+.clipTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.clipMeta {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--bay-text-3);
+}
+
+@media (max-width: 680px) {
+  .filmRow {
+    grid-template-columns: 1fr;
+  }
+}
