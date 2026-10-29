@@ -66,12 +66,23 @@ export interface ApiKeyRecord {
   verifiedAt?: string | undefined;
 }
 
-export type ApiKeyProvider = 'seevio';
+export type ApiKeyProvider = 'seevio' | 'anthropic' | 'omegaplus';
+
+/** Who answers the app's text-and-vision (`claude_api`) calls. */
+export type AiTextProvider = 'runway' | 'anthropic' | 'omegaplus';
+
+/** The Settings choice; `model` is unset for Runway, which takes the model each caller names. */
+export interface AiTextChoice {
+  provider: AiTextProvider;
+  model?: string | undefined;
+  updatedAt: string;
+}
 
 export interface ConnectionsDoc {
   servers: McpServerRecord[];
   pending: PendingOAuth[];
   apiKeys: Partial<Record<ApiKeyProvider, ApiKeyRecord>>;
+  aiText?: AiTextChoice | undefined;
 }
 
 const store = documentStore<ConnectionsDoc>({ prefix: 'connections/' });
@@ -94,7 +105,7 @@ function withPresets(doc: Partial<ConnectionsDoc> | undefined): ConnectionsDoc {
   const apiKeys = doc?.apiKeys ?? {};
   const presets = PRESETS.map((p) => saved.find((s) => s.id === p.id) ?? { ...p });
   const others = saved.filter((s) => !isPresetId(s.id));
-  return { servers: [...presets, ...others], pending, apiKeys };
+  return { servers: [...presets, ...others], pending, apiKeys, aiText: doc?.aiText };
 }
 
 export async function readConnections(owner: string): Promise<ConnectionsDoc> {
@@ -112,6 +123,7 @@ export async function updateConnections(
       servers: next.servers.slice(0, MAX_SERVERS),
       pending: next.pending.slice(-10),
       apiKeys: next.apiKeys,
+      aiText: next.aiText,
     };
   });
 }

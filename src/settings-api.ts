@@ -2,6 +2,15 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import {
+  ANTHROPIC_MODELS,
+  AiTextError,
+  defaultModelFor,
+  listOmegaModels,
+  type TextProvider,
+  verifyKey,
+} from './ai-text/providers.ts';
+import { readUsage } from './ai-text/usage.ts';
+import {
   isPresetId,
   maskKey,
   newServerId,
@@ -18,12 +27,18 @@ import { publicProcedure, router } from './trpc.ts';
 
 /**
  * The Settings tab: Runway sign-in status, Runway MCP, Higgsfield and other MCP servers
- * (sign in, test, run a tool), and provider API keys (Seevio). Every
+ * (sign in, test, run a tool), provider API keys (Seevio, Anthropic,
+ * OmegaPlus) and who answers the app's text-and-vision calls. Every
  * credential stays on the server in the visitor's own `connections/`
  * document (src/connections.ts); answers carry only what the page shows.
  */
 
 const serverId = z.string().min(1).max(64);
+const aiTextProvider = z.enum(['anthropic', 'omegaplus']);
+
+const providerName = (provider: TextProvider) => (provider === 'anthropic' ? 'Anthropic' : 'OmegaPlus');
+const keyMissing = (provider: TextProvider) =>
+  new TRPCError({ code: 'BAD_REQUEST', message: `Save an ${providerName(provider)} API key first.` });
 
 async function serverOrThrow(owner: string, id: string) {
   const server = (await readConnections(owner)).servers.find((s) => s.id === id);
@@ -205,6 +220,124 @@ export const settingsRouter = router({
     await updateConnections(owner, (doc) => {
       const { seevio: _removed, ...rest } = doc.apiKeys;
       return { ...doc, apiKeys: rest };
+    });
+  }),
+
+  /**
+   * The AI text and vision card: who answers the `claude_api` calls, the
+   * saved keys (last four only), the models to pick from and what the
+   * visitor's own keys have been used for.
+   */
+  aiText: publicProcedure.query(async ({ ctx }) => {
+    const owner = await ownerKey(ctx.req);
+    const [doc, omega, usage] = await Promise.all([readConnections(owner), listOmegaModels(), readUsage(owner)]);
+    const provider = doc.aiText?.provider ?? 'runway';
+    // The model a call would use: the saved one while the provider still lists
+    // it (any, when OmegaPlus did not answer), else the provider's default.
+    const saved = doc.aiText?.model;
+    const ids = provider === 'anthropic' ? ANTHROPIC_MODELS.map((m) => m.id) : omega.models.map((m) => m.id);
+    const listed = (id: string) => ids.includes(id) || (provider === 'omegaplus' && omega.source === 'fallback');
+    return {
+      provider,
+      model: provider === 'runway' ? null : saved && listed(saved) ? saved : defaultModelFor(provider, omega.models),
+      keys: { anthropic: maskKey(doc.apiKeys.anthropic), omegaplus: maskKey(doc.apiKeys.omegaplus) },
+      anthropicModels: ANTHROPIC_MODELS,
+      omegaModels: omega.models,
+      omegaSource: omega.source,
+      usage: usage.totals,
+      usageByProvider: {
+        anthropic: usage.byProvider.anthropic ?? null,
+        omegaplus: usage.byProvider.omegaplus ?? null,
+      },
+    };
+  }),
+
+  /** Runway, or a provider with a saved key and one of its models (its default when none is named). */
+  setAiText: publicProcedure
+    .input(
+      z.object({
+        provider: z.enum(['runway', 'anthropic', 'omegaplus']),
+        model: z.string().min(1).max(80).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const owner = await ownerKey(ctx.req);
+      const updatedAt = new Date().toISOString();
+      const provider = input.provider;
+      if (provider === 'runway') {
+        await updateConnections(owner, (doc) => ({ ...doc, aiText: { provider, updatedAt } }));
+        return;
+      }
+      if (!(await readConnections(owner)).apiKeys[provider]) throw keyMissing(provider);
+      // OmegaPlus: its live list, else the last good one, else the built-in one.
+      const omegaModels = provider === 'omegaplus' ? (await listOmegaModels()).models : undefined;
+      const ids = omegaModels ? omegaModels.map((m) => m.id) : ANTHROPIC_MODELS.map((m) => m.id);
+      const model = input.model ?? defaultModelFor(provider, omegaModels);
+      if (!ids.includes(model)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `That model is not available on ${providerName(provider)}.` });
+      }
+      await updateConnections(owner, (doc) => {
+        // Again inside the write: the key may have been removed meanwhile.
+        if (!doc.apiKeys[provider]) throw keyMissing(provider);
+        return { ...doc, aiText: { provider, model, updatedAt } };
+      });
+    }),
+
+  /**
+   * Checks the key with the provider, then stores it; the page only ever sees
+   * its last four characters. A visitor still on Runway is moved onto that
+   * provider (its default model) in the same write: saving a key means "use
+   * it". One already on the other provider stays there. The answer says who
+   * answers now and whether this save switched it.
+   */
+  setAiTextKey: publicProcedure
+    .input(
+      z.object({
+        provider: aiTextProvider,
+        key: z.string().trim().min(8, 'That looks too short to be an API key.').max(512),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const owner = await ownerKey(ctx.req);
+      try {
+        await verifyKey(input.provider, input.key);
+      } catch (err) {
+        // No `cause`: a 5xx logs its cause, and nothing here may carry the key into a log line.
+        if (err instanceof AiTextError) {
+          throw new TRPCError({ code: err.status === 400 ? 'BAD_REQUEST' : 'UNPROCESSABLE_CONTENT', message: err.message });
+        }
+        throw new TRPCError({
+          code: 'UNPROCESSABLE_CONTENT',
+          message: `${providerName(input.provider)} could not check that key. Try again in a moment.`,
+        });
+      }
+      const now = new Date().toISOString();
+      const provider = input.provider;
+      const model = defaultModelFor(provider, provider === 'omegaplus' ? (await listOmegaModels()).models : undefined);
+      const { aiText } = await updateConnections(owner, (doc) => ({
+        ...doc,
+        apiKeys: { ...doc.apiKeys, [provider]: { key: input.key, savedAt: now, verifiedAt: now } },
+        aiText: (doc.aiText?.provider ?? 'runway') === 'runway' ? { provider, model, updatedAt: now } : doc.aiText,
+      }));
+      return {
+        // Only a switch made by this save carries its timestamp.
+        switched: aiText?.provider === provider && aiText.updatedAt === now,
+        provider: aiText?.provider ?? 'runway',
+        model: aiText?.model ?? null,
+      };
+    }),
+
+  /** Forgets the key; if that provider was answering, Runway takes over again. */
+  clearAiTextKey: publicProcedure.input(z.object({ provider: aiTextProvider })).mutation(async ({ ctx, input }) => {
+    const owner = await ownerKey(ctx.req);
+    const updatedAt = new Date().toISOString();
+    await updateConnections(owner, (doc) => {
+      const { [input.provider]: _removed, ...rest } = doc.apiKeys;
+      return {
+        ...doc,
+        apiKeys: rest,
+        aiText: doc.aiText?.provider === input.provider ? { provider: 'runway', updatedAt } : doc.aiText,
+      };
     });
   }),
 

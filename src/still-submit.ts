@@ -24,6 +24,14 @@ export function submitStill(
     /** The output's shape: the chosen ratio, or the render's own. */
     frame: { width: number; height: number };
     resolution: string;
+    /**
+     * Replaces the render/cast/light list. Element 0 is what the prompt calls
+     * 'the first attached image'; the Lifestyle tab's second pass sends
+     * [first-pass image, render].
+     */
+    references?: readonly { tag: string; url: string }[] | undefined;
+    /** GPT Image 2.5 quality; `'high'` when unset, as the Stills tab always sends. */
+    quality?: 'high' | 'xhigh' | undefined;
   },
   fullPrompt: string
 ) {
@@ -32,16 +40,21 @@ export function submitStill(
   // Reference images, render first. Each model names its list differently, so
   // these build every shape it accepts: `tagged` for models whose elements
   // require a `tag`, `plain` for the ones with only a `url`.
-  const tagged = (extra?: { width: number; height: number }) => [
-    { tag: 'render', url: imageUrl, ...extra },
-    ...(castSheetUrl ? [{ tag: 'cast', url: castSheetUrl }] : []),
-    ...(lightRefUrl ? [{ tag: 'light', url: lightRefUrl }] : []),
-  ];
-  const plain = [
-    { url: imageUrl },
-    ...(castSheetUrl ? [{ url: castSheetUrl }] : []),
-    ...(lightRefUrl ? [{ url: lightRefUrl }] : []),
-  ];
+  const tagged = (extra?: { width: number; height: number }) =>
+    input.references
+      ? input.references.map((r, i) => (i === 0 && extra ? { ...r, ...extra } : { ...r }))
+      : [
+          { tag: 'render', url: imageUrl, ...extra },
+          ...(castSheetUrl ? [{ tag: 'cast', url: castSheetUrl }] : []),
+          ...(lightRefUrl ? [{ tag: 'light', url: lightRefUrl }] : []),
+        ];
+  const plain = input.references
+    ? input.references.map((r) => ({ url: r.url }))
+    : [
+        { url: imageUrl },
+        ...(castSheetUrl ? [{ url: castSheetUrl }] : []),
+        ...(lightRefUrl ? [{ url: lightRefUrl }] : []),
+      ];
   const name = 'render-to-film';
   const prompt = clampPrompt(fullPrompt, SAFE_PROMPT);
   switch (imageModel) {
@@ -82,7 +95,7 @@ export function submitStill(
         referenceImages: tagged({ width, height }),
         size: pick(resolution, ['1', '2', '4'] as const, '2'),
         aspectRatio: snapAspectRatio(fw, fh, alias) ?? '16:9',
-        quality: 'high',
+        quality: input.quality ?? 'high',
       });
     }
     case 'gpt-image-2':
@@ -92,7 +105,7 @@ export function submitStill(
         referenceImages: tagged({ width, height }),
         size: pick(resolution, ['1', '2', '4'] as const, '2'),
         aspectRatio: snapAspectRatio(fw, fh, 'gpt_image_2') ?? '16:9',
-        quality: 'high',
+        quality: input.quality ?? 'high',
       });
     case 'seedream-5-pro':
       return ctx.runway.createTask('seedream_5_pro', {

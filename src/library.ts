@@ -6,7 +6,7 @@ import { decodeJwtPayload } from '@runway/bay/runway/cookie';
 import { TRPCError } from '@trpc/server';
 
 import type { CheckReport } from './checks.ts';
-import type { MomentId } from './lifestyle.ts';
+import type { ChapterId, GrammarId, MomentId } from './lifestyle.ts';
 import type {
   ActivityId,
   AgeId,
@@ -105,6 +105,26 @@ export type Still = {
   storyboard?: { jobId: string; order: number; title: string } | undefined;
   /** Made on the Lifestyle tab: the residents' moment it shows (src/lifestyle.ts). */
   moment?: MomentId | undefined;
+  /**
+   * Made on the Lifestyle tab (src/lifestyle-api.ts): one of a plan's frames,
+   * or the cast sheet of one of its chapters. `people` is the frame's brief,
+   * which the people check judges the take against.
+   */
+  lifestyle?:
+    | {
+        jobId: string;
+        kind: 'frame' | 'cast';
+        order?: number | undefined;
+        title: string;
+        chapter: ChapterId;
+        grammar?: GrammarId | undefined;
+        people?: string | undefined;
+        /** Two-pass take: 1 = the filmic first pass, 2 = the finished frame; unset on a single-pass take or a cast sheet. */
+        pass?: 1 | 2 | undefined;
+        /** Pass 2: the first-pass still it was made from. */
+        fromStillId?: string | undefined;
+      }
+    | undefined;
 };
 
 /** One generated clip. `id` is its Runway task id. */

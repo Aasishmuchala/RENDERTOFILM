@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { createTextTask, textTaskSnapshot } from './ai-text.ts';
 import { ownerKey, readLibrary, type Still, updateLibrary } from './library.ts';
 import {
   ANGLE_IDS,
@@ -289,25 +290,22 @@ function parseBatch(answer: string, from: number, count: number): FramePlan[] | 
 
 async function submitPlanner(
   ctx: RunwayCtx,
+  owner: string,
   job: StoryboardJob,
   from: number,
   planned: readonly FramePlan[] = []
 ): Promise<string> {
   const batch = job.images.slice(from, from + BATCH);
   try {
-    const { id } = await ctx.runway.createTask(
-      'claude_api',
-      {
-        name: 'render-to-film storyboard',
-        model: PLANNER_MODEL,
-        system_prompt: PLANNER_SYSTEM,
-        prompt: plannerPrompt(job, from, batch.length, planned),
-        images: batch.map((img) => ({ url: img.url })),
-        temperature: 0.4,
-        max_output_tokens: 10000,
-      },
-      { internal: true }
-    );
+    const { id } = await createTextTask(ctx, owner, {
+      name: 'render-to-film storyboard',
+      model: PLANNER_MODEL,
+      system_prompt: PLANNER_SYSTEM,
+      prompt: plannerPrompt(job, from, batch.length, planned),
+      images: batch.map((img) => ({ url: img.url })),
+      temperature: 0.4,
+      max_output_tokens: 10000,
+    });
     return id;
   } catch (err) {
     logRejection('storyboard', 'claude_api', err);
@@ -336,7 +334,7 @@ async function advance(ctx: RunwayCtx, owner: string, job: StoryboardJob): Promi
   const plan: FramePlan[] = [];
   const failed: { from: number; count: number; reason: string }[] = [];
   for (const [i, taskId] of job.planTaskIds.entries()) {
-    const snap = await ctx.runway.taskSnapshot(taskId, { includeText: true });
+    const snap = await textTaskSnapshot(ctx, owner, taskId);
     if (!snap.done) return job;
     const from = i * BATCH;
     const count = Math.min(BATCH, job.images.length - from);
@@ -371,7 +369,7 @@ async function advance(ctx: RunwayCtx, owner: string, job: StoryboardJob): Promi
     );
     if (claimed?.submitting?.by !== claim.by) return claimed ?? job;
     try {
-      const taskId = await submitPlanner(ctx, job, next, plan);
+      const taskId = await submitPlanner(ctx, owner, job, next, plan);
       return (
         (await transition(
           owner,
@@ -538,7 +536,7 @@ export const storyboardRouter = router({
       // Only the first batch is sent here; `advance` sends each later one once
       // the batch before it is answered, so it can be told the plan so far.
       try {
-        job.planTaskIds.push(await submitPlanner(ctx, job, 0));
+        job.planTaskIds.push(await submitPlanner(ctx, owner, job, 0));
       } catch (err) {
         throw toTrpcError(err);
       }

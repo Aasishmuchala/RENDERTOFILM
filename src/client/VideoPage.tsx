@@ -121,17 +121,35 @@ const DAY_FILTERS = [
 
 type Filter = (typeof DAY_FILTERS)[number]['id'];
 
+/**
+ * A shot set up from another tab (the Lifestyle tab's "Animate"): it fills
+ * the settings once, each stays editable, and nothing starts until Make the
+ * video is pressed.
+ */
+export type VideoPreset = {
+  model: VideoModelId;
+  seconds: number;
+  motion: MotionId;
+  moveStyle: MoveStyleId;
+  speed: SpeedId;
+  direction: string;
+  /** Where the settings came from, shown under the still while it stays picked. */
+  note: string;
+};
+
 export type VideoPageProps = {
   /** True while the Video tab is on screen; polling slows down when it isn't. */
   active: boolean;
   /** A still picked from the Stills tab ("Make a video"). */
   pickedStillId: string | null;
+  /** Settings that came with the pick; a new one replaces the current settings. */
+  preset?: VideoPreset | null | undefined;
   onPick: (stillId: string | null) => void;
   /** Go back to the Stills tab, when there are no stills yet. */
   onGoToStills: () => void;
 };
 
-export function VideoPage({ active, pickedStillId, onPick, onGoToStills }: VideoPageProps) {
+export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoToStills }: VideoPageProps) {
   const utils = trpc.useUtils();
   const library = trpc.library.useQuery(undefined, {
     // Only while this tab is on screen; the clip being made polls itself below.
@@ -165,6 +183,8 @@ export function VideoPage({ active, pickedStillId, onPick, onGoToStills }: Video
    */
   const [upscales, setUpscales] = useState<Readonly<Record<string, UpscaleJob>>>({});
   const [clipFilter, setClipFilter] = useState('all');
+  /** The preset's note, for the still it came with. */
+  const [presetNote, setPresetNote] = useState<{ stillId: string; note: string } | null>(null);
 
   const frames = useVideoFrames();
   const createVideo = trpc.createVideo.useMutation();
@@ -284,6 +304,28 @@ export function VideoPage({ active, pickedStillId, onPick, onGoToStills }: Video
     // rendering in the strip.
     setFocusId(null);
   }, [pickedStillId]);
+
+  useEffect(() => {
+    // Each new preset sets the shot up once, as if picked here by hand.
+    if (!preset) return;
+    setVideoModel(preset.model);
+    setResolution(defaultVideoResolution(preset.model));
+    setSeconds(snapVideoSeconds(preset.model, preset.seconds));
+    setMotion(preset.motion);
+    setMoveStyle(preset.moveStyle);
+    setSpeed(preset.speed);
+    setDirection(preset.direction.slice(0, DIRECTION_MAX));
+    setPresetNote(pickedStillId ? { stillId: pickedStillId, note: preset.note } : null);
+    setFocusId(null);
+    createVideo.reset();
+    // The still it came with may sit past the stills shown, or outside the filter.
+    const at = stills.findIndex((s) => s.id === pickedStillId);
+    if (at >= 0 && !filtered.slice(0, shown).some((s) => s.id === pickedStillId)) {
+      setFilter('all');
+      setShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE));
+    }
+    // Only a new preset applies; the pick and the lists are read as they stand.
+  }, [preset]);
 
   const setUpscale = useCallback((takeId: string, job: UpscaleJob | null) => {
     setUpscales((prev) => {
@@ -501,6 +543,11 @@ export function VideoPage({ active, pickedStillId, onPick, onGoToStills }: Video
                     </span>
                   )}
                 </div>
+                {selected && presetNote?.stillId === selected.id && (
+                  <Text tone="muted" size="sm" as="p" className={styles.frameNote}>
+                    {presetNote.note}
+                  </Text>
+                )}
               </>
             )}
           </Section>

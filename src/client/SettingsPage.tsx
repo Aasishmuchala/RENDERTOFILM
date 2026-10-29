@@ -2,7 +2,7 @@ import { SignInPrompt } from '@runway/bay-react/runway-sign-in';
 import { KeyRound, LogIn, LogOut, Play, Plug, PlugZap, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { PublicServer } from '../connections.ts';
+import type { AiTextProvider, PublicServer } from '../connections.ts';
 import { Section } from './layouts/Section.tsx';
 import { errorMessage } from './lib/runwayErrors.ts';
 import { useOnRunwaySignedIn } from './lib/useOnRunwaySignedIn.ts';
@@ -24,7 +24,7 @@ const OAUTH_MESSAGE = 'render-to-film:mcp-oauth';
 /**
  * Accounts and connections: the Runway sign-in that pays for generations,
  * Higgsfield (built-in MCP server, OAuth), any other MCP server, and API keys
- * for other providers (Seevio). Credentials never come back to the browser;
+ * for other providers (Seevio, Anthropic, OmegaPlus). Credentials never come back to the browser;
  * the page only learns whether each one is connected.
  */
 export function SettingsPage({ active }: { active: boolean }) {
@@ -116,6 +116,13 @@ export function SettingsPage({ active }: { active: boolean }) {
 
             <Section title="Seevio" description="Paste an API key from your Seevio dashboard. It is checked with Seevio, then stored on the server.">
               <SeevioKey saved={connections.data?.apiKeys.seevio ?? null} appKey={connections.data?.seevioAppKey ?? false} />
+            </Section>
+
+            <Section
+              title="AI text and vision"
+              description="The Storyboard and Lifestyle planners, the people check, the close-up finder and the editor read your images and write plans with this model. Runway bills Claude through your Runway account; Anthropic and OmegaPlus use your own key and your own choice of model."
+            >
+              <AiTextCard active={active} />
             </Section>
 
             <Section
@@ -411,6 +418,229 @@ function SeevioKey({
         </TextLink>
         . Seevio shows the full key only once.
       </Text>
+      {save.error && <Alert tone="error" title={errorMessage(save.error) ?? 'The key was not saved.'} />}
+      {clear.error && <Alert tone="error" title={errorMessage(clear.error) ?? 'The key was not removed.'} />}
+    </div>
+  );
+}
+
+type SavedKey = { last4: string; savedAt: string; verifiedAt: string | null } | null;
+type Usage = { calls: number; inputTokens: number; outputTokens: number; usd: number } | null;
+
+/** "12 calls · 34,000 in / 5,000 out tokens", plus dollars when the provider's price is known (Anthropic). */
+function usageLine(usage: Usage) {
+  if (!usage || usage.calls === 0) return 'No calls yet';
+  const usd = usage.usd > 0 ? ` · ${usage.usd < 0.01 ? 'under $0.01' : `about $${usage.usd.toFixed(2)}`}` : '';
+  return `${usage.calls} ${usage.calls === 1 ? 'call' : 'calls'} · ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out tokens${usd}`;
+}
+
+const PROVIDER_NAMES = { runway: 'Runway', anthropic: 'Anthropic', omegaplus: 'OmegaPlus' } as const;
+
+type ModelLists = {
+  anthropicModels: readonly { id: string; name: string }[];
+  omegaModels: readonly { id: string; name: string }[];
+};
+
+/** "OmegaPlus · Claude Opus 5.5", or Runway's own line; a model the lists don't name shows as its id. */
+function usingLabel(provider: AiTextProvider, model: string | null, lists: ModelLists) {
+  if (provider === 'runway') return 'Runway (Claude via your Runway account)';
+  if (!model) return PROVIDER_NAMES[provider];
+  const list = provider === 'anthropic' ? lists.anthropicModels : lists.omegaModels;
+  return `${PROVIDER_NAMES[provider]} · ${list.find((m) => m.id === model)?.name ?? model}`;
+}
+
+const MODEL_LIST_NOTE = {
+  live: 'Model list: live from OmegaPlus',
+  cache: 'Model list: cached',
+  fallback: 'Model list: built-in list (OmegaPlus did not answer)',
+} as const;
+
+/**
+ * Who answers the app's text-and-vision calls: Claude through Runway (the
+ * default), or the visitor's own Anthropic or OmegaPlus key with a model of
+ * their choosing. A provider without a saved key can be picked; the server
+ * says to save one first.
+ */
+function AiTextCard({ active }: { active: boolean }) {
+  const ai = trpc.settings.aiText.useQuery(undefined, { enabled: active });
+  const utils = trpc.useUtils();
+  const choose = trpc.settings.setAiText.useMutation({ onSettled: () => utils.settings.aiText.invalidate() });
+
+  if (ai.error) return <Alert tone="error" title={errorMessage(ai.error) ?? 'Your AI text settings did not load.'} />;
+  if (!ai.data) return <SkeletonBlock height={160} />;
+  const { provider, model, keys, anthropicModels, omegaModels, omegaSource, usageByProvider } = ai.data;
+
+  const providers = [
+    { id: 'runway', name: 'Runway (default)' },
+    { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ' — add a key below'}` },
+    { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ' — add a key below'}` },
+  ];
+  const models =
+    provider === 'anthropic'
+      ? anthropicModels.map((m) => ({ id: m.id, name: m.name }))
+      : omegaModels.map((m) => ({ id: m.id, name: m.owner ? `${m.name} · ${m.owner}` : m.name }));
+  // The page knows only the chosen provider's model; another one starts on its default (the server picks it).
+  const currentModelFor = (p: AiTextProvider) => (p === provider ? (model ?? undefined) : undefined);
+  const describe = (p: AiTextProvider, m: string | null) => usingLabel(p, m, { anthropicModels, omegaModels });
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.card}>
+        <div className={styles.cardHead}>
+          <div className={styles.cardTitle}>
+            <Text>Using {describe(provider, model)}</Text>
+            {provider !== 'runway' && (
+              <Text tone="muted" size="sm">
+                {usageLine(usageByProvider[provider])}
+              </Text>
+            )}
+          </div>
+        </div>
+        <div className={styles.row}>
+          <div className={styles.grow}>
+            <Select
+              label="Provider"
+              options={providers}
+              value={choose.isPending && choose.variables ? choose.variables.provider : provider}
+              disabled={choose.isPending}
+              onChange={(id) => {
+                const next = id as AiTextProvider;
+                if (next !== provider) choose.mutate({ provider: next, model: currentModelFor(next) });
+              }}
+            />
+          </div>
+          {provider !== 'runway' && (
+            <div className={styles.grow}>
+              <Select
+                label="Model"
+                options={models}
+                value={model ?? ''}
+                disabled={choose.isPending}
+                onChange={(id) => {
+                  if (id !== model) choose.mutate({ provider, model: id });
+                }}
+              />
+            </div>
+          )}
+        </div>
+        {provider === 'omegaplus' && (
+          <Text tone="muted" size="sm">
+            {MODEL_LIST_NOTE[omegaSource]}
+          </Text>
+        )}
+        {choose.error && <Alert tone="error" title={errorMessage(choose.error) ?? 'That choice was not saved.'} />}
+      </div>
+
+      <KeyCard
+        provider="anthropic"
+        saved={keys.anthropic}
+        acceptedBy="Anthropic"
+        usage={usageByProvider.anthropic}
+        describe={describe}
+        placeholder="Paste your Anthropic API key"
+        docsHref="https://console.anthropic.com/settings/keys"
+        docsLabel="Anthropic Console"
+      />
+      <KeyCard
+        provider="omegaplus"
+        saved={keys.omegaplus}
+        acceptedBy="OmegaPlus"
+        usage={usageByProvider.omegaplus}
+        describe={describe}
+        placeholder="Paste your OmegaPlus API key"
+        docsHref="https://omegaplusapi.com/customer"
+        docsLabel="OmegaPlus customer area"
+      />
+      <Text tone="muted" size="sm" as="p">
+        OmegaPlus is a gateway: a model's public name does not guarantee a particular upstream model, and DeepSeek, Qwen and GLM see images through a text bridge. For faithful image reads, pick one of the Claude models.
+      </Text>
+    </div>
+  );
+}
+
+/**
+ * The Seevio card's twin for an AI text provider: checked with the provider on
+ * save, stored server side. A first key saved while Runway answers puts its
+ * provider to work, and the card says so.
+ */
+function KeyCard({
+  provider,
+  saved,
+  acceptedBy,
+  usage,
+  describe,
+  placeholder,
+  docsHref,
+  docsLabel,
+}: {
+  provider: 'anthropic' | 'omegaplus';
+  saved: SavedKey;
+  acceptedBy: string;
+  usage: Usage;
+  describe: (provider: AiTextProvider, model: string | null) => string;
+  placeholder: string;
+  docsHref: string;
+  docsLabel: string;
+}) {
+  const utils = trpc.useUtils();
+  const [key, setKey] = useState('');
+  const refresh = () => utils.settings.aiText.invalidate();
+  const save = trpc.settings.setAiTextKey.useMutation({ onSuccess: () => setKey(''), onSettled: refresh });
+  const clear = trpc.settings.clearAiTextKey.useMutation({ onSuccess: () => save.reset(), onSettled: refresh });
+  const inUse = save.data;
+  const savedNote = !inUse
+    ? null
+    : inUse.switched
+      ? `Saved. AI text and vision now uses ${describe(inUse.provider, inUse.model)}.`
+      : inUse.provider === provider
+        ? `Saved. ${describe(inUse.provider, inUse.model)} now answers with this key.`
+        : `Saved. AI text and vision still uses ${describe(inUse.provider, inUse.model)}; pick ${acceptedBy} under Provider to use this key.`;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <span className={saved ? styles.dotOn : styles.dotOff} aria-hidden />
+        <div className={styles.cardTitle}>
+          <Text>{acceptedBy} API key</Text>
+          <Text tone="muted" size="sm">
+            {saved
+              ? `Key ending ${saved.last4} · saved ${new Date(saved.savedAt).toLocaleDateString()}${saved.verifiedAt ? ` · accepted by ${acceptedBy}` : ''}`
+              : 'No key saved'}
+          </Text>
+          {usage && usage.calls > 0 && (
+            <Text tone="muted" size="sm">
+              {usageLine(usage)}
+            </Text>
+          )}
+        </div>
+        {saved && (
+          <Button variant="ghost" icon={<Trash2 size={16} aria-hidden />} loading={clear.isPending} onPress={() => clear.mutate({ provider })}>
+            Remove key
+          </Button>
+        )}
+      </div>
+      <div className={styles.row}>
+        <TextInput
+          className={styles.grow}
+          type="password"
+          label={saved ? 'Replace API key' : 'API key'}
+          value={key}
+          onChange={setKey}
+          placeholder={placeholder}
+          onPressEnter={() => key && save.mutate({ provider, key })}
+        />
+        <Button variant="primary" icon={<KeyRound size={16} aria-hidden />} disabled={!key} loading={save.isPending} onPress={() => save.mutate({ provider, key })}>
+          Save key
+        </Button>
+      </div>
+      <Text tone="muted" size="sm" as="p">
+        Create one in your{' '}
+        <TextLink external href={docsHref}>
+          {docsLabel}
+        </TextLink>
+        .
+      </Text>
+      {savedNote && <Alert tone="success" title={savedNote} />}
       {save.error && <Alert tone="error" title={errorMessage(save.error) ?? 'The key was not saved.'} />}
       {clear.error && <Alert tone="error" title={errorMessage(clear.error) ?? 'The key was not removed.'} />}
     </div>

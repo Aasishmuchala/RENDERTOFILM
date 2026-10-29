@@ -198,6 +198,13 @@ export interface AuthServerMetadata {
   token_endpoint: string;
   registration_endpoint?: string;
   scopes_supported?: string[];
+  /**
+   * What to ask for: the MCP server's own 401 challenge scope, else its
+   * protected-resource `scopes_supported` (as the MCP spec says), never the
+   * sign-in server's whole catalog, which can list scopes this app isn't
+   * allowed (Higgsfield's Clerk lists `private_metadata` and then refuses it).
+   */
+  requestScopes?: string[] | undefined;
 }
 
 export interface TokenSet {
@@ -239,6 +246,7 @@ function wellKnown(base: URL, name: string, withPath: boolean): string {
 export async function discoverAuthServer(serverUrl: string): Promise<AuthServerMetadata> {
   const server = new URL(serverUrl);
   const prmCandidates: string[] = [];
+  let challengeScopes: string[] | undefined;
   try {
     const probe = await fetch(serverUrl, {
       method: 'POST',
@@ -255,6 +263,8 @@ export async function discoverAuthServer(serverUrl: string): Promise<AuthServerM
     const challenge = probe.headers.get('www-authenticate') ?? '';
     const match = /resource_metadata="([^"]+)"/i.exec(challenge);
     if (match?.[1]) prmCandidates.push(new URL(match[1], server).toString());
+    const scope = /scope="([^"]*)"/i.exec(challenge)?.[1]?.split(/\s+/).filter(Boolean);
+    if (scope?.length) challengeScopes = scope;
   } catch {
     // Unreachable right now; the well-known paths below may still answer.
   }
@@ -264,14 +274,17 @@ export async function discoverAuthServer(serverUrl: string): Promise<AuthServerM
   );
 
   let issuer: URL = new URL(server.origin);
+  let resourceScopes: string[] | undefined;
   for (const url of prmCandidates) {
-    const prm = await getJson<{ authorization_servers?: string[] }>(url);
+    const prm = await getJson<{ authorization_servers?: string[]; scopes_supported?: string[] }>(url);
     const first = prm?.authorization_servers?.[0];
     if (first) {
       issuer = new URL(first);
+      if (prm.scopes_supported?.length) resourceScopes = prm.scopes_supported;
       break;
     }
   }
+  const requestScopes = challengeScopes ?? resourceScopes;
 
   for (const url of [
     wellKnown(issuer, 'oauth-authorization-server', true),
@@ -280,7 +293,7 @@ export async function discoverAuthServer(serverUrl: string): Promise<AuthServerM
     `${issuer.toString().replace(/\/+$/, '')}/.well-known/openid-configuration`,
   ]) {
     const meta = await getJson<AuthServerMetadata>(url);
-    if (meta?.authorization_endpoint && meta.token_endpoint) return meta;
+    if (meta?.authorization_endpoint && meta.token_endpoint) return { ...meta, requestScopes };
   }
   throw new McpError(
     "This MCP server doesn't publish an OAuth sign-in. Paste an access token instead."
@@ -306,6 +319,8 @@ export async function registerClient(
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
+      // Register for exactly what sign-in will ask for, so it isn't refused.
+      ...(meta.requestScopes?.length ? { scope: meta.requestScopes.join(' ') } : {}),
     }),
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
@@ -341,7 +356,7 @@ export function authorizationUrl(opts: {
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('state', opts.state);
   url.searchParams.set('resource', opts.resource);
-  const scopes = opts.meta.scopes_supported;
+  const scopes = opts.meta.requestScopes ?? opts.meta.scopes_supported;
   if (scopes?.length) url.searchParams.set('scope', scopes.join(' '));
   return url.toString();
 }

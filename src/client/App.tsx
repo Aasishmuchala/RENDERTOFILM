@@ -13,7 +13,7 @@ import { SettingsPage } from './SettingsPage.tsx';
 import { StillsPage } from './StillsPage.tsx';
 import { trpc } from './trpc.ts';
 import { Tab, TabList, TabPanel, Tabs } from './ui/Tabs.tsx';
-import { VideoPage } from './VideoPage.tsx';
+import { VideoPage, type VideoPreset } from './VideoPage.tsx';
 
 const TABS = ['director', 'stills', 'lifestyle', 'video', 'closeups', 'location', 'edit', 'library', 'settings'];
 const PICKED_KEY = 'render-to-film:picked-still';
@@ -37,6 +37,8 @@ export function App() {
   const profile = trpc.profile.useQuery();
   const [tab, setTab] = useState(tabFromHash);
   const [pickedStillId, setPickedStillId] = useState<string | null>(readPicked);
+  /** Settings that came with the pick (the Lifestyle tab's Animate); the Video tab applies each new one once. */
+  const [videoPreset, setVideoPreset] = useState<VideoPreset | null>(null);
 
   useEffect(() => {
     if (window.location.hash.slice(1) !== tab) {
@@ -122,8 +124,10 @@ export function App() {
         </TabPanel>
         <TabPanel id="lifestyle">
           <LifestylePage
-            onAnimate={(id) => {
+            active={tab === 'lifestyle'}
+            onAnimate={(id, preset) => {
               setPickedStillId(id);
+              setVideoPreset(preset);
               setTab('video');
             }}
           />
@@ -132,6 +136,7 @@ export function App() {
           <VideoPage
             active={tab === 'video'}
             pickedStillId={pickedStillId}
+            preset={videoPreset}
             onPick={setPickedStillId}
             onGoToStills={() => setTab('stills')}
           />

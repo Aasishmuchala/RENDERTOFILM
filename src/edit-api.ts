@@ -10,6 +10,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { createTextTask, isTextTaskId, textTaskSnapshot } from './ai-text.ts';
 import {
   buildEditorPrompt,
   EDITOR_SYSTEM_PROMPT,
@@ -532,7 +533,7 @@ async function advanceAgent(
   if (agent.status === 'applying') {
     return stale ? finishAgent(owner, agent.taskId, 'The editor stopped before it finished. Send your message again.', [], true) : doc;
   }
-  const snap = await ctx.runway.taskSnapshot(agent.taskId, { includeText: true }).catch(() => null);
+  const snap = await textTaskSnapshot(ctx, owner, agent.taskId).catch(() => null);
   if (!snap?.done) {
     return snap || !stale ? doc : finishAgent(owner, agent.taskId, 'The editor did not answer. Send your message again.', [], true);
   }
@@ -896,7 +897,14 @@ export const editRouter = router({
     .input(z.object({ text: z.string().trim().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
       const { owner, doc, clips, lib } = await load(ctx);
-      if (doc.agent && Date.now() - Date.parse(doc.agent.at) < AGENT_STALE_MS) {
+      // A provider turn (`ai_` id) is busy until its job says otherwise, so a
+      // slow paid call is never sent twice; Runway turns keep the clock rule.
+      const turnLive =
+        !!doc.agent &&
+        doc.agent.status === 'running' &&
+        isTextTaskId(doc.agent.taskId) &&
+        (await textTaskSnapshot(ctx, owner, doc.agent.taskId).catch(() => null))?.done === false;
+      if (doc.agent && (turnLive || Date.now() - Date.parse(doc.agent.at) < AGENT_STALE_MS)) {
         throw new TRPCError({
           code: 'CONFLICT',
           message: 'The editor is still working on your last message. Wait for its reply.',
@@ -926,18 +934,14 @@ export const editRouter = router({
       );
       let taskId: string;
       try {
-        ({ id: taskId } = await ctx.runway.createTask(
-          'claude_api',
-          {
-            name: 'render-to-film editor',
-            model: 'claude-sonnet-5-5',
-            system_prompt: EDITOR_SYSTEM_PROMPT,
-            prompt: buildEditorPrompt(doc, shown, cutNotes, input.text),
-            temperature: 0.3,
-            max_output_tokens: 6000,
-          },
-          { internal: true }
-        ));
+        ({ id: taskId } = await createTextTask(ctx, owner, {
+          name: 'render-to-film editor',
+          model: 'claude-sonnet-5-5',
+          system_prompt: EDITOR_SYSTEM_PROMPT,
+          prompt: buildEditorPrompt(doc, shown, cutNotes, input.text),
+          temperature: 0.3,
+          max_output_tokens: 6000,
+        }));
       } catch (err) {
         logRejection('editor', 'claude_api', err);
         throw toTrpcError(err);

@@ -22,15 +22,15 @@ export const LOOKS = [
       "the low sun rim-lighting hair and shoulders in warm amber from the same side it hits the stone, faces on the shadow side filled softly by warm bounce off the paving, long shadows stretching away in exactly the same direction and length as the trees' shadows",
   },
   {
-    // The soft, backlit, creamy light of Lodha's residential brand films
-    // ("Life in full bloom"); the Lifestyle tab's default.
+    // The clean, neutral, backlit light of a premium residential brand film
+    // ("Life in full bloom"): soft sun, true whites and greens, no haze or glow.
     id: 'lodha-light',
     name: 'Lodha light',
-    hint: 'Soft warm backlight, creamy glow',
+    hint: 'Soft sun, clean air, neutral colour',
     light:
-      "the soft, luminous light of a premium residential brand film: a low, warm late-afternoon sun coming from behind and to one side, backlighting leaves, blossoms and the edges of things with a gentle golden rim, a faint warm haze in the air with a soft bloom around the brightest highlights, creamy ivory highlights that roll off gently and never clip, lifted, airy shadows that keep their detail instead of going black, low overall contrast, a restrained palette of ivory, warm beige, sage and blush with natural, softly desaturated greens, and indoors soft window daylight balanced with the warm glow of the room's own lamps and chandeliers; a shallow depth of field with a creamy, softly blurred background, and a calm, graceful, quietly luxurious mood",
+      'the soft, clean light of a premium residential brand film: a low, gentle sun softened by the trees or thin cloud, coming from behind and to one side so leaves, blossom and the edges of things glow at their rims, neutral natural colour balance with whites white and greens fresh green, no golden, yellow or orange cast, soft highlights that never burn out, gentle contrast with open shadows, crisp fine detail and clean air with no haze, fog, flare or sun disc, the sky pale blue fading to cream and never blown out, pastel blossom colour and natural skin, a calm, graceful, quietly luxurious mood',
     onPeople:
-      "warm golden backlight rimming hair, shoulders and the edges of clothing from behind, faces lit softly and evenly by warm bounce from the surroundings with no harsh shadows, a gentle glow where the sun catches skin, warm natural skin tones with soft lifted shadows, and soft shadows falling toward the camera in the same direction as the trees'",
+      "the same soft sun rimming hair and shoulders from behind, faces filled evenly by light bounced off grass, paving and pale walls with no harsh shadows, natural skin with no golden cast, catchlights in the eyes, and soft shadows on the ground in exactly the same direction and length as the trees'",
   },
   {
     id: 'early-morning',
@@ -386,8 +386,6 @@ type PeopleBrief = {
   who: string;
   onPeople: string;
   castSheet: boolean;
-  /** A Lifestyle moment (src/lifestyle.ts): who is doing what, in place of the activity. */
-  scene?: string | undefined;
 } & PeopleOptions;
 
 /**
@@ -413,14 +411,6 @@ function castDescription(b: PeopleBrief, compact = false): string {
   const free = b.who ? ` Further detail: ${b.who}.` : '';
   // Each fragment cut at its first dash: the headline of the clothes and the moment.
   const head = (t: string) => t.split(' — ')[0]!;
-  if (b.scene) {
-    // A lifestyle moment says who is doing what; the options say who they are.
-    const moment = compact ? `Moment: ${head(b.scene)}.` : `The moment: ${b.scene}.`;
-    const dress = compact ? head(wear) : wear;
-    return b.castSheet
-      ? `${moment} The cast is the people from the cast sheet in their own clothes; anyone beyond them is ${eth}, ${age}, wearing ${dress}.${free}`
-      : `${moment} They are ${eth}, ${age}, wearing ${dress}.${free}`;
-  }
   if (compact) {
     const brief = `${eth}, ${age}, dressed in ${head(wear)}, ${head(act)}`;
     return b.castSheet
@@ -445,10 +435,7 @@ function peoplePrompt(b: PeopleBrief): string {
   return [
     `Bring the place to life with ${CROWD_PROMPT[b.crowd]}, mostly in the midground and foreground where they read clearly. ${castDescription(b)}`,
     b.castSheet ? CAST_SHEET_PROMPT : '',
-    // A lifestyle moment can be any home, so it skips the original project's stone wall.
-    b.scene
-      ? 'Set each person to true real-world scale by measuring them against the objects right beside where they stand: an adult is about 1.6 to 1.85 metres tall, a dining or tea table reaches about hip height, a chair or bench seat sits at knee height, a door is a little taller than a standing adult, a pool curb or low planter edge reaches just below the knee, and a mature tree trunk is about as thick as a person’s torso with its lowest branches above head height.'
-      : 'Set each person to true real-world scale by measuring them against the objects right beside where they stand: an adult is about 1.6 to 1.85 metres tall, a pool curb or low planter edge reaches just below the knee, a bench seat sits at knee height, a street lamp stands roughly two and a half to three times a person’s height, a mature tree trunk is about as thick as a person’s torso with its lowest branches above head height, and the stone wall towers many times taller than anyone near it.',
+    'Set each person to true real-world scale by measuring them against the objects right beside where they stand: an adult is about 1.6 to 1.85 metres tall, a pool curb or low planter edge reaches just below the knee, a bench seat sits at knee height, a street lamp stands roughly two and a half to three times a person’s height, a mature tree trunk is about as thick as a person’s torso with its lowest branches above head height, and the stone wall towers many times taller than anyone near it.',
     'Follow the camera’s true perspective: every foot rests on the same ground plane, people shrink in exact proportion with distance along the paving lines, and standing adults at any distance keep their heads near the same eye-level line as the camera.',
     'Give every body real weight and physics: feet planted on the paving with the weight on the supporting leg, a balanced centre of gravity, a natural mid-stride gait for walkers, seated people resting their full weight on the curb or bench, clothing and hair hanging with gravity and lifting slightly in the breeze, and hands touching real surfaces where they rest.',
     'Place them correctly in depth, passing naturally in front of or behind the trees, planters, lamps and pool edges around them, with true reflections in the water when they stand near it.',
@@ -457,7 +444,7 @@ function peoplePrompt(b: PeopleBrief): string {
     'Give them exactly the same white balance, exposure, contrast, colour grade, film grain, lens softness and highlight roll-off as the rest of the frame, so skin and clothing sit in the same tonal range as the stone and leaves around them and every person reads as photographed in the same instant, by the same camera, in the same light.',
     'Every person is a real human photographed on location, perfectly blended into the plate, as in a candid frame by a documentary photographer: a distinct individual with their own face, build and height, natural asymmetry and small imperfections — uneven skin tone, visible pores, fine lines, freckles or blemishes, flyaway hair, slightly uneven eyes and teeth — true skin texture with warmth beneath it, clear eyes with catchlights from the scene’s own light, individual strands of hair, real fabric weave, creases and wear, correct anatomy with well-formed hands of five natural fingers, relaxed unposed bodies and genuine, unguarded expressions.',
     'Avoid the over-smoothed AI look: no plastic or waxy skin, no glossy airbrushed faces, no uncanny symmetrical faces, no mannequin or catalogue poses, no duplicated or cloned faces, no cut-out edges or glow around figures.',
-    `Show them absorbed in their own moments rather than posing for the camera, every person shown as an individual in ordinary contemporary dress and never as a costume or caricature, and ${b.scene ? 'keep the architecture and interiors around them exactly as designed' : 'keep them clear of the sculptures and the water wall so the architecture stays the hero'}, as if they were really there when the frame was shot.`,
+    'Show them absorbed in their own moments rather than posing for the camera, every person shown as an individual in ordinary contemporary dress and never as a costume or caricature, and keep them clear of the sculptures and the water wall so the architecture stays the hero, as if they were really there when the frame was shot.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -476,7 +463,7 @@ function peoplePromptCompact(b: PeopleBrief): string {
     'Give every body real weight: planted feet, balanced stance, natural gait, clothing and hair hanging with gravity, passing correctly in front of or behind trees and lamps, with true water reflections.',
     `Light them in the same exposure, with ${b.onPeople}, with contact and cast shadows matching the trees’ and the same haze, white balance, grade, grain and focus falloff as the plate.`,
     'Each is a real human photographed on location and perfectly blended in, as in a candid documentary frame: a distinct individual with natural asymmetry, true skin texture with pores and fine lines, flyaway hair, real fabric, correct anatomy and hands with five fingers, and unposed, genuine expressions.',
-    `Avoid the AI look: no plastic or airbrushed skin, no symmetrical faces, no mannequin poses, no duplicated faces, no cut-out edges.${b.scene ? '' : ' Keep them clear of the sculptures and the water wall.'}`,
+    'Avoid the AI look: no plastic or airbrushed skin, no symmetrical faces, no mannequin poses, no duplicated faces, no cut-out edges. Keep them clear of the sculptures and the water wall.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -584,14 +571,11 @@ function reframeSentence(ratio: string): string {
   return `Compose the photograph in a ${ratio} frame around the same subject and viewpoint. Where the new frame reaches past the edges of the render, only continue what is already there at those edges (the same paving, wall, water, planting and sky), adding no new buildings, objects or features; where it shows less, crop in. Never squeeze, stretch or distort anything to fit.`;
 }
 
-/**
- * The Stills tab's "Only what's in the image" switch, in words. `props` are a
- * lifestyle moment's small personal things, the one other addition allowed.
- */
-function strictStillSentence(withPeople: boolean, moves: boolean, props = ''): string {
-  const allowed = withPeople ? `, apart from the people asked for${props ? ` and ${props}` : ''}` : '';
+/** The Stills tab's "Only what's in the image" switch, in words. */
+function strictStillSentence(withPeople: boolean, moves: boolean): string {
+  const allowed = withPeople ? ', apart from the people asked for' : '';
   return [
-    `Strict rule: nothing appears that is not already visible in the reference image${allowed}. No ${withPeople && props ? 'other ' : ''}new objects, buildings, furniture, plants, vehicles, ${withPeople ? '' : 'people, '}animals, signs, text, sky features or light sources, and nothing is removed.`,
+    `Strict rule: nothing appears that is not already visible in the reference image${allowed}. No new objects, buildings, furniture, plants, vehicles, ${withPeople ? '' : 'people, '}animals, signs, text, sky features or light sources, and nothing is removed.`,
     moves
       ? 'Keep the new framing close enough that it shows only what the reference already contains, continuing its edges and never inventing space beyond them.'
       : '',
@@ -627,12 +611,6 @@ export function buildCinematicPrompt(
     lightReference?: boolean | 'series' | undefined;
     /** "Only what's in the image": nothing new may appear but the people asked for. */
     strict?: boolean | undefined;
-    /**
-     * A Lifestyle moment (src/lifestyle.ts): the scene in place of the
-     * activity, the small things the people may bring with them, and the
-     * brand-film feel. Only used with people.
-     */
-    moment?: { scene: string; props: string; feel: string } | undefined;
   } = {}
 ): string {
   const camera = ANGLES.find((a) => a.id === angle)?.camera ?? '';
@@ -645,7 +623,6 @@ export function buildCinematicPrompt(
   const extra = direction.trim();
   const who = people.trim();
   const withPeople = crowd !== 'none';
-  const moment = withPeople ? extras.moment : undefined;
   const build = (compact: boolean) => {
     if (!withPeople) return '';
     const brief: PeopleBrief = {
@@ -654,10 +631,8 @@ export function buildCinematicPrompt(
       who,
       onPeople: lightRef ? LIGHT_REFERENCE_ON_PEOPLE : chosen.onPeople,
       castSheet: extras.castSheet === true,
-      scene: moment?.scene,
     };
-    const text = compact ? peoplePromptCompact(brief) : peoplePrompt(brief);
-    return moment ? `${text} ${moment.feel}` : text;
+    return compact ? peoplePromptCompact(brief) : peoplePrompt(brief);
   };
   const masked = extras.masked;
   const assemble = (peopleText: string, tight = false) =>
@@ -690,7 +665,7 @@ export function buildCinematicPrompt(
       : keepLight && !lightRef
         ? 'Shoot it like a high-end cinema camera with an anamorphic lens: natural depth of field, subtle lens falloff and vignetting, fine organic film grain and true dynamic range, keeping the reference’s own colours and tones rather than adding a grade.'
         : 'Shoot it like a high-end cinema camera with an anamorphic lens: natural depth of field, subtle lens falloff and vignetting, fine organic film grain, true dynamic range with rich shadows and controlled highlights, and a refined cinematic color grade.',
-    extras.strict ? strictStillSentence(withPeople, !masked && (!!camera || !!extras.reframe), moment?.props) : '',
+    extras.strict ? strictStillSentence(withPeople, !masked && (!!camera || !!extras.reframe)) : '',
     peopleText,
     extra ? (extras.strict ? `Also, using only what is already in the image: ${extra}.` : `Also: ${extra}.`) : '',
     fixes.trim()

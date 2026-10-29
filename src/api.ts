@@ -14,6 +14,7 @@ import { decodeJwtPayload } from '@runway/bay/runway/cookie';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { createTextTask, textTaskSnapshot } from './ai-text.ts';
 import {
   buildCheckPrompt,
   CHECK_SYSTEM_PROMPT,
@@ -30,7 +31,6 @@ import {
   type TaskState,
   updateLibrary,
 } from './library.ts';
-import { LIFESTYLE_FEEL, MOMENT_IDS, momentById } from './lifestyle.ts';
 import {
   ACTIVITY_IDS,
   AGE_IDS,
@@ -62,6 +62,7 @@ import {
 import { editRouter } from './edit-api.ts';
 import { closeupsRouter } from './closeups-api.ts';
 import { locationRouter } from './location-api.ts';
+import { forgetTake as forgetLifestyleTake, lifestyleRouter } from './lifestyle-api.ts';
 import { forgetTake, storyboardRouter } from './storyboard-api.ts';
 import { settingsRouter } from './settings-api.ts';
 import { pick, submitStill } from './still-submit.ts';
@@ -70,6 +71,7 @@ import { thumbKey, viewKey } from './thumbs.ts';
 import {
   buildVideoPrompt,
   clampPrompt,
+  PEOPLE_NEGATIVE_PROMPT,
   STRICT_NEGATIVE_PROMPT,
   CLIP_UPSCALER_IDS,
   clipSeconds,
@@ -342,6 +344,8 @@ export const AppRouter = router({
   location: locationRouter,
   /** The Director tab: a storyboard planned by Claude, shot frame by frame (src/storyboard-api.ts). */
   storyboard: storyboardRouter,
+  /** The Lifestyle tab: every render planned as a frame of a lifestyle film, cast and shot (src/lifestyle-api.ts). */
+  lifestyle: lifestyleRouter,
   /** The Settings tab: Runway, Higgsfield and other MCP servers, Seevio key (src/settings-api.ts). */
   settings: settingsRouter,
 
@@ -409,16 +413,10 @@ export const AppRouter = router({
         maskKey: z.string().max(200).optional(),
         /** The browser's stored copy of the render (`POST /api/render-copy`). */
         renderKey: z.string().max(200).optional(),
-        /**
-         * Made on the Lifestyle tab: the residents' moment (src/lifestyle.ts),
-         * which takes the activity's place. Only used with people.
-         */
-        moment: z.enum(MOMENT_IDS).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const owner = await ownerKey(ctx.req);
-      const moment = input.crowd !== 'none' ? momentById(input.moment) : undefined;
       let masked: string | undefined;
       if (input.maskKey !== undefined) {
         if (
@@ -538,7 +536,6 @@ export const AppRouter = router({
           masked,
           lightReference: series ? 'series' : lightRefUrl !== undefined,
           strict: input.onlyInImage,
-          moment: moment ? { scene: moment.scene, props: moment.props, feel: LIFESTYLE_FEEL } : undefined,
         }
       );
       // The render's upload expires in a day or two; a marked edit's composite
@@ -604,7 +601,6 @@ export const AppRouter = router({
         sourceUrl: input.imageUrl,
         resolution,
         ...(masked ? { maskKey: input.maskKey, renderKey } : {}),
-        ...(moment ? { moment: moment.id } : {}),
       };
       await recordStillWithRetry(
         (lib) => ({
@@ -850,14 +846,17 @@ export const AppRouter = router({
           key ? [deleteObject(key).catch((err: unknown) => console.warn('[delete]', key, err))] : []
         )
       );
-      // A deleted Director take leaves its storyboard, so the board doesn't
-      // put it back in the library.
+      // A deleted Director or Lifestyle take (or cast sheet) leaves its plan,
+      // so the board doesn't put it back in the library.
       await Promise.all(
-        dropped.flatMap((st) =>
-          st.storyboard
+        dropped.flatMap((st) => [
+          ...(st.storyboard
             ? [forgetTake(owner, st.storyboard.jobId, st.id).catch((err: unknown) => console.warn('[delete] storyboard', st.id, err))]
-            : []
-        )
+            : []),
+          ...(st.lifestyle
+            ? [forgetLifestyleTake(owner, st.lifestyle.jobId, st.id).catch((err: unknown) => console.warn('[delete] lifestyle', st.id, err))]
+            : []),
+        ])
       );
       if (removed === 0) {
         throw new TRPCError({
@@ -889,29 +888,25 @@ export const AppRouter = router({
       }
       try {
         const resultUrl = await finishedUrl(ctx, still.id, owner);
-        const { id } = await ctx.runway.createTask(
-          'claude_api',
-          {
-            name: 'render-to-film people check',
-            model: 'claude-opus-5-5',
-            system_prompt: CHECK_SYSTEM_PROMPT,
-            prompt: buildCheckPrompt(
-              {
-                ethnicity: still.ethnicity,
-                age: still.age,
-                wardrobe: still.wardrobe,
-                activity: still.activity,
-              },
-              still.people,
-              still.castSheetUrl !== undefined,
-              momentById(still.moment)?.scene
-            ),
-            images: [{ url: still.sourceUrl }, { url: resultUrl }],
-            temperature: 0.2,
-            max_output_tokens: 10000,
-          },
-          { internal: true }
-        );
+        const { id } = await createTextTask(ctx, owner, {
+          name: 'render-to-film people check',
+          model: 'claude-opus-5-5',
+          system_prompt: CHECK_SYSTEM_PROMPT,
+          prompt: buildCheckPrompt(
+            {
+              ethnicity: still.ethnicity,
+              age: still.age,
+              wardrobe: still.wardrobe,
+              activity: still.activity,
+            },
+            still.people,
+            still.castSheetUrl !== undefined,
+            still.lifestyle?.people
+          ),
+          images: [{ url: still.sourceUrl }, { url: resultUrl }],
+          temperature: 0.2,
+          max_output_tokens: 10000,
+        });
         await patchStill(owner, still.id, () => ({
           check: { status: 'running', taskId: id },
         }));
@@ -931,9 +926,7 @@ export const AppRouter = router({
       )?.check;
       if (!check || check.status !== 'running') return check ?? null;
       try {
-        const snap = await ctx.runway.taskSnapshot(check.taskId, {
-          includeText: true,
-        });
+        const snap = await textTaskSnapshot(ctx, owner, check.taskId);
         if (!snap.done) return check;
         let next: StillCheck;
         const report =
@@ -1355,7 +1348,12 @@ function submitVideo(
     ),
     3500
   );
-  const negative = input.onlyInImage ? { negative_prompt: STRICT_NEGATIVE_PROMPT } : {};
+  // The strict list already carries the people terms; without it, a frame with people still gets them.
+  const negative = input.onlyInImage
+    ? { negative_prompt: STRICT_NEGATIVE_PROMPT }
+    : shape.people
+      ? { negative_prompt: PEOPLE_NEGATIVE_PROMPT }
+      : {};
   // Seedance and MiniMax: typed first/end frames, or (with extra images) the
   // frame and the extras as plain references in order. The two can't mix.
   const frameRefs = (): { url: string; type?: 'first_frame' | 'end_frame' }[] =>

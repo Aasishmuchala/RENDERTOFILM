@@ -75,11 +75,14 @@ function askedFor(
   const o = resolvePeopleOptions(asked);
   const pick = <T extends { id: string; prompt: string }>(list: readonly T[], id: string) =>
     (list.find((x) => x.id === id) ?? list[0]!).prompt;
+  // A Lifestyle frame's brief already says who is there and what they wear,
+  // so only the household's heritage is added, and the brief (which the scene
+  // holds, with the shot's people size after it) is not repeated.
   return [
     scene
-      ? `The take asked for this residents' moment: ${scene}; with ${pick(ETHNICITIES, o.ethnicity)}, ${pick(AGES, o.age)}, wearing ${pick(WARDROBES, o.wardrobe)}.`
+      ? `The take asked for this residents' moment: ${scene.trim()} The residents are ${pick(ETHNICITIES, o.ethnicity)}.`
       : `The take asked for ${pick(ETHNICITIES, o.ethnicity)}, ${pick(AGES, o.age)}, wearing ${pick(WARDROBES, o.wardrobe)}, ${pick(ACTIVITIES, o.activity)}.`,
-    people?.trim() ? `The user added: ${people.trim()}.` : '',
+    people?.trim() && !scene?.includes(people.trim()) ? `The user added: ${people.trim()}.` : '',
     castSheet
       ? 'A cast sheet of real people was supplied as a second reference; its people should be recognisable in image 2 by face, skin tone, hair, build and clothing, with none of the sheet’s own background or lighting.'
       : '',

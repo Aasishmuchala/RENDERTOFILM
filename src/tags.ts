@@ -7,6 +7,7 @@
  */
 import { litFromReference, LOOKS, REFERENCE_LIGHT_NAME } from './looks.ts';
 import type { Clip, Still } from './library.ts';
+import { chapterById } from './lifestyle.ts';
 import { IMAGE_MODELS, VIDEO_MODELS } from './models.ts';
 import { settingName } from './surroundings.ts';
 
@@ -64,7 +65,10 @@ export function stillAutoTags(s: Still): string[] {
     s.closeup ? 'close-up' : '',
     s.surroundings ? 'surroundings' : '',
     s.storyboard ? 'storyboard' : '',
-    s.moment ? 'lifestyle' : '',
+    s.moment || s.lifestyle ? 'lifestyle' : '',
+    s.lifestyle?.kind === 'cast' ? 'cast-sheet' : '',
+    s.lifestyle?.pass === 1 ? 'pass-1' : '',
+    s.lifestyle ? slug(chapterById(s.lifestyle.chapter).name) : '',
     s.location ? 'location' : '',
     s.location ? 'aerial' : '',
     s.surroundings ? slug(settingName(s.surroundings.setting)) : '',

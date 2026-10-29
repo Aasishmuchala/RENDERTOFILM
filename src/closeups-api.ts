@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { createTextTask, textTaskSnapshot } from './ai-text.ts';
 import { artifactOf } from './edit-api.ts';
 import { ownerKey, readLibrary, type Still, updateLibrary } from './library.ts';
 import {
@@ -251,7 +252,7 @@ async function advance(ctx: RunwayCtx, owner: string, job: CloseupJob): Promise<
     );
   }
   if (job.status === 'finding' && job.findTaskId) {
-    const snap = await ctx.runway.taskSnapshot(job.findTaskId, { includeText: true });
+    const snap = await textTaskSnapshot(ctx, owner, job.findTaskId);
     if (!snap.done) return job;
     const frames = job.source.kind === 'clip' ? (job.frameTimes?.length ?? FRAME_COUNT) : 1;
     const picks =
@@ -368,7 +369,7 @@ export const closeupsRouter = router({
           status: 'finding',
         };
         try {
-          job.findTaskId = await submitFinder(ctx, job, [await imageSourceUrl(ctx, owner, job)]);
+          job.findTaskId = await submitFinder(ctx, owner, job, [await imageSourceUrl(ctx, owner, job)]);
         } catch (err) {
           throw toTrpcError(err);
         }
@@ -400,7 +401,7 @@ export const closeupsRouter = router({
     let findTaskId: string;
     try {
       const frames = await capturedFrames(ctx, job.captureTaskId!);
-      findTaskId = await submitFinder(ctx, job, frames.slice(0, FRAME_COUNT));
+      findTaskId = await submitFinder(ctx, owner, job, frames.slice(0, FRAME_COUNT));
     } catch (err) {
       // Nothing was submitted: back to where it was, so "Try again" starts this step afresh.
       await patchJob(owner, job.id, { status: 'captured' }).catch(() => {});
@@ -488,21 +489,17 @@ export const closeupsRouter = router({
   }),
 });
 
-async function submitFinder(ctx: RunwayCtx, job: CloseupJob, imageUrls: string[]): Promise<string> {
+async function submitFinder(ctx: RunwayCtx, owner: string, job: CloseupJob, imageUrls: string[]): Promise<string> {
   try {
-    const { id } = await ctx.runway.createTask(
-      'claude_api',
-      {
-        name: 'render-to-film close-up finder',
-        model: FINDER_MODEL,
-        system_prompt: FINDER_SYSTEM,
-        prompt: finderPrompt(job, imageUrls.length),
-        images: imageUrls.map((url) => ({ url })),
-        temperature: 0.4,
-        max_output_tokens: 10000,
-      },
-      { internal: true }
-    );
+    const { id } = await createTextTask(ctx, owner, {
+      name: 'render-to-film close-up finder',
+      model: FINDER_MODEL,
+      system_prompt: FINDER_SYSTEM,
+      prompt: finderPrompt(job, imageUrls.length),
+      images: imageUrls.map((url) => ({ url })),
+      temperature: 0.4,
+      max_output_tokens: 10000,
+    });
     return id;
   } catch (err) {
     logRejection('closeups', 'claude_api', err);

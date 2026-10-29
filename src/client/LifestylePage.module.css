@@ -1,43 +1,600 @@
-/* The Lifestyle tab's own pieces; everything else is Studio.module.css. */
+/* The Lifestyle tab's own pieces; the layout and stage come from Studio.module.css. */
 
-.momentNote {
-  margin-top: 8px;
-}
-
-.earlier {
+.dropEmpty {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 20px 16px;
+  place-items: center;
+  gap: 8px;
+  min-height: 140px;
+  padding: 20px 20px 56px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-subtle);
+  color: var(--bay-text-3);
+  text-align: center;
 }
 
-.earlierCard {
+/* The uploaded set: small 16:10 tiles, three or four to a row. */
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-bg-sunken);
+  overflow: hidden;
+}
+
+.thumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity var(--bay-dur) var(--bay-ease);
+}
+
+.thumbImg[data-dimmed] {
+  opacity: 0.45;
+}
+
+.thumbState {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--bay-text-2);
+  background: var(--bay-bg-surface);
+}
+
+.thumbRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--bay-bg-surface);
+}
+
+.uploadError {
+  min-width: 0;
+}
+
+/* Sits under the lighting reference as its own line of the field. */
+.refNote {
+  margin-top: -4px;
+}
+
+/* ---- Step 2: the planner, then the image models, each a titled row. */
+.aiRows {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.aiRow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.aiRowHead {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.aiRowHead > span {
+  font-weight: 400;
+  color: var(--bay-text-3);
+}
+
+.aiRowNote {
+  margin: 0;
+}
+
+/* Provider beside its model; Runway's provider has the row to itself. */
+.plannerPick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.plannerPick[data-alone] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* One image model | Two passes: a quiet segmented control, two equal halves on a sunken track. */
+.passCount {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-bg-sunken);
+}
+
+.passCountItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--bay-r-sm);
+  background: transparent;
+  color: var(--bay-text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background var(--bay-dur-fast) var(--bay-ease),
+    color var(--bay-dur-fast) var(--bay-ease);
+}
+
+.passCountItem[data-hovered] {
+  color: var(--bay-text);
+}
+
+.passCountItem[data-selected] {
+  background: var(--bay-bg-surface);
+  color: var(--bay-accent-fg);
+  box-shadow: 0 0 0 1px var(--bay-border-hair);
+}
+
+.passCountItem[data-focus-visible] {
+  box-shadow: 0 0 0 2px var(--bay-border-focus);
+}
+
+.passCountItem[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.boardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 28px;
+}
+
+.boardIntro {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-width: 64ch;
+}
+
+.boardIntro > p {
+  margin: 0;
+}
+
+/* ---- The cast: one quiet raised panel between the plan and the frames. */
+.castPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 48px;
+  padding: 24px 28px 26px;
+  border: 1px solid var(--bay-stage-line);
+  border-radius: var(--bay-r-lg);
+  background: var(--bay-stage-raised);
+}
+
+.castPanelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.castPanelTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.castStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--bay-r-pill);
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.castStatus[data-approved] {
+  border-color: transparent;
+  color: var(--bay-ok-fg);
+  background: var(--bay-ok-bg);
+}
+
+.castLead {
+  max-width: 72ch;
+}
+
+.castMode {
+  max-width: 360px;
+}
+
+.castNone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.sheets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 20px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sheetFrame {
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  overflow: hidden;
+}
+
+.sheetFrame > * {
+  grid-area: 1 / 1;
+}
+
+/* ---- The chapters: a numbered hairline heading over each one's frames. */
+.chapter + .chapter {
+  margin-top: 64px;
+}
+
+.chapterHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--bay-stage-line);
+}
+
+.chapterNo {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  color: var(--bay-accent-fg);
+}
+
+.chapterName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--bay-text);
+}
+
+.chapterHint {
+  font-size: 13px;
+  color: var(--bay-text-3);
+}
+
+.chapterCount {
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
+}
+
+/* The frames of a chapter, in film order, as many columns as fit. */
+.frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: 40px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cardFrame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-md);
+  background: var(--bay-stage-frame);
+  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  overflow: hidden;
+  transition: opacity var(--bay-dur) var(--bay-ease);
+}
+
+.cardFrame > * {
+  grid-area: 1 / 1;
+}
+
+/* A frame left out of the film steps back. */
+.card[data-left-out] .cardFrame {
+  opacity: 0.35;
+}
+
+/* The render reads as a sketch until its frame is shot. */
+.source {
+  opacity: 0.6;
+}
+
+.sourceChip {
+  align-self: end;
+  justify-self: start;
+  margin: 8px;
+  padding: 2px 8px;
+  border-radius: var(--bay-r-pill);
+  font-size: 11px;
+  color: var(--bay-text-2);
+  background: rgba(30, 27, 24, 0.7);
+}
+
+/* ---- Two passes: pass 1 stepped back under the status while pass 2 finishes it. */
+.passOverlay {
+  opacity: 0.42;
+  filter: saturate(0.8);
+  animation: passIn 600ms var(--bay-ease) both;
+}
+
+@keyframes passIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* "Pass 1 only": the frame stands on its first pass until pass 2 is retried. */
+.passChip {
+  align-self: end;
+  justify-self: start;
+  margin: 8px;
+  padding: 2px 8px;
+  border-radius: var(--bay-r-pill);
+  font-size: 11px;
+  color: var(--bay-warn-fg);
+  background: rgba(30, 27, 24, 0.78);
+  pointer-events: none;
+}
+
+/* Final | Pass 1, two pills joined into one quiet segmented control. */
+.passToggle {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+.passToggle > button + button {
+  margin-left: -1px;
+}
+
+.passToggle > button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.passToggle > button:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* The check ring says nothing a filled segment doesn't. */
+.passToggle > button > svg {
+  display: none;
+}
+
+/* On the card's picture, top right, on a soft dark backing so it reads over any photograph. */
+.passToggleOnFrame {
+  align-self: start;
+  justify-self: end;
+  margin: 8px;
+  border-radius: var(--bay-r-pill);
+  background: rgba(30, 27, 24, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.passToggleOnFrame > button {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.passRetry {
+  margin-top: 10px;
+}
+
+.frameButton {
+  display: block;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 0;
   background: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
+  cursor: zoom-in;
 }
 
-.earlierCard:focus-visible {
+.frameButton:focus-visible {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 3px;
-  border-radius: var(--bay-r-md);
+  outline-offset: -2px;
 }
 
-.earlierThumb {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: contain;
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--bay-text);
+}
+
+.cardNo {
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-accent-fg);
+}
+
+.space {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--bay-text-3);
+  text-align: right;
+}
+
+/* The plan's tags for a frame: its shot and lens, who is there, its moment. */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  padding: 2px 9px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--bay-r-pill);
+  font-size: 11px;
+  color: var(--bay-text-2);
+}
+
+.tag::first-letter {
+  text-transform: uppercase;
+}
+
+.tag[data-tone='muted'] {
+  color: var(--bay-text-3);
+  border-style: dashed;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.optionRow {
+  display: grid;
+  /* Side by side only where both values and their group fit. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.saveState {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--bay-text-3);
+}
+
+.saved {
+  margin-top: 48px;
+  text-align: center;
+}
+
+.retry {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.pollError {
+  margin-top: 16px;
+}
+
+.boardHead + .pollError {
+  margin: -12px 0 28px;
+}
+
+/* ---- The big screen (FullscreenDialog): a take against its render. */
+.viewerPicture {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, calc(var(--fit-h, 70vh) * var(--ar, 16 / 9)));
   border-radius: var(--bay-r-md);
   background: var(--bay-stage-frame);
-  transition: opacity var(--bay-dur-fast) var(--bay-ease);
+  overflow: hidden;
 }
 
-.earlierCard:hover .earlierThumb {
-  opacity: 0.85;
+.viewerPicture > * {
+  grid-area: 1 / 1;
+}
+
+.viewerPicture > .viewerCompare {
+  width: 100%;
+  border-radius: 0;
+}
+
+.viewerImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.viewerAside {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 680px) {
+  .castPanel {
+    padding: 20px 18px 22px;
+  }
+
+  .chapterCount {
+    margin-left: 0;
+  }
 }
