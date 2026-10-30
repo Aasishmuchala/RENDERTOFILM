@@ -36,6 +36,7 @@ import { GRADE_IDS, gradeName, videoGradeInstruction } from './grades.ts';
 import { type Clip, type Library, ownerKey, readLibrary } from './library.ts';
 import { lookLabel } from './looks.ts';
 import { clipSeconds, motionLabel } from './models.ts';
+import { recreateTitle } from './recreate.ts';
 import { logRejection, type RunwayCtx, settled, snapError, toTrpcError } from './task-helpers.ts';
 import { playId, rootClipId, versionChain, versionNotes } from './timeline.ts';
 import { router, signedInProcedure } from './trpc.ts';
@@ -72,14 +73,34 @@ type EditorAction = { actions: string[]; exportWaits?: boolean };
 /** A `Derived` that also counts the polls in a row that failed to reach Runway. */
 type PolledDerived = Derived & { pollErrors?: number | undefined };
 
-/** One finished library clip the Edit tab can cut from. */
-export type EditClip = { id: string; seconds: number; label: string; stillId: string };
+/**
+ * One finished library clip the Edit tab can cut from. `stillId` is the
+ * still it was made from while that still is in the library ('' otherwise);
+ * `posterKey` is set when the clip has a poster of its own.
+ */
+export type EditClip = {
+  id: string;
+  seconds: number;
+  label: string;
+  stillId: string;
+  posterKey?: string | undefined;
+};
 
-function availableClips(lib: Library): EditClip[] {
-  return lib.clips
-    .filter((c) => c.status === 'succeeded')
-    .slice(0, 60)
-    .map((c) => ({ id: c.id, seconds: clipLength(c), label: clipLabel(c, lib), stillId: c.stillId }));
+function availableClips(lib: Library, doc: EditDoc): EditClip[] {
+  const stills = new Set(lib.stills.map((s) => s.id));
+  const done = lib.clips.filter((c) => c.status === 'succeeded');
+  // A cut's clip stays listed after 60 newer clips push it off the recent
+  // ones: unlisted, the page called it gone (no name, no picture) and its
+  // length fell back to 5 s for trims, edits and grades.
+  const onTimeline = new Set(doc.timeline.map((t) => t.clipId));
+  return [...done.slice(0, 60), ...done.slice(60).filter((c) => onTimeline.has(c.id))]
+    .map((c) => ({
+      id: c.id,
+      seconds: clipLength(c),
+      label: clipLabel(c, lib),
+      stillId: stills.has(c.stillId) ? c.stillId : '',
+      ...(c.posterKey ? { posterKey: c.posterKey } : {}),
+    }));
 }
 
 /** Every finished clip, however old, for checking what a saved cut points at. */
@@ -96,7 +117,7 @@ function clipLength(c: Clip): number {
 function clipLabel(c: Clip, lib: Library): string {
   const still = lib.stills.find((s) => s.id === c.stillId);
   const parts = [
-    motionLabel(c.motion, c.moveStyle, c.speed),
+    c.recreate ? recreateTitle(c.recreate) : motionLabel(c.motion, c.moveStyle, c.speed),
     still
       ? still.look === 'none' && !(still.lightRefUrl || still.lightFromStillId)
         ? "the render's own light"
@@ -624,7 +645,8 @@ async function applyPlan(
   if (plan.transition) {
     working = { ...working, transition: plan.transition };
   }
-  if (plan.fadeSeconds) working = { ...working, fadeSeconds: round(plan.fadeSeconds) };
+  // Inside the 0.1 to 4.9 the timeline save takes, or the next save of this doc is refused.
+  if (plan.fadeSeconds) working = { ...working, fadeSeconds: round(Math.min(4.9, Math.max(0.1, plan.fadeSeconds))) };
   if (plan.transition || plan.fadeSeconds) {
     actions.push(working.transition === 'fade' ? `Transitions: ${working.fadeSeconds}s fades` : 'Transitions: hard cuts');
   }
@@ -735,7 +757,7 @@ async function applyPlan(
 async function load(ctx: RunwayCtx & { req: Parameters<typeof ownerKey>[0] }) {
   const owner = await ownerKey(ctx.req);
   const [doc, lib] = await Promise.all([readEdit(owner), readLibrary(owner)]);
-  return { owner, doc, lib, clips: availableClips(lib) };
+  return { owner, doc, lib, clips: availableClips(lib, doc) };
 }
 
 function findCut(doc: EditDoc, key: string): TimelineItem {

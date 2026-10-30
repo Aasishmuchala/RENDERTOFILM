@@ -1,3 +1,5 @@
+/* Multi-line field (DESIGN 4): the same fill, line and focus as TextInput;
+   the height follows `rows`. Content is the body role. */
 .field {
   display: flex;
   flex-direction: column;
@@ -5,47 +7,57 @@
 }
 
 .label {
-  font-size: 13px;
+  margin-bottom: 8px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
-  margin-bottom: 6px;
 }
 
 .textarea {
   width: 100%;
-  background: var(--bay-bg-surface);
-  border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-md);
   padding: 10px 12px;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.5;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-control);
+  background: var(--bay-bg-sunken);
+  font: var(--text-body);
+  letter-spacing: var(--track-body);
   color: var(--bay-text);
   resize: vertical;
   transition:
-    border-color var(--bay-dur) var(--bay-ease),
-    box-shadow var(--bay-dur) var(--bay-ease);
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
 }
 
 .textarea::placeholder {
-  color: var(--bay-text-4);
+  color: var(--bay-text-3);
 }
 
-.textarea[data-focused] {
-  outline: none;
+.textarea[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.textarea:focus,
+.textarea:focus-visible,
+.textarea[data-focused],
+.textarea[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
   border-color: var(--bay-accent);
-  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.18);
 }
 
 .textarea[data-disabled] {
-  opacity: 0.6;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .counter {
   align-self: flex-end;
   margin-top: 4px;
-  font-size: 12px;
-  color: var(--bay-text-4);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
 }
 
 .counter[data-over] {

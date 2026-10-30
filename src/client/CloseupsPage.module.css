@@ -1,5 +1,8 @@
-/* The Close-ups tab's own pieces; the layout and stage come from Studio.module.css. */
+/* The Close-ups tab's own pieces; the canvas, inspector and strip come from Workspace. */
 
+/* The empty upload box (DESIGN 4, ImageDropZone): dashed at rest, filling in
+   when the pointer is over it. The zone's own pill and drag-over wash sit on
+   top of it. */
 .dropEmpty {
   display: grid;
   place-items: center;
@@ -7,75 +10,193 @@
   min-height: 180px;
   padding: 24px 20px 56px;
   border: 1px dashed var(--bay-border-strong);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-subtle);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-sunken);
   color: var(--bay-text-3);
   text-align: center;
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
-/* A contact sheet of close-ups: as many columns as fit, each at least 280px. */
-.shots {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
-  gap: 28px 24px;
+@media (hover: hover) {
+  .dropEmpty:hover {
+    background: var(--bay-bg-subtle);
+  }
 }
 
-.shot {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.shotFrame {
+/* The close-ups found, in the Workspace strip: a row of cards, one per
+   close-up, the chosen one on the canvas. Positioned, so each card's hidden
+   radio input stays inside the scroller (held further out, an input of a
+   card scrolled past the edge widened the page). */
+.strip {
   position: relative;
-  display: grid;
-  place-items: center;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-stage-frame);
-  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  display: flex;
+  gap: 8px;
+  height: 100%;
+}
+
+/* A card (DESIGN 4): solid surface, hairline, continuous corners; the
+   picture on the left, what it frames on the right. Hover lifts it 2 px and
+   zooms the picture; selected is a 2 px accent ring. */
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  width: 232px;
+  height: 100%;
+  padding: 5px 12px 5px 5px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+@supports (corner-shape: squircle) {
+  .card,
+  .thumb,
+  .dropEmpty {
+    corner-shape: squircle;
+  }
+}
+
+.card[data-hovered] {
+  border-color: var(--bay-border-strong);
+  transform: translateY(-2px);
+}
+
+.card[data-pressed] {
+  transform: none;
+}
+
+.card[data-selected] {
+  border-color: var(--bay-accent);
+  box-shadow: 0 0 0 1px var(--bay-accent);
+}
+
+.card[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+}
+
+.thumb {
+  position: relative;
+  flex: none;
+  height: 100%;
+  max-width: 112px;
+  border-radius: var(--bay-r-sm);
+  background-color: var(--bay-stage-frame);
   overflow: hidden;
 }
 
-.shotFrame > * {
-  grid-area: 1 / 1;
-}
-
-.shotButton {
+.thumb > img {
   display: block;
   width: 100%;
   height: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: zoom-in;
+  object-fit: cover;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
-.shotButton:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: -2px;
+.card[data-hovered] .thumb > img {
+  transform: scale(1.03);
 }
 
-.shotText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* Not shot yet: the frame it was found in, dimmed. Failed or removed: greyed. */
+.card[data-shot='pending'] .thumb > img {
+  opacity: 0.45;
 }
 
-.subject {
-  font-weight: 500;
+.card:is([data-shot='failed'], [data-shot='removed']) .thumb > img {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+/* The state over the picture: a dark chip, dense enough to keep its
+   contrast over any picture. */
+.badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   color: var(--bay-text);
 }
 
-.shotActions {
+.badge > svg {
+  box-sizing: content-box;
+  padding: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--glass-fill-thick);
+  box-shadow: var(--glass-edge);
+}
+
+.cardText {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cardTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  font: var(--text-footnote);
+  font-weight: 500;
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.card[data-selected] .cardTitle {
+  color: var(--bay-text);
+}
+
+.cardSub {
+  overflow: hidden;
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card[data-shot='failed'] .cardSub {
+  color: var(--bay-err-fg);
+}
+
+/* Reduced motion: the border and the ring carry the state; nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .card[data-hovered] {
+    transform: none;
+  }
+
+  .card[data-hovered] .thumb > img {
+    transform: none;
+  }
+}
+
+/* Phone: a narrower card, so the next one shows at the edge. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .card {
+    width: 200px;
+  }
+
+  .thumb {
+    max-width: 96px;
+  }
 }
 
 .saved {
-  margin-top: 24px;
-  text-align: center;
+  margin: 0 0 4px;
+  text-wrap: pretty;
 }
 
 .retry {
@@ -84,6 +205,3 @@
   margin-top: 12px;
 }
 
-.pollError {
-  margin-top: 16px;
-}

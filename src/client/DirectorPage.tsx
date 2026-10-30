@@ -1,5 +1,21 @@
-import { CircleCheck, Clapperboard, Download, Expand, Image as ImageIcon, Projector, RotateCcw, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Clapperboard,
+  Download,
+  Expand,
+  Film,
+  Image as ImageIcon,
+  LayoutGrid,
+  Projector,
+  RectangleHorizontal,
+  RotateCcw,
+  Scissors,
+  X,
+} from 'lucide-react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Still } from '../api.ts';
 import {
@@ -11,19 +27,24 @@ import {
 } from '../models.ts';
 import type { FrameChoice, FramePlan, StoryboardJob } from '../storyboard-api.ts';
 import { MAX_STORYBOARD_IMAGES, STORYLINES, type StorylineId, storylineName } from '../storyboard.ts';
-import { FilmStep } from './director/FilmStep.tsx';
+import { directedLine, DirectionStyleSelect, useDirectionStyle } from './director/DirectionStyle.tsx';
+import { type FilmNext, FilmStep } from './director/FilmStep.tsx';
 import { FrameControls } from './director/FrameControls.tsx';
-import { FrameViewer } from './director/FrameViewer.tsx';
+import { FrameViewer, useImageLoads } from './director/FrameViewer.tsx';
 import { slugify } from './director/shared.ts';
 import { TakeImage } from './director/TakeImage.tsx';
 import { Section } from './layouts/Section.tsx';
-import { libraryUrl, useDownload } from './lib/download.ts';
+import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
+import { useAmbient } from './lib/ambient.tsx';
+import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
-import { EmptyState } from './ui/EmptyState.tsx';
+import { CompareSlider } from './ui/CompareSlider.tsx';
+import { CostLine } from './ui/CostLine.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
@@ -37,6 +58,7 @@ import styles from './Studio.module.css';
 
 const STORY_MAX = 1500;
 const UPLOADS_AT_ONCE = 3;
+const DROP_LABEL = 'Drop or choose project images';
 
 type Upload = {
   key: string;
@@ -49,6 +71,19 @@ type Upload = {
 };
 
 type SaveState = 'saving' | 'saved' | { error: unknown };
+
+/** What the inspector and the canvas are about: the storyboard itself, or one frame (its image index). */
+type Selection = 'job' | number;
+
+/** A frame's state as the strip and the contact sheet badge it. */
+type FrameState = 'unshot' | 'shooting' | 'shot' | 'failed';
+
+const STATE_LABEL: Record<FrameState, string> = {
+  unshot: 'Not shot',
+  shooting: 'Shooting',
+  shot: 'Shot',
+  failed: 'Failed',
+};
 
 export type DirectorPageProps = {
   /** Whether this tab is on screen; a hidden tab polls slowly and skips the library. */
@@ -66,6 +101,13 @@ function uploadErrorFrom(e: unknown): unknown {
     return kind.signIn || kind.consent ? e.body : { message: e.message };
   }
   return e instanceof Error ? e : { message: 'The image could not be uploaded. Try again.' };
+}
+
+function frameState(take: Still | undefined, shooting: boolean): FrameState {
+  if (shooting || take?.status === 'pending') return 'shooting';
+  if (take?.status === 'succeeded') return 'shot';
+  if (take?.status === 'failed') return 'failed';
+  return 'unshot';
 }
 
 export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProps) {
@@ -87,12 +129,19 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const [overflow, setOverflow] = useState(0);
   const [storyline, setStoryline] = useState<StorylineId>('day-in-the-life');
   const [story, setStory] = useState('');
+  const [directorStyle, setDirectorStyle] = useDirectionStyle('director');
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
   const [jobId, setJobId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Selection>('job');
+  /** The contact sheet on the canvas while a frame is selected. */
+  const [grid, setGrid] = useState(false);
 
   const plan = trpc.storyboard.plan.useMutation();
+  // A double-click's second press arrives before plan.isPending shows, and a
+  // second plan would leave an orphan job stuck in "planning".
+  const planGuard = useInFlight();
   // With no plan made here yet, this is the newest one, so a reload picks up where it was.
   const job = trpc.storyboard.job.useQuery(jobId ? { id: jobId } : {}, {
     refetchInterval: (q) => (q.state.data?.status === 'planning' ? (active ? 4000 : 15_000) : false),
@@ -183,12 +232,13 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const ready = uploads.length > 0 && pendingUploads === 0 && failedUploads === 0 && !storyTooLong;
 
   async function runPlan() {
-    if (!ready || planning) return;
+    if (!ready || planning || !planGuard.start()) return;
     try {
       const { id } = await plan.mutateAsync({
         images: uploads.map((u) => ({ url: u.hostedUrl!, width: u.width, height: u.height, name: u.name })),
         storyline,
         story,
+        directorStyle,
         imageModel,
         resolution,
       });
@@ -196,6 +246,8 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
       void utils.storyboard.job.invalidate();
     } catch {
       // Shown by RunwayErrorNotice from plan.error.
+    } finally {
+      planGuard.end();
     }
   }
 
@@ -215,6 +267,9 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     setSaves({});
     setShooting({});
     setShootErrors({});
+    // A new board opens on its setup and contact sheet.
+    setSelected('job');
+    setGrid(false);
   }, [boardId, current]);
 
   const noteTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -322,6 +377,35 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     [frames, drafts]
   );
   const allChosen = shotFrames.length > 0 && shotFrames.every((f) => chosen.has(f.image));
+
+  // ---- The selection: the storyboard, or one frame of it.
+  const selIndex = typeof selected === 'number' ? frames.findIndex((f) => f.image === selected) : -1;
+  const selFrame = selIndex >= 0 ? frames[selIndex] : undefined;
+  const showGrid = current?.status === 'planned' && (!selFrame || grid);
+  const selImg = selFrame && current ? current.images[selFrame.image] : undefined;
+  const sourceOk = useImageLoads(selImg?.url);
+  const selTake = selFrame ? takes.get(selFrame.image) : undefined;
+  const selRendering = selFrame ? Boolean(shooting[selFrame.image]) || selTake?.status === 'pending' : false;
+  const selDone = selTake?.status === 'succeeded' ? selTake : undefined;
+  const selChoice = selFrame ? drafts[selFrame.image] : undefined;
+  const selSave = selFrame ? saves[selFrame.image] : undefined;
+  const saver = useDownload();
+  const selectFrame = useCallback((image: number) => {
+    setSelected(image);
+    setGrid(false);
+  }, []);
+
+  // The room takes the light of the frame on the big screen (the viewer, or
+  // the canvas), else of the first project image; a reload (no uploads left)
+  // falls back to the first shot frame.
+  const onScreen = viewing ?? (selFrame && !showGrid ? selFrame.image : null);
+  const viewedTake = onScreen === null ? undefined : takes.get(onScreen);
+  const firstShot = shotFrames[0] ? takes.get(shotFrames[0].image) : undefined;
+  useAmbient(
+    viewedTake?.status === 'succeeded'
+      ? stillThumbUrl(viewedTake.id)
+      : (uploads[0]?.src ?? (firstShot ? stillThumbUrl(firstShot.id) : null))
+  );
   const [pickError, setPickError] = useState<unknown>(undefined);
   function chooseAll() {
     if (!boardId) return;
@@ -342,6 +426,13 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     return !shooting[f.image] && (!t || t.status === 'failed');
   });
   const [shootingAll, setShootingAll] = useState(false);
+  // Every frame has its take: the footer moves on to the film.
+  const allShot =
+    frames.length > 0 &&
+    !shootingAll &&
+    frames.every((f) => !shooting[f.image] && takes.get(f.image)?.status === 'succeeded');
+  /** The film step's next step, which the footer offers once every frame is shot. */
+  const [filmNext, setFilmNext] = useState<FilmNext | null>(null);
   async function shootAll() {
     setShootingAll(true);
     try {
@@ -351,97 +442,447 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     }
   }
 
-  const openFrame = useCallback((image: number) => setViewing(image), []);
+  // The viewer's arrows move the selection with it, so closing it lands on the frame last seen.
+  const onViewerImage = useCallback((image: number | null) => {
+    setViewing(image);
+    if (image !== null) {
+      setSelected(image);
+      setGrid(false);
+    }
+  }, []);
 
-  return (
-    <>
-      <div className={styles.layout}>
-        <div className={styles.controls}>
-          <PageHeader
-            title="Direct the film"
-            description="Upload every image of the project and pick a story. The app plans each frame's light, camera and people, then shoots them true to what is in your images."
+  const planLabel = planning
+    ? 'Planning the storyboard…'
+    : uploads.length === 0
+      ? 'Add project images first'
+      : pendingUploads > 0
+        ? 'Uploading the images…'
+        : failedUploads > 0
+          ? 'Retry or remove the failed upload'
+          : storyTooLong
+            ? 'Shorten your story first'
+            : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`;
+  const planned = current?.status === 'planned' ? current : null;
+  const directed = directedLine(planned?.directorStyle);
+
+  // ---- The canvas.
+  let canvasState: CanvasState;
+  let canvas: ReactNode = null;
+  let aspectRatio: string | undefined = '16 / 9';
+  let caption: ReactNode;
+  let canvasNote: ReactNode;
+  let canvasActions: ReactNode;
+  let empty: { title: string; hint: string; action: string; label: string } | undefined;
+  if (planned && (showGrid || !selFrame)) {
+    canvasState = 'free';
+    aspectRatio = undefined;
+    canvas = (
+      <ol className={own.sheet} aria-label="Storyboard frames">
+        {frames.map((f, i) => (
+          <SheetCard
+            key={`${planned.id}-${f.image}`}
+            order={i + 1}
+            frame={f}
+            job={planned}
+            take={takes.get(f.image)}
+            shooting={Boolean(shooting[f.image])}
+            chosen={chosen.has(f.image)}
+            current={selected === f.image}
+            onSelect={selectFrame}
           />
-          <Section step={1} title="Project images" description={`Renders or photos of one project, up to ${MAX_STORYBOARD_IMAGES}.`}>
-            <div className={styles.stack}>
-              <ImageDropZone
-                onFiles={(files) => void addFiles(files)}
-                disabled={planning || uploads.length >= MAX_STORYBOARD_IMAGES}
-                actionLabel={uploads.length ? 'Add images' : 'Choose images'}
-              >
-                <div className={own.dropEmpty}>
-                  <ImageIcon size={20} aria-hidden />
-                  <Text tone="secondary" size="sm">
-                    {uploads.length >= MAX_STORYBOARD_IMAGES
-                      ? `That is the full ${MAX_STORYBOARD_IMAGES}. Remove one to add another.`
-                      : 'Drop your project images here, several at once. PNG, JPEG or WebP.'}
-                  </Text>
-                </div>
-              </ImageDropZone>
-              {overflow > 0 && (
-                <Alert tone="warning" title={`${overflow} image${overflow === 1 ? ' was' : 's were'} left out`}>
-                  A storyboard takes up to {MAX_STORYBOARD_IMAGES} images. Remove one to add another.
-                </Alert>
+        ))}
+      </ol>
+    );
+  } else if (planned && selFrame) {
+    const order = selIndex + 1;
+    const title = `${order}. ${selFrame.title}`;
+    aspectRatio = selDone
+      ? `${selDone.width} / ${selDone.height}`
+      : selImg
+        ? `${selImg.width} / ${selImg.height}`
+        : '16 / 9';
+    caption = `Frame ${order} of ${frames.length} · ${selFrame.space === 'interior' ? 'Interior' : 'Exterior'} · ${imageModelName(planned.imageModel)}`;
+    if (selRendering) {
+      canvasState = 'live';
+      canvas = (
+        <RenderingStatus
+          label={shooting[selFrame.image] ? 'Starting the take…' : 'Shooting the frame…'}
+          runKey={selTake?.id ?? `${planned.id}-${selFrame.image}`}
+        />
+      );
+    } else if (selDone) {
+      canvasState = 'live';
+      canvas =
+        selImg && sourceOk === true ? (
+          <CompareSlider
+            key={selDone.id}
+            className={own.canvasCompare}
+            before={selImg.url}
+            after={stillViewUrl(selDone.id)}
+            afterFallback={stillThumbUrl(selDone.id)}
+            beforeAlt={`Your image: ${selImg.name || selFrame.title}`}
+            afterAlt={`Film still: ${selFrame.title}`}
+            aspectRatio={aspectRatio}
+          />
+        ) : (
+          <TakeImage key={selDone.id} full stillId={selDone.id} alt={`Film still: ${selFrame.title}`} className={own.canvasImage} />
+        );
+      canvasActions = (
+        <>
+          <ToggleButton
+            selected={Boolean(selChoice?.selected)}
+            onChange={(next) => onChoose(selFrame.image, { selected: next })}
+          >
+            {selChoice?.selected ? 'In the film' : 'Use in film'}
+          </ToggleButton>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Download size={14} />}
+            loading={saver.pending}
+            aria-label={saver.pending ? undefined : `Download ${title}`}
+            onPress={() => saver.start(libraryUrl('still', selDone.id), `storyboard-${order}-${slugify(selFrame.title)}.png`)}
+          >
+            {saver.label('Download')}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Film size={14} />} onPress={() => onAnimate(selDone.id)}>
+            Animate
+          </Button>
+        </>
+      );
+    } else if (selTake?.status === 'failed') {
+      canvasState = 'live';
+      canvas = (
+        <div className={styles.frameAlert}>
+          <Alert tone="error" title="This frame didn't render">
+            {selTake.error ?? 'Shoot it again.'}
+          </Alert>
+        </div>
+      );
+    } else if (selImg && sourceOk !== false) {
+      canvasState = 'preview';
+      canvas = <img src={selImg.url} alt={`Your image: ${selImg.name || selFrame.title}`} decoding="async" />;
+      canvasNote = 'This frame will appear here once shot';
+    } else {
+      canvasState = 'live';
+      canvas = (
+        <div className={styles.frameAlert}>
+          <Text tone="muted" size="sm" as="p">
+            This frame isn't shot yet, and its uploaded image is no longer kept. Plan a new storyboard to shoot it.
+          </Text>
+        </div>
+      );
+    }
+  } else if (planning) {
+    canvasState = 'live';
+    canvas = (
+      <RenderingStatus
+        label={
+          plan.isPending
+            ? 'Sending the images to Claude…'
+            : `Planning ${current?.images.length ?? uploads.length} frames: order, light, camera and people…`
+        }
+        runKey={current?.id}
+      />
+    );
+  } else if (current?.status === 'failed' && uploads.length > 0) {
+    canvasState = 'live';
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="error" title="The storyboard wasn't planned">
+          {current.error ?? 'Plan the storyboard again.'}
+        </Alert>
+        <div className={own.retry}>
+          <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void runPlan()} disabled={!ready}>
+            {ready ? 'Plan again' : 'Add the images again to plan'}
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (job.isLoading && uploads.length === 0) {
+    canvasState = 'live';
+    canvas = <RenderingStatus label="Loading your storyboard…" />;
+  } else if (uploads[0]) {
+    canvasState = 'preview';
+    aspectRatio = `${uploads[0].width} / ${uploads[0].height}`;
+    canvas = <img src={uploads[0].src} alt={`Project image: ${uploads[0].name}`} decoding="async" />;
+    canvasNote = 'Your storyboard will appear here';
+    caption = `${uploads.length} project image${uploads.length === 1 ? '' : 's'} · ${storylineName(storyline)}`;
+  } else {
+    // Nothing to show yet, or a plan that failed after a reload emptied the
+    // uploader: the frame is where the images go (never a stale error).
+    canvasState = 'empty';
+    empty = {
+      title: current?.status === 'failed' ? 'Drop your project images again' : 'Drop your project images',
+      hint:
+        current?.status === 'failed'
+          ? 'Add the images again to plan.'
+          : `Renders or photos of one project, up to ${MAX_STORYBOARD_IMAGES}. Then pick a story and plan the frames.`,
+      action: 'Choose project images',
+      label: DROP_LABEL,
+    };
+  }
+
+  // ---- The canvas toolbar: contact sheet or one frame, step through, full screen.
+  const prevFrame = selIndex > 0 ? frames[selIndex - 1] : undefined;
+  const nextFrame = selFrame ? frames[selIndex + 1] : frames[0];
+  const canvasToolbar = planned ? (
+    <>
+      <button type="button" className={own.tool} aria-pressed={showGrid} onClick={() => setGrid(true)}>
+        <LayoutGrid size={16} aria-hidden />
+        <span>Grid</span>
+      </button>
+      <button
+        type="button"
+        className={own.tool}
+        aria-pressed={!showGrid}
+        disabled={frames.length === 0}
+        onClick={() => {
+          const first = frames[0];
+          if (selFrame) setGrid(false);
+          else if (first) selectFrame(first.image);
+        }}
+      >
+        <RectangleHorizontal size={16} aria-hidden />
+        <span>Frame</span>
+      </button>
+      <span className={own.toolSep} aria-hidden />
+      <button
+        type="button"
+        className={own.tool}
+        aria-label="Previous frame"
+        title="Previous frame"
+        disabled={!prevFrame}
+        onClick={() => prevFrame && selectFrame(prevFrame.image)}
+      >
+        <ChevronLeft size={16} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className={own.tool}
+        aria-label="Next frame"
+        title="Next frame"
+        disabled={!nextFrame}
+        onClick={() => nextFrame && selectFrame(nextFrame.image)}
+      >
+        <ChevronRight size={16} aria-hidden />
+      </button>
+      <span className={own.toolSep} aria-hidden />
+      <button
+        type="button"
+        className={own.tool}
+        disabled={frames.length === 0}
+        onClick={() => setViewing(selFrame?.image ?? frames[0]?.image ?? null)}
+      >
+        <Expand size={16} aria-hidden />
+        <span>Full screen</span>
+      </button>
+    </>
+  ) : undefined;
+
+  // ---- The strip: the storyboard's setup, then every frame in story order.
+  const strip = planned ? (
+    <>
+      <button
+        type="button"
+        className={own.jobCard}
+        aria-pressed={!selFrame}
+        aria-label="Storyboard: setup and film"
+        onClick={() => {
+          setSelected('job');
+          setGrid(false);
+        }}
+      >
+        <Projector size={18} aria-hidden />
+        <span className={own.jobCardTitle}>Storyboard</span>
+        <span className={own.jobCardMeta}>
+          {frames.length} frame{frames.length === 1 ? '' : 's'}
+        </span>
+      </button>
+      <ol className={own.strip} aria-label="Frames in story order">
+        {frames.map((f, i) => (
+          <StripCard
+            key={`${planned.id}-${f.image}`}
+            order={i + 1}
+            frame={f}
+            job={planned}
+            take={takes.get(f.image)}
+            shooting={Boolean(shooting[f.image])}
+            chosen={chosen.has(f.image)}
+            current={selected === f.image}
+            onSelect={selectFrame}
+          />
+        ))}
+      </ol>
+    </>
+  ) : undefined;
+
+  // ---- The inspector and its footer.
+  const header = (
+    <PageHeader
+      title="Direct the film"
+      description="Upload every image of the project and pick a story. The app plans each frame's light, camera and people, then shoots them true to what is in your images."
+    />
+  );
+
+  let inspector: ReactNode;
+  let footer: ReactNode;
+  if (planned && selFrame) {
+    const order = selIndex + 1;
+    const failed = selTake?.status === 'failed' && !shooting[selFrame.image];
+    inspector = (
+      <>
+        {header}
+        <Section title={`Frame ${order}: ${selFrame.title}`}>
+          <div className={styles.stack}>
+            <div className={own.cardText}>
+              <Text tone="muted" size="sm" as="p">
+                Frame {order} of {frames.length}, {selFrame.space === 'interior' ? 'interior' : 'exterior'}
+              </Text>
+              {selFrame.beat && (
+                <Text tone="secondary" size="sm" as="p">
+                  {selFrame.beat}
+                </Text>
               )}
-              {uploads.length > 0 && (
-                <ul className={own.thumbs} aria-label="Project images">
-                  {uploads.map((u) => (
-                    <li key={u.key} className={own.thumb}>
-                      <img className={own.thumbImg} src={u.src} alt={u.name} data-dimmed={!u.hostedUrl || undefined} />
-                      {!u.hostedUrl && !u.error && (
-                        <span className={own.thumbState} role="status">
-                          Uploading…
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className={own.thumbRemove}
-                        icon={<X size={14} />}
-                        aria-label={`Remove ${u.name}`}
-                        onPress={() => removeUpload(u.key)}
-                        disabled={planning}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {uploads
-                .filter((u) => u.error)
-                .map((u) => (
-                  <div key={u.key} className={own.uploadError}>
-                    <RunwayErrorNotice
-                      error={u.error}
-                      modelName={`the upload of ${u.name}`}
-                      onRetry={filesRef.current.has(u.key) ? () => retryUpload(u.key) : () => removeUpload(u.key)}
+            </div>
+            {failed && (
+              <Alert tone="error" title="This frame didn't render">
+                {selTake?.error ?? 'Shoot it again.'}
+              </Alert>
+            )}
+            <FrameControls
+              key={`${planned.id}-${selFrame.image}`}
+              frame={selFrame}
+              choice={selChoice}
+              disabled={selRendering}
+              onChoose={onChoose}
+              onShoot={(i) => void shoot(i)}
+            />
+            <span className={own.saveState} role="status">
+              {selSave === 'saving' ? 'Saving…' : selSave === 'saved' ? 'Saved' : ''}
+            </span>
+            {selSave && typeof selSave === 'object' && (
+              <RunwayErrorNotice error={selSave.error} modelName="your storyboard" />
+            )}
+            <RunwayErrorNotice
+              error={shootErrors[selFrame.image]}
+              modelName={imageModelName(planned.imageModel)}
+              onRetry={() => void shoot(selFrame.image)}
+            />
+            {saver.error && (
+              <Alert tone="error" title="Download failed">
+                {saver.error}
+              </Alert>
+            )}
+          </div>
+        </Section>
+      </>
+    );
+    footer = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          className={styles.generate}
+          icon={<Clapperboard size={16} />}
+          loading={selRendering}
+          onPress={() => void shoot(selFrame.image)}
+        >
+          {selRendering ? 'Shooting…' : selDone || selTake?.status === 'failed' ? 'Shoot again' : 'Shoot this frame'}
+        </Button>
+        <CostLine
+          summary={`Each take with ${imageModelName(planned.imageModel)} costs the same as a still, billed to your own Runway credits. Earlier takes stay under Full screen.`}
+        />
+      </>
+    );
+  } else {
+    inspector = (
+      <>
+        {header}
+        <Section step={1} title="Project images" description={`Renders or photos of one project, up to ${MAX_STORYBOARD_IMAGES}.`}>
+          <div className={styles.stack}>
+            <ImageDropZone
+              onFiles={(files) => void addFiles(files)}
+              disabled={planning || uploads.length >= MAX_STORYBOARD_IMAGES}
+              actionLabel={uploads.length ? 'Add images' : 'Choose images'}
+              label={DROP_LABEL}
+            >
+              <div className={own.dropEmpty}>
+                <ImageIcon size={20} aria-hidden />
+                <Text tone="secondary" size="sm">
+                  {uploads.length >= MAX_STORYBOARD_IMAGES
+                    ? `That is the full ${MAX_STORYBOARD_IMAGES}. Remove one to add another.`
+                    : 'Drop your project images here, several at once. PNG, JPEG or WebP.'}
+                </Text>
+              </div>
+            </ImageDropZone>
+            {overflow > 0 && (
+              <Alert tone="warning" title={`${overflow} image${overflow === 1 ? ' was' : 's were'} left out`}>
+                A storyboard takes up to {MAX_STORYBOARD_IMAGES} images. Remove one to add another.
+              </Alert>
+            )}
+            {uploads.length > 0 && (
+              <ul className={own.thumbs} aria-label="Project images">
+                {uploads.map((u) => (
+                  <li key={u.key} className={own.thumb}>
+                    <img className={own.thumbImg} src={u.src} alt={u.name} data-dimmed={!u.hostedUrl || undefined} />
+                    {!u.hostedUrl && !u.error && (
+                      <span className={own.thumbState} role="status">
+                        Uploading…
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className={own.thumbRemove}
+                      icon={<X size={14} />}
+                      aria-label={`Remove ${u.name}`}
+                      onPress={() => removeUpload(u.key)}
+                      disabled={planning}
                     />
-                  </div>
+                  </li>
                 ))}
-            </div>
-          </Section>
+              </ul>
+            )}
+            {uploads
+              .filter((u) => u.error)
+              .map((u) => (
+                <div key={u.key} className={own.uploadError}>
+                  <RunwayErrorNotice
+                    error={u.error}
+                    modelName={`the upload of ${u.name}`}
+                    onRetry={filesRef.current.has(u.key) ? () => retryUpload(u.key) : () => removeUpload(u.key)}
+                  />
+                </div>
+              ))}
+          </div>
+        </Section>
 
-          <Section step={2} title="Story" description="The narrative the frames are ordered, lit and peopled for.">
-            <div className={styles.stack}>
-              <Select
-                label="Storyline"
-                options={STORYLINES}
-                value={storyline}
-                onChange={(id) => setStoryline(id as StorylineId)}
-                disabled={planning}
-              />
-              <TextArea
-                label="Your story (optional)"
-                value={story}
-                onChange={setStory}
-                rows={3}
-                maxLength={STORY_MAX}
-                disabled={planning}
-                placeholder="e.g. A young family's first weekend at their new villa: arriving Friday evening, a lazy Saturday by the pool, dinner on the terrace"
-                onSubmit={() => void runPlan()}
-              />
-            </div>
-          </Section>
+        <Section step={2} title="Story" description="The narrative the frames are ordered, lit and peopled for.">
+          <div className={styles.stack}>
+            <Select
+              label="Storyline"
+              options={STORYLINES}
+              value={storyline}
+              onChange={(id) => setStoryline(id as StorylineId)}
+              disabled={planning}
+            />
+            <TextArea
+              label="Your story (optional)"
+              value={story}
+              onChange={setStory}
+              rows={3}
+              maxLength={STORY_MAX}
+              disabled={planning}
+              placeholder="e.g. A young family's first weekend at their new villa: arriving Friday evening, a lazy Saturday by the pool, dinner on the terrace"
+              onSubmit={() => void runPlan()}
+            />
+            <DirectionStyleSelect value={directorStyle} onChange={setDirectorStyle} disabled={planning} />
+          </div>
+        </Section>
 
-          <Section step={3} title="Model" description="Shoots each frame from its image.">
+        <Section step={3} title="Model" description="Shoots each frame from its image.">
+          <div className={styles.stack}>
             <div className={styles.selectRow}>
               <Select
                 label="Image model"
@@ -465,161 +906,182 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
                 />
               )}
             </div>
-          </Section>
-
-          <div className={styles.actionBar}>
-            <Button
-              variant="primary"
-              className={styles.generate}
-              icon={<Projector size={16} />}
-              loading={planning}
-              disabled={!ready}
-              onPress={() => void runPlan()}
-            >
-              {planning
-                ? 'Planning the storyboard…'
-                : uploads.length === 0
-                  ? 'Add project images first'
-                  : pendingUploads > 0
-                    ? 'Uploading the images…'
-                    : failedUploads > 0
-                      ? 'Retry or remove the failed upload'
-                      : storyTooLong
-                        ? 'Shorten your story first'
-                        : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
-            </Button>
-            <Text tone="muted" size="sm" as="p" className={styles.meta}>
-              Claude plans the storyboard, a few credits for every six images. Nothing is shot until you say so; each
-              frame you shoot with {imageModelName(imageModel)} costs the same as a still. Billed to your own Runway
-              credits.
-            </Text>
-            <RunwayErrorNotice error={plan.error} modelName="Claude" onRetry={() => void runPlan()} />
-          </div>
-        </div>
-
-        <div className={styles.result} data-stage>
-          {current?.status === 'planned' ? (
-            <Section title={`Storyboard: ${storylineName(current.storyline)}`}>
-              <div className={own.boardHead}>
+            {/* With a storyboard on the board, planning a new one is the secondary action here. */}
+            {planned && uploads.length > 0 && (
+              <div className={own.replan}>
+                <Button icon={<Projector size={16} />} loading={planning} disabled={!ready} onPress={() => void runPlan()}>
+                  {planLabel}
+                </Button>
                 <Text tone="muted" size="sm" as="p">
-                  {frames.length} frame{frames.length === 1 ? '' : 's'} in story order, shot with{' '}
-                  {imageModelName(current.imageModel)}. Each list puts the recommended choice first; change any of them
-                  before you shoot.
+                  Plans a new storyboard from these images; this one stays in your library.
                 </Text>
-                <div className={own.cardActions}>
-                  {shotFrames.length > 0 && (
-                    <Button variant="ghost" icon={<CircleCheck size={16} />} onPress={chooseAll}>
-                      {allChosen ? 'Clear the film choice' : 'Choose all shot frames'}
-                    </Button>
-                  )}
-                  {unshot.length > 0 && (
-                    <Button
-                      icon={<Clapperboard size={16} />}
-                      loading={shootingAll}
-                      onPress={() => void shootAll()}
-                    >
-                      {shootingAll
-                        ? 'Shooting the frames…'
-                        : unshot.length === frames.length
-                          ? `Shoot all ${frames.length} frames`
-                          : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
-                    </Button>
-                  )}
-                </div>
               </div>
-              {current.warning && (
-                <div className={own.pollError}>
-                  <Alert tone="warning" title="Part of the storyboard wasn't planned">
-                    {current.warning}
-                  </Alert>
+            )}
+            <RunwayErrorNotice error={plan.error} modelName="Claude" onRetry={() => void runPlan()} />
+            {job.error && (
+              <RunwayErrorNotice error={job.error} modelName="Claude" onRetry={() => void job.refetch()} />
+            )}
+          </div>
+        </Section>
+
+        {planned && (
+          <Section title={`Storyboard: ${storylineName(planned.storyline)}`}>
+            <div className={styles.stack}>
+              <Text tone="muted" size="sm" as="p">
+                {frames.length} frame{frames.length === 1 ? '' : 's'} in story order, shot with{' '}
+                {imageModelName(planned.imageModel)}.{directed ? ` ${directed}.` : ''} Pick a frame in the strip to
+                change its light, camera or people before you shoot; each list puts the recommended choice first.
+              </Text>
+              {shotFrames.length > 0 && (
+                <div className={own.cardActions}>
+                  <Button variant="ghost" icon={<CircleCheck size={16} />} onPress={chooseAll}>
+                    {allChosen ? 'Clear the film choice' : 'Choose all shot frames'}
+                  </Button>
                 </div>
+              )}
+              {planned.warning && (
+                <Alert tone="warning" title="Part of the storyboard wasn't planned">
+                  {planned.warning}
+                </Alert>
               )}
               {pickError !== undefined && (
-                <div className={own.pollError}>
-                  <RunwayErrorNotice error={pickError} modelName="your storyboard" onRetry={chooseAll} />
-                </div>
+                <RunwayErrorNotice error={pickError} modelName="your storyboard" onRetry={chooseAll} />
               )}
-              <ol className={own.frames}>
-                {frames.map((f, i) => (
-                  <FrameCard
-                    key={`${current.id}-${f.image}`}
-                    order={i + 1}
-                    frame={f}
-                    job={current}
-                    choice={drafts[f.image]}
-                    save={saves[f.image]}
-                    take={takes.get(f.image)}
-                    shooting={Boolean(shooting[f.image])}
-                    shootError={shootErrors[f.image]}
-                    onChoose={onChoose}
-                    onShoot={shoot}
-                    onOpen={openFrame}
-                    onAnimate={onAnimate}
-                  />
-                ))}
-              </ol>
-              <Text tone="muted" size="sm" as="p" className={own.saved}>
+              <Text tone="muted" size="sm" as="p">
                 Every frame is saved to your library, tagged @storyboard. Shoot within a day or so of planning: the
                 uploaded images are only kept that long.
               </Text>
-              <FilmStep
-                job={current}
-                frames={frames}
-                takes={takes}
-                chosen={chosen}
-                clips={library.data?.clips ?? []}
-                onMade={onMade}
-                onGoToEdit={onGoToEdit}
-              />
-            </Section>
-          ) : (
-            <Section title="Storyboard">
-              <div className={styles.resultFrame} style={{ aspectRatio: '16 / 9', ['--ar' as string]: '16 / 9' }}>
-                {planning ? (
-                  <RenderingStatus
-                    label={
-                      plan.isPending
-                        ? 'Sending the images to Claude…'
-                        : `Planning ${current?.images.length ?? uploads.length} frames: order, light, camera and people…`
-                    }
-                    runKey={current?.id}
-                  />
-                ) : current?.status === 'failed' ? (
-                  <div className={styles.frameAlert}>
-                    <Alert tone="error" title="The storyboard wasn't planned">
-                      {current.error ?? 'Plan the storyboard again.'}
-                    </Alert>
-                    <div className={own.retry}>
-                      <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void runPlan()} disabled={!ready}>
-                        {ready ? 'Plan again' : 'Add the images again to plan'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : job.isLoading ? (
-                  <RenderingStatus label="Loading your storyboard…" />
-                ) : (
-                  <EmptyState
-                    title="Your storyboard will appear here"
-                    hint="Upload the project's images, pick a storyline, then press Plan. Each frame comes back with a recommended light, camera move and people, ready to shoot."
-                  />
-                )}
-              </div>
-            </Section>
-          )}
-          {job.error && (
-            <div className={own.pollError}>
-              <RunwayErrorNotice error={job.error} modelName="Claude" onRetry={() => void job.refetch()} />
             </div>
-          )}
-        </div>
-      </div>
+          </Section>
+        )}
+        {planned && (
+          <FilmStep
+            job={planned}
+            frames={frames}
+            takes={takes}
+            chosen={chosen}
+            clips={library.data?.clips ?? []}
+            onMade={onMade}
+            onGoToEdit={onGoToEdit}
+            onNext={setFilmNext}
+            actionInFooter={allShot}
+          />
+        )}
+      </>
+    );
+    if (!planned) {
+      footer = (
+        <>
+          <Button
+            variant="primary"
+            size="lg"
+            className={styles.generate}
+            icon={<Projector size={16} />}
+            loading={planning}
+            disabled={!ready}
+            onPress={() => void runPlan()}
+          >
+            {planLabel}
+          </Button>
+          <CostLine
+            summary="Claude plans the storyboard, a few credits for every six images. Nothing is shot until you say so."
+            details={`Each frame you shoot with ${imageModelName(imageModel)} costs the same as a still. Billed to your own Runway credits.`}
+          />
+        </>
+      );
+    } else if (allShot && filmNext?.kind === 'make') {
+      // Every frame is shot: the film's clips are the next step.
+      footer = (
+        <>
+          <Button
+            variant="primary"
+            size="lg"
+            className={styles.generate}
+            icon={<Clapperboard size={16} />}
+            loading={filmNext.busy}
+            onPress={filmNext.make}
+          >
+            {filmNext.label}
+          </Button>
+          <CostLine summary="Every frame is shot. Next, a clip of each frame chosen for the film." details={filmNext.cost} />
+          <RunwayErrorNotice
+            error={filmNext.error}
+            modelName={filmNext.modelName}
+            onRetry={filmNext.busy ? undefined : filmNext.make}
+          />
+        </>
+      );
+    } else if (allShot) {
+      footer = (
+        <>
+          <Button variant="primary" size="lg" className={styles.generate} icon={<Scissors size={16} />} onPress={onGoToEdit}>
+            Open the film in Edit
+          </Button>
+          <CostLine
+            summary={
+              !filmNext || filmNext.kind !== 'edit' || filmNext.film === 0
+                ? 'Every frame is shot. Choose the frames for your film to make their clips here first.'
+                : filmNext.rendering > 0
+                  ? `Every frame is shot and every chosen frame has a clip; ${filmNext.rendering} still rendering.`
+                  : 'Every frame is shot and every chosen frame has a clip.'
+            }
+          />
+        </>
+      );
+    } else {
+      footer = (
+        <>
+          <Button
+            variant="primary"
+            size="lg"
+            className={styles.generate}
+            icon={<Clapperboard size={16} />}
+            // Nothing is left to send while the last frames render: it waits for them.
+            loading={shootingAll || unshot.length === 0}
+            onPress={() => void shootAll()}
+          >
+            {shootingAll || unshot.length === 0
+              ? 'Shooting the frames…'
+              : unshot.length === frames.length
+                ? frames.length === 1
+                  ? 'Shoot the frame'
+                  : `Shoot all ${frames.length} frames`
+                : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
+          </Button>
+          <CostLine
+            summary={`Each frame with ${imageModelName(planned.imageModel)} costs the same as a still, billed to your own Runway credits.`}
+          />
+        </>
+      );
+    }
+  }
 
-      {current?.status === 'planned' && (
+  return (
+    <>
+      <Workspace
+        page="director"
+        canvasState={canvasState}
+        canvas={canvas}
+        aspectRatio={aspectRatio}
+        caption={caption}
+        canvasNote={canvasNote}
+        canvasToolbar={canvasToolbar}
+        canvasActions={canvasActions}
+        onDropFiles={!planned && !planning ? (files) => void addFiles(files) : undefined}
+        empty={empty ?? { title: 'Drop your project images', hint: '', action: 'Choose project images', label: DROP_LABEL }}
+        inspector={inspector}
+        footer={footer}
+        strip={strip}
+        stripLabel="Frames"
+        raiseSheet={selected}
+      />
+
+      {planned && (
         <FrameViewer
-          job={current}
+          job={planned}
           frames={frames}
           image={viewing}
-          onImage={setViewing}
+          onImage={onViewerImage}
           takes={takes}
           allTakes={allTakes}
           drafts={drafts}
@@ -638,147 +1100,104 @@ type FrameCardProps = {
   order: number;
   frame: FramePlan;
   job: StoryboardJob;
-  choice: FrameChoice | undefined;
-  save: SaveState | undefined;
   take: Still | undefined;
   shooting: boolean;
-  shootError: unknown;
-  onChoose: (image: number, patch: FrameChoice) => void;
-  onShoot: (image: number) => Promise<void>;
-  onOpen: (image: number) => void;
-  onAnimate: (stillId: string) => void;
+  chosen: boolean;
+  /** The selected frame. */
+  current: boolean;
+  onSelect: (image: number) => void;
 };
 
-/** One frame of the storyboard. Memoised, with its own download state, so a
- * poll or one card's download doesn't re-render the others. */
-const FrameCard = memo(function FrameCard({
-  order,
-  frame,
-  job,
-  choice,
-  save,
-  take,
-  shooting,
-  shootError,
-  onChoose,
-  onShoot,
-  onOpen,
-  onAnimate,
-}: FrameCardProps) {
-  const saver = useDownload();
-  const [sourceBroken, setSourceBroken] = useState(false);
+/** A frame's picture for the strip and the contact sheet: the take once shot, else its project image, dimmed. */
+function FrameThumb({ frame, job, take }: Pick<FrameCardProps, 'frame' | 'job' | 'take'>) {
+  const [broken, setBroken] = useState(false);
   const img = job.images[frame.image];
-  const aspect = img ? `${img.width} / ${img.height}` : '16 / 9';
-  const title = `${order}. ${frame.title}`;
-  const rendering = shooting || take?.status === 'pending';
-  const done = take?.status === 'succeeded' ? take : undefined;
-  const selected = Boolean(choice?.selected);
+  if (take?.status === 'succeeded') {
+    return <TakeImage key={take.id} quiet stillId={take.id} alt="" className={own.thumbPicture} />;
+  }
+  if (img && !broken) {
+    return (
+      <img
+        className={`${own.thumbPicture} ${own.source}`}
+        src={img.url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return <span className={own.thumbBlank} aria-hidden />;
+}
 
+/** One frame in the filmstrip: its picture, its number, its state and the film tick. Pressing it selects it. */
+const StripCard = memo(function StripCard({ order, frame, job, take, shooting, chosen, current, onSelect }: FrameCardProps) {
+  const state = frameState(take, shooting);
+  const done = state === 'shot';
   return (
-    <li className={own.card}>
-      <div className={own.cardFrame} style={{ aspectRatio: aspect }} data-chosen={(done && selected) || undefined}>
-        {rendering ? (
-          <RenderingStatus label={shooting ? 'Starting the take…' : 'Shooting the frame…'} runKey={take?.id ?? `${job.id}-${frame.image}`} />
-        ) : done ? (
-          <TakeImage
-            key={done.id}
-            stillId={done.id}
-            alt={`Film still: ${frame.title}`}
-            className={styles.image}
-            onOpen={() => onOpen(frame.image)}
-            openLabel={`Open on the big screen: ${title}`}
-            openClassName={own.frameButton}
-          />
-        ) : img && !sourceBroken ? (
-          <>
-            <img
-              className={`${styles.image} ${own.source}`}
-              src={img.url}
-              alt={`Project image: ${img.name || frame.title}`}
-              loading="lazy"
-              decoding="async"
-              onError={() => setSourceBroken(true)}
-            />
-            <span className={own.sourceChip}>Your image</span>
-          </>
-        ) : (
-          <div className={styles.frameAlert}>
-            <Text tone="muted" size="sm" as="p">
-              This uploaded image is no longer kept. Plan a new storyboard to shoot it.
-            </Text>
-          </div>
-        )}
-      </div>
-
-      {take?.status === 'failed' && !shooting && (
-        <Alert tone="error" title="This frame didn't render">
-          {take.error ?? 'Shoot it again.'}
-        </Alert>
-      )}
-
-      <div className={own.cardText}>
-        <h3 className={own.cardTitle}>
-          <span className={own.cardNo}>{order}</span>
-          {frame.title}
-          <span className={own.space}>{frame.space === 'interior' ? 'Interior' : 'Exterior'}</span>
-        </h3>
-        {frame.beat && (
-          <Text tone="secondary" size="sm" as="p">
-            {frame.beat}
-          </Text>
-        )}
-      </div>
-
-      <FrameControls frame={frame} choice={choice} disabled={rendering} onChoose={onChoose} onShoot={(i) => void onShoot(i)} />
-
-      <div className={own.cardActions}>
-        {done && (
-          <ToggleButton selected={selected} onChange={(next) => onChoose(frame.image, { selected: next })}>
-            {selected ? 'In the film' : 'Use in film'}
-          </ToggleButton>
-        )}
-        <Button
-          size="sm"
-          variant={done ? 'default' : 'primary'}
-          icon={<Clapperboard size={14} />}
-          loading={rendering}
-          onPress={() => void onShoot(frame.image)}
-        >
-          {rendering ? 'Shooting…' : done || take?.status === 'failed' ? 'Shoot again' : 'Shoot this frame'}
-        </Button>
-        {done && (
-          <>
-            <Button size="sm" variant="ghost" icon={<Expand size={14} />} onPress={() => onOpen(frame.image)}>
-              Compare
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<Download size={14} />}
-              loading={saver.pending}
-              aria-label={saver.pending ? undefined : `Download ${title}`}
-              onPress={() => saver.start(libraryUrl('still', done.id), `storyboard-${order}-${slugify(frame.title)}.png`)}
-            >
-              {saver.label('Download')}
-            </Button>
-            <Button size="sm" variant="ghost" onPress={() => onAnimate(done.id)}>
-              Video tab
-            </Button>
-          </>
-        )}
-        <span className={own.saveState} role="status">
-          {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : ''}
+    <li className={own.stripItem} data-frame={frame.image} data-state={state}>
+      <button
+        type="button"
+        className={own.stripCard}
+        aria-pressed={current}
+        aria-label={`Frame ${order}: ${frame.title}, ${STATE_LABEL[state].toLowerCase()}${done && chosen ? ', in the film' : ''}`}
+        data-chosen={(done && chosen) || undefined}
+        onClick={() => onSelect(frame.image)}
+      >
+        <FrameThumb frame={frame} job={job} take={take} />
+        <span className={own.stripNo} aria-hidden>
+          {order}
         </span>
-      </div>
-      {save && typeof save === 'object' && (
-        <RunwayErrorNotice error={save.error} modelName="your storyboard" />
-      )}
-      <RunwayErrorNotice error={shootError} modelName={imageModelName(job.imageModel)} onRetry={() => void onShoot(frame.image)} />
-      {saver.error && (
-        <Alert tone="error" title="Download failed">
-          {saver.error}
-        </Alert>
-      )}
+        {!done && (
+          <span className={own.badge} data-state={state} aria-hidden>
+            {STATE_LABEL[state]}
+          </span>
+        )}
+        {done && chosen && (
+          <span className={own.tick} aria-hidden>
+            <Check size={12} strokeWidth={3} />
+          </span>
+        )}
+      </button>
+    </li>
+  );
+});
+
+/** One frame on the contact sheet: picture, number, title and state. Pressing it opens the frame. */
+const SheetCard = memo(function SheetCard({ order, frame, job, take, shooting, chosen, current, onSelect }: FrameCardProps) {
+  const state = frameState(take, shooting);
+  const done = state === 'shot';
+  const img = job.images[frame.image];
+  const aspect = done && take ? `${take.width} / ${take.height}` : img ? `${img.width} / ${img.height}` : '16 / 9';
+  return (
+    <li className={own.sheetItem}>
+      <button
+        type="button"
+        className={own.sheetCard}
+        aria-current={current || undefined}
+        data-chosen={(done && chosen) || undefined}
+        onClick={() => onSelect(frame.image)}
+      >
+        <span className={own.sheetFrame} style={{ aspectRatio: aspect }}>
+          <FrameThumb frame={frame} job={job} take={take} />
+          {!done && (
+            <span className={own.badge} data-state={state}>
+              {STATE_LABEL[state]}
+            </span>
+          )}
+          {done && chosen && (
+            <span className={own.tick}>
+              <Check size={12} strokeWidth={3} aria-hidden />
+              <span className={own.srOnly}>In the film</span>
+            </span>
+          )}
+        </span>
+        <span className={own.sheetText}>
+          <span className={own.cardNo}>{order}</span>
+          <span className={own.sheetTitle}>{frame.title}</span>
+          <span className={own.space}>{frame.space === 'interior' ? 'Interior' : 'Exterior'}</span>
+        </span>
+      </button>
     </li>
   );
 });

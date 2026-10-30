@@ -1,3 +1,7 @@
+/* Placeholders while data loads (DESIGN 4): a white veil (`--bay-skeleton`,
+   a step stronger on the stage's scrim, so it reads there too), pulsing in
+   opacity over 1.6 s (opacity composites cheaply; a moving gradient does
+   not). Reduced motion holds it still at full opacity. */
 .text {
   display: flex;
   flex-direction: column;
@@ -11,26 +15,29 @@
 
 .bar,
 .block {
-  background: linear-gradient(
-    90deg,
-    var(--bay-bg-sunken) 25%,
-    var(--bay-bg-subtle) 50%,
-    var(--bay-bg-sunken) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
+  background: var(--bay-skeleton);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
 .block {
   width: 100%;
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
 }
 
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.5;
   }
-  to {
-    background-position: -200% 0;
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .block {
+    animation: none;
   }
 }

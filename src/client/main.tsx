@@ -1,6 +1,7 @@
 import '@runway/bay-react/tokens.css';
 import './styles/tokens.css';
 import './styles/global.css';
+import './styles/glass.css';
 
 import { keepAppAwake } from '@runway/bay/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

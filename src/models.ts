@@ -228,6 +228,8 @@ type ModelPreset = {
   defaultResolution: string;
   /** Frame shapes the picker offers, each one the model's own `supportedAspectRatios` value. */
   aspectRatios?: readonly string[];
+  /** Offered only by the Video tab's Recreate in 4K, never by the Animate or Director pickers. */
+  recreateOnly?: boolean;
 };
 
 export type ImageModelId = (typeof IMAGE_MODELS)[number]['id'];
@@ -523,6 +525,19 @@ export const VIDEO_MODELS = [
     defaultResolution: '1080p',
   },
   {
+    id: 'kling-4-0',
+    name: 'Kling 4.0',
+    group: 'Kuaishou',
+    hint: 'Follows a reference video; used by Recreate in 4K',
+    alias: 'kling_4_0',
+    resolutions: [
+      { id: '720p', name: '720p' },
+      { id: '1080p', name: '1080p' },
+    ],
+    defaultResolution: '1080p',
+    recreateOnly: true,
+  },
+  {
     id: 'veo-3-1',
     maxKeyframes: 2,
     name: 'Veo 3.1',
@@ -615,6 +630,11 @@ export const VIDEO_MODEL_IDS = VIDEO_MODELS.map((m) => m.id) as [
   VideoModelId,
   ...VideoModelId[],
 ];
+
+/** The models the Animate and Director pickers offer: all but the Recreate in 4K ones. */
+export const ANIMATE_VIDEO_MODELS = VIDEO_MODELS.filter(
+  (m) => !('recreateOnly' in m && m.recreateOnly)
+);
 
 function videoModel(id: string | undefined): ModelPreset {
   return VIDEO_MODELS.find((m) => m.id === id) ?? VIDEO_MODELS[0];
@@ -998,6 +1018,7 @@ const LEGACY_SECONDS: Record<VideoModelId, Record<LengthId, number>> = {
   'kling-3-pro': { short: 5, long: 10 },
   'kling-3-4k': { short: 5, long: 10 },
   'kling-o3-pro': { short: 5, long: 10 },
+  'kling-4-0': { short: 5, long: 10 },
   'veo-3-1': { short: 6, long: 8 },
   'veo-3-1-fast': { short: 6, long: 8 },
   'gen-4-5': { short: 5, long: 10 },
@@ -1018,6 +1039,7 @@ const DURATIONS: Record<VideoModelId, readonly number[]> = {
   'kling-3-pro': range(3, 15),
   'kling-3-4k': range(3, 15),
   'kling-o3-pro': range(3, 15),
+  'kling-4-0': range(3, 15),
   'veo-3-1': [4, 6, 8],
   'veo-3-1-fast': [4, 6, 8],
   'gen-4-5': range(2, 10),

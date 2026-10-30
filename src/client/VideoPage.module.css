@@ -1,0 +1,251 @@
+/* Video (Phase 9): the page is one Workspace; its two modes are a segmented
+   control at the head of the inspector. This file sizes that control, pads
+   each mode's inspector content as the Workspace pads its own body, and
+   styles what the canvas holds for Video: the view toggle, the takes in the
+   filmstrip, the reference clip over the source and the clip contact sheet. */
+
+/* ---- The segmented control: the inspector's full width, two equal segments. */
+.modeBar [role='tablist'] {
+  display: flex;
+  width: 100%;
+}
+
+.modeBar [role='tab'] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ---- Each mode's inspector content. Both stay mounted; only the open one
+   shows. A panel sits between the Workspace's body and the page's blocks, so
+   the body's page-header and section spacing is repeated here. */
+.panel {
+  outline: none;
+}
+
+.panel[data-inert] {
+  display: none;
+}
+
+.panel[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.panel > [data-bay-block='page-header'] {
+  margin: 0;
+  padding: 4px 0 24px;
+}
+
+.panel > [data-bay-block='section'] {
+  margin: 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .panel > [data-bay-block='page-header'] {
+    padding: 4px 0 20px;
+  }
+}
+
+/* The upscale under "This take": the section already draws the hairline. */
+.thisTake > * {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---- The canvas toolbar's view toggle: Takes, or every clip. */
+.view {
+  display: flex;
+  gap: 2px;
+}
+
+.viewItem {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-control);
+  background-color: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.viewItem[data-hovered],
+.viewItem[data-focus-visible] {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.viewItem[data-selected] {
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
+}
+
+.viewItem[data-selected][data-hovered],
+.viewItem[data-selected][data-focus-visible],
+.viewItem[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+.viewItem[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+}
+
+/* ---- The takes in the filmstrip: TakeStrip's cards laid flat to the strip's
+   height, the frame on the left and the title and state beside it. The strip
+   scrolls them, so the row does not. */
+.takes,
+.takes > [role='radiogroup'] {
+  height: 100%;
+}
+
+.takes [role='radiogroup'] > div {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  overflow: visible;
+}
+
+.takes label {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: auto 128px;
+  grid-template-rows: 1fr auto auto 1fr;
+  column-gap: 10px;
+  height: 100%;
+  padding: 5px 8px 5px 5px;
+}
+
+.takes label > span:nth-child(2) {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  height: 100%;
+  margin: 0;
+}
+
+.takes label > span:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.takes label > span:nth-child(4) {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.takes label[data-focus-visible] {
+  outline-offset: 1px;
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .takes label {
+    grid-template-columns: auto 112px;
+  }
+}
+
+/* ---- Recreate's preview: the reference clip, small, over the dimmed source. */
+.pip {
+  z-index: 1;
+  place-self: start end;
+  width: min(32%, 280px);
+  margin: 12px;
+  overflow: hidden;
+  border-radius: var(--r-control);
+  background: var(--bay-stage-frame);
+  box-shadow: var(--bay-shadow-stage);
+  outline: 1px solid var(--bay-stage-line);
+}
+
+.pip > video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ---- The contact sheet ("All clips", "Your 4K recreations"): the canvas's
+   free state, its own padding, cards in columns of at least 240 px. */
+.sheet {
+  padding: 8px 8px 32px;
+}
+
+.sheetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+/* A clip card: the poster with one play button; the player's own controls
+   appear only after it is pressed. */
+.clipPlayer {
+  position: relative;
+}
+
+.clipPlayer > video {
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+.play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background-color: var(--glass-fill-thick);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.play > svg {
+  margin-left: 2px;
+}
+
+@media (hover: hover) {
+  /* A lit overlay over the dark fill, so the glyph keeps its contrast. */
+  .play:hover {
+    box-shadow:
+      var(--glass-edge),
+      inset 0 0 0 100px var(--glass-btn-hover);
+    transform: scale(1.06);
+  }
+}
+
+.play:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.play:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play:hover,
+  .play:active {
+    transform: none;
+  }
+}

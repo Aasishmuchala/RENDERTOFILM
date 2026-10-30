@@ -1,6 +1,21 @@
-import { Check, Clapperboard, Download, Expand, Film, Image as ImageIcon, Projector, RotateCcw, Users, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ToggleButton as AriaToggleButton, ToggleButtonGroup } from 'react-aria-components';
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  Download,
+  Expand,
+  Film,
+  Image as ImageIcon,
+  LayoutGrid,
+  Projector,
+  RectangleHorizontal,
+  RotateCcw,
+  Users,
+  X,
+} from 'lucide-react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button as AriaButton, ToggleButton as AriaToggleButton, ToggleButtonGroup } from 'react-aria-components';
 
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -22,12 +37,23 @@ import {
   CHAPTERS,
   chapterById,
   DEFAULT_HERITAGE,
+  DEPTH_PRESETS,
+  FOCUS_TARGETS,
   GRAMMARS,
   grammarById,
+  LIGHTING_PRESETS,
+  lightingPresetById,
   momentById,
+  presetSun,
+  presetSunIds,
+  SUN_POSITIONS,
   type CastRoleId,
   type ChapterId,
+  type DepthId,
+  type FocusId,
   type GrammarId,
+  type LightingPresetId,
+  type SunPositionId,
 } from '../lifestyle.ts';
 import { ETHNICITIES, litFromReference, lookLabel, type EthnicityId } from '../looks.ts';
 import {
@@ -41,12 +67,16 @@ import {
   type ImageModelId,
 } from '../models.ts';
 import { CastSheetField, type CastSheet } from './CastSheetField.tsx';
+import { directedLine, DirectionStyleSelect, useDirectionStyle } from './director/DirectionStyle.tsx';
 import { slugify, withPick } from './director/shared.ts';
 import { TakeImage } from './director/TakeImage.tsx';
 import { Section } from './layouts/Section.tsx';
+import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
+import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError, errorMessage } from './lib/runwayErrors.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { useProjectUploads } from './lib/useProjectUploads.ts';
 import { LightReferenceField } from './LightReferenceField.tsx';
 import { PeopleCheck } from './PeopleCheck.tsx';
@@ -55,7 +85,7 @@ import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
 import { ChoiceGroup } from './ui/ChoiceGroup.tsx';
 import { CompareSlider } from './ui/CompareSlider.tsx';
-import { EmptyState } from './ui/EmptyState.tsx';
+import { CostLine } from './ui/CostLine.tsx';
 import { FullscreenDialog } from './ui/FullscreenDialog.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
@@ -78,6 +108,7 @@ const KEEP_MAX = 300;
 const CROP_MAX = 200;
 const PEOPLE_MAX = 400;
 const NOTE_MAX = 400;
+const LIGHT_MAX = 300;
 
 /** What a film's first pass is shot on unless another is picked: the model the filmic pilot read right on. */
 const DEFAULT_MODEL: ImageModelId = 'gpt-image-2-5-sunburst';
@@ -89,7 +120,7 @@ const DEFAULT_PASS2_MODEL: ImageModelId = 'nano-banana-2-1';
 const PASS2_MODELS = IMAGE_MODELS.filter((m) => imageModelTakesCastSheet(m.id));
 
 /** The typed fields of a frame; their saves wait for a pause in typing. */
-const TYPED: readonly string[] = ['keep', 'crop', 'people', 'note'];
+const TYPED: readonly string[] = ['keep', 'crop', 'people', 'note', 'light'];
 
 const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four'];
 
@@ -171,6 +202,11 @@ function boardFrame(frame: LifestyleFrame, choice: LifestyleChoice | undefined):
     grammar,
     keep: c.keep ?? frame.keep,
     crop: c.crop ?? frame.crop,
+    sun: c.sun === null ? undefined : (c.sun ?? frame.sun),
+    light: (c.light ?? frame.light ?? '').trim() || undefined,
+    lighting: c.lighting === null ? undefined : (c.lighting ?? frame.lighting),
+    depth: c.depth === null ? undefined : (c.depth ?? frame.depth),
+    focus: c.focus === null ? undefined : (c.focus ?? frame.focus),
     people,
     cast: withPeople ? castRoles(frame, fits, c.people !== undefined, people) : [],
     note: c.note ?? '',
@@ -211,7 +247,13 @@ function notReady(f: BoardFrame): string | undefined {
     return `Say who is there and where before shooting it as a ${g.name.toLowerCase()}, or shoot it as Empty.`;
   }
   if (g.reframe && !f.crop.trim()) return 'Say what the camera moves in on before shooting it.';
-  if (f.keep.length > KEEP_MAX || f.crop.length > CROP_MAX || f.people.length > PEOPLE_MAX || f.note.length > NOTE_MAX) {
+  if (
+    f.keep.length > KEEP_MAX ||
+    f.crop.length > CROP_MAX ||
+    f.people.length > PEOPLE_MAX ||
+    f.note.length > NOTE_MAX ||
+    (f.light?.length ?? 0) > LIGHT_MAX
+  ) {
     return 'Shorten the fields over their limit before shooting it.';
   }
   return undefined;
@@ -382,7 +424,10 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const { uploads, overflow, addFiles, remove, retry, canRetry, pending, failed } = useProjectUploads(MAX_IMAGES);
   const [heritage, setHeritage] = useState<EthnicityId>(DEFAULT_HERITAGE);
   const [household, setHousehold] = useState('');
+  const [directorStyle, setDirectorStyle] = useDirectionStyle('lifestyle');
   const light = useReferenceUpload('lighting reference');
+  // The person's own cast sheet; held here so it survives the inspector switching to a frame and back.
+  const castUpload = useReferenceUpload('cast sheet');
   const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_MODEL);
   const [resolution, setResolution] = useState(() => fourK(DEFAULT_MODEL));
   const [twoPass, setTwoPass] = useState(true);
@@ -390,8 +435,19 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const [pass2Resolution, setPass2Resolution] = useState(() => fourK(DEFAULT_PASS2_MODEL));
   const [jobId, setJobId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
+  /** What the inspector and the canvas are on: the film's setup, or one frame (its image index). */
+  const [selected, setSelected] = useState<'job' | number>('job');
+  /** The contact sheet is on the canvas while a frame is selected. */
+  const [gridShown, setGridShown] = useState(false);
+  /** A chapter's cast sheet on the canvas, by its still id, picked in the strip. */
+  const [sheetShown, setSheetShown] = useState<string | null>(null);
+  /** The renders the last plan made here was sent with: others added since turn the footer back to Plan. */
+  const [plannedKey, setPlannedKey] = useState<string | null>(null);
 
   const plan = trpc.lifestyle.plan.useMutation();
+  // A double-click's second press arrives before plan.isPending shows, and a
+  // second plan would leave an orphan job stuck in "planning".
+  const planGuard = useInFlight();
   // Who writes the plan: the Settings choice, which step 2 changes too.
   const aiText = trpc.settings.aiText.useQuery(undefined, { enabled: active });
   const planner = plannerOf(aiText.data);
@@ -409,6 +465,8 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
             ? 6000
             : 20_000
           : false,
+    // Pass 2 starts on a poll, so polling goes on with the browser tab in the background.
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
     retry: 2,
   });
@@ -419,9 +477,11 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const planning = plan.isPending || (jobId !== null && job.isPending) || current?.status === 'planning';
   const householdTooLong = household.length > HOUSEHOLD_MAX;
   const ready = uploads.length > 0 && pending === 0 && failed === 0 && !householdTooLong && !light.uploading;
+  const uploadsKey = uploads.map((u) => u.key).join('|');
 
   async function runPlan() {
-    if (!ready || planning) return;
+    if (!ready || planning || !planGuard.start()) return;
+    const sentKey = uploadsKey;
     try {
       const { id } = await plan.mutateAsync({
         images: uploads.map((u) => ({ url: u.hostedUrl!, width: u.width, height: u.height, name: u.name })),
@@ -430,12 +490,16 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
         pass2: twoPass ? { imageModel: pass2Model, resolution: pass2Resolution } : null,
         heritage,
         household,
+        directorStyle,
         lightRefUrl: light.image?.hostedUrl,
       });
       setJobId(id);
+      setPlannedKey(sentKey);
       void utils.lifestyle.job.invalidate();
     } catch {
       // Shown by RunwayErrorNotice from plan.error.
+    } finally {
+      planGuard.end();
     }
   }
 
@@ -448,12 +512,23 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
         .filter((s) => s.status === 'succeeded' && s.lifestyle?.kind !== 'cast')
         .slice(0, 24)
         .map((s) => {
+          // Two lines: the frame or look, then the model, size and time; the tooltip holds both.
           const caption = s.lifestyle?.title ?? lookLabel(s.look, litFromReference(s));
+          const res = imageResolutionName(s.imageModel, s.resolution);
+          const when = new Date(s.createdAt).toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+          const detail = `${imageModelName(s.imageModel)}${res ? `, ${res}` : ''}, ${when}`;
           return {
             id: s.id,
             src: stillThumbUrl(s.id),
             alt: `${caption}, ${new Date(s.createdAt).toLocaleString()}`,
             caption,
+            detail,
+            title: `${caption}, ${detail}`,
           };
         }),
     [library.data]
@@ -496,6 +571,10 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
     // A film with residents starts on the created cast; one without, on none.
     const residents = castNeeds((current.plan ?? []).map((f) => boardFrame(f, initial[f.image]))).length > 0;
     setCastMode(current.cast?.mode ?? (residents && imageModelTakesCastSheet(current.imageModel) ? 'generated' : 'none'));
+    // A new board opens on the film's setup.
+    setSelected('job');
+    setGridShown(false);
+    setSheetShown(null);
   }, [boardId, current]);
 
   // One frame's saves go one after another, so a quick run of changes is
@@ -688,6 +767,15 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const unshotRef = useRef(unshot);
   unshotRef.current = unshot;
   const [shootingAll, setShootingAll] = useState(false);
+  /** A frame of the film being sent or still on its passes. */
+  const takesOnTheirWay = included.some((f) => Boolean(shooting[f.image]) || inFlight(views.get(f.image)?.state));
+  // Every frame of the film has its take (one whose develop didn't finish keeps its first pass).
+  const firstTake = included[0] ? views.get(included[0].image)?.result : undefined;
+  const filmShot =
+    included.length > 0 &&
+    !shootingAll &&
+    !takesOnTheirWay &&
+    included.every((f) => views.get(f.image)?.result !== undefined);
   async function shootAll() {
     setShootingAll(true);
     try {
@@ -737,8 +825,26 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   }, [boardId, utils, refetchJob]);
 
   const openFrame = useCallback((image: number) => setViewing(image), []);
+  // The room's light (DESIGN.md 2.5): the take on the big screen, as it is shown
+  // there (final or pass 1); else the project's first frame as the board shows
+  // it (its take, else its render); else the first render dropped in.
+  const viewed = viewing !== null ? views.get(viewing) : undefined;
+  const viewedTake =
+    viewed?.result?.status === 'succeeded'
+      ? viewed.state === 'done' && viewed.pass2 !== undefined && pass1Shown[viewed.result.id] === true
+        ? viewed.pass1
+        : viewed.result
+      : undefined;
+  const lead = board[0];
+  const leadTake = lead ? views.get(lead.image)?.result : undefined;
+  const leadPreview = lead
+    ? leadTake?.status === 'succeeded'
+      ? stillThumbUrl(leadTake.id)
+      : current?.images[lead.image]?.url
+    : undefined;
+  useAmbient(viewedTake ? stillThumbUrl(viewedTake.id) : (leadPreview ?? uploads[0]?.src ?? null));
   const chaptersUsed = CHAPTERS.filter((c) => board.some((f) => f.chapter === c.id)).length;
-  const heritageName = ETHNICITIES.find((e) => e.id === current?.heritage)?.name ?? '';
+  const directed = directedLine(current?.status === 'planned' ? current.directorStyle : undefined);
   const modelName = imageModelName(imageModel);
   const pass2Name = imageModelName(pass2Model);
   // How the plan on the board is shot: "GPT Image 2.5 Sunburst at 4K, finished with Nano Banana 2.1 at 4K".
@@ -751,225 +857,770 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
       ? `X-ray plate on ${shotWith(current.imageModel, current.resolution)}, developed with ${shotWith(current.pass2.imageModel, current.pass2.resolution)}`
       : `Shot with ${shotWith(current.imageModel, current.resolution)}`
     : '';
+  // What one frame of the board costs: "two stills: the x-ray plate on …, then the develop on …".
+  const frameStills = current
+    ? current.pass2
+      ? `two stills: the x-ray plate on ${imageModelName(current.imageModel)}, then the develop on ${imageModelName(current.pass2.imageModel)}`
+      : `one ${imageModelName(current.imageModel)} still`
+    : '';
 
-  return (
-    <>
-      <div className={styles.layout}>
-        <div className={styles.controls}>
-          <PageHeader
-            title="Bring the home to life"
-            description="Upload every render of the project. The app plans each one as a frame of a residential lifestyle film — what to keep, who is there and how far away — creates the residents once, then re-photographs each render as a real photograph."
+  // ---- The workspace: selection drives the inspector and the canvas.
+  const isPlanned = current?.status === 'planned';
+  // Renders added since the board was planned are a new film to plan.
+  const freshUploads = uploads.length > 0 && uploadsKey !== plannedKey;
+  const planMode = planning || !isPlanned || freshUploads;
+  const selectedFrame = typeof selected === 'number' ? board.find((f) => f.image === selected) : undefined;
+  const selectedIndex = selectedFrame ? board.indexOf(selectedFrame) : -1;
+  const gridOn =
+    isPlanned && board.length > 0 && sheetShown === null && (selectedFrame ? gridShown : !freshUploads || gridShown);
+  const selView = selectedFrame ? (views.get(selectedFrame.image) ?? NO_TAKE) : NO_TAKE;
+  const selImg = selectedFrame ? current?.images[selectedFrame.image] : undefined;
+  const selSourceOk = useImageLoads(selImg?.url);
+  const selShooting = selectedFrame ? Boolean(shooting[selectedFrame.image]) : false;
+  const selRendering = selShooting || inFlight(selView.state);
+  const selFinished = selView.state === 'done' && selView.pass2 !== undefined;
+  const selPass1 = selFinished && selView.result ? pass1Shown[selView.result.id] === true : false;
+  const selDone =
+    selView.state === 'done' || selView.state === 'pass2-failed'
+      ? selFinished && selPass1
+        ? selView.pass1
+        : selView.result
+      : undefined;
+  const selShowingPass1 = twoPassBoard && selDone !== undefined && selDone === selView.pass1;
+  const frameSaver = useDownload();
+  const prevFrame = selectedIndex > 0 ? board[selectedIndex - 1] : undefined;
+  const nextFrame = selectedIndex < board.length - 1 ? board[selectedIndex + 1] : undefined;
+
+  const selectFrame = useCallback((image: number) => {
+    setSelected(image);
+    setGridShown(false);
+    setSheetShown(null);
+  }, []);
+  function selectJob() {
+    setSelected('job');
+    setGridShown(false);
+    setSheetShown(null);
+  }
+  function showGrid() {
+    setGridShown(true);
+    setSheetShown(null);
+  }
+  function showFrame() {
+    if (!selectedFrame && board[0]) setSelected(board[0].image);
+    setGridShown(false);
+    setSheetShown(null);
+  }
+  // Previous and next keep the view: the grid moves its highlight, the frame view its picture.
+  const step = (dir: -1 | 1) => {
+    const to = dir < 0 ? prevFrame : nextFrame;
+    if (!to) return;
+    setSelected(to.image);
+    setGridShown(gridOn);
+    setSheetShown(null);
+  };
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const toolsRef = useRef<HTMLDivElement>(null);
+  // The arrow keys step through the frames while the canvas has focus (not on the compare divider).
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const target = e.target instanceof Element ? e.target : null;
+      const canvasArea = toolsRef.current?.closest('[data-stage]');
+      if (!target || !canvasArea?.contains(target)) return;
+      if (target.closest('input, textarea, select, [contenteditable], [role="slider"], [role="dialog"]')) return;
+      e.preventDefault();
+      stepRef.current(e.key === 'ArrowLeft' ? -1 : 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active]);
+
+  // A plan made here lands: the inspector scrolls to it and the cast.
+  const planRef = useRef<HTMLDivElement>(null);
+  const scrolledTo = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const el = planRef.current;
+    if (!active || !boardId || boardId !== jobId || scrolledTo.current === boardId || !el) return;
+    scrolledTo.current = boardId;
+    let scroller = el.parentElement;
+    while (scroller && getComputedStyle(scroller).overflowY !== 'auto') scroller = scroller.parentElement;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scroller?.scrollTo({ top: Math.max(0, el.offsetTop - 64), behavior: reduced ? 'auto' : 'smooth' });
+  }, [active, boardId, jobId]);
+
+  // ---- The canvas.
+  let canvasState: CanvasState;
+  let canvas: ReactNode = null;
+  let aspectRatio: string | undefined = '16 / 9';
+  let caption: ReactNode | undefined;
+  let canvasNote: string | undefined;
+  let canvasActions: ReactNode | undefined;
+  const shownSheet = sheetShown !== null ? sheets.find((s) => s.stillId === sheetShown) : undefined;
+  const lead0 = uploads[0] ?? current?.images[0];
+  const leadSrc = uploads[0]?.src ?? current?.images[0]?.url;
+
+  if (shownSheet) {
+    const still = stillById.get(shownSheet.stillId);
+    canvasState = 'live';
+    aspectRatio = still ? `${still.width} / ${still.height}` : '16 / 9';
+    canvas = (
+      <TakeImage key={shownSheet.stillId} full stillId={shownSheet.stillId} alt={`Cast sheet: ${roleNames(shownSheet.roles)}`} />
+    );
+    caption = `Cast: ${chapterById(shownSheet.chapter).name} · ${roleNames(shownSheet.roles)}`;
+  } else if (gridOn) {
+    canvasState = 'free';
+    canvas = (
+      <ol className={own.grid} aria-label="Every frame of the film">
+        {board.map((f, i) => {
+          const view = views.get(f.image) ?? NO_TAKE;
+          const img = current?.images[f.image];
+          return (
+            <GridCard
+              key={`${current?.id}-${f.image}`}
+              image={f.image}
+              order={i + 1}
+              title={f.title}
+              chapterName={chapterById(f.chapter).name}
+              thumb={thumbOf(view, img)}
+              badge={takeBadge(view.state, Boolean(shooting[f.image]), twoPassBoard)}
+              leftOut={!f.include}
+              selected={selectedFrame?.image === f.image}
+              onSelect={selectFrame}
+            />
+          );
+        })}
+      </ol>
+    );
+  } else if (selectedFrame && current) {
+    const f = selectedFrame;
+    const order = selectedIndex + 1;
+    const title = `${order}. ${f.title}`;
+    const shotAs = grammarById(selDone?.lifestyle?.grammar ?? f.grammar);
+    const sourceAspect = selImg ? `${selImg.width} / ${selImg.height}` : '16 / 9';
+    caption = `Frame ${order} of ${board.length} · ${chapterById(selDone?.lifestyle?.chapter ?? f.chapter).name} · ${shotAs.name}, ${shotAs.lens}`;
+    if (selRendering) {
+      // Pass 1 is in: it shows, stepped back, while pass 2 finishes it.
+      const passOne =
+        (selView.state === 'pass2-waiting' || selView.state === 'pass2-pending') && !selShooting ? selView.pass1 : undefined;
+      canvasState = 'live';
+      aspectRatio = sourceAspect;
+      canvas = (
+        <>
+          {passOne && (
+            <TakeImage
+              key={passOne.id}
+              stillId={passOne.id}
+              alt={selView.plate ? `X-ray plate of ${f.title}` : `Pass 1 of ${f.title}`}
+              className={own.passOverlay}
+            />
+          )}
+          <RenderingStatus
+            label={renderingLabel(selView.state, selShooting, twoPassBoard, selView.plate)}
+            runKey={passOne ? `${passOne.id}-pass2` : (selView.pass1?.id ?? `${current.id}-${f.image}`)}
           />
-          <Section step={1} title="Project renders" description={`Every render of one project, up to ${MAX_IMAGES}.`}>
-            <div className={styles.stack}>
-              <ImageDropZone
-                onFiles={(files) => void addFiles(files)}
-                disabled={planning || uploads.length >= MAX_IMAGES}
-                actionLabel={uploads.length ? 'Add renders' : 'Choose renders'}
-              >
-                <div className={own.dropEmpty}>
-                  <ImageIcon size={20} aria-hidden />
-                  <Text tone="secondary" size="sm">
-                    {uploads.length >= MAX_IMAGES
-                      ? `That is the full ${MAX_IMAGES}. Remove one to add another.`
-                      : 'Drop the project’s renders here, all at once. PNG, JPEG or WebP.'}
-                  </Text>
-                </div>
-              </ImageDropZone>
-              {overflow > 0 && (
-                <Alert tone="warning" title={`${overflow} render${overflow === 1 ? ' was' : 's were'} left out`}>
-                  A lifestyle plan takes up to {MAX_IMAGES} renders. Remove one to add another.
-                </Alert>
-              )}
-              {uploads.length > 0 && (
-                <ul className={own.thumbs} aria-label="Project renders">
-                  {uploads.map((u) => (
-                    <li key={u.key} className={own.thumb}>
-                      <img className={own.thumbImg} src={u.src} alt={u.name} data-dimmed={!u.hostedUrl || undefined} />
-                      {!u.hostedUrl && !u.error && (
-                        <span className={own.thumbState} role="status">
-                          Uploading…
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className={own.thumbRemove}
-                        icon={<X size={14} />}
-                        aria-label={`Remove ${u.name}`}
-                        onPress={() => remove(u.key)}
-                        disabled={planning}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {uploads
-                .filter((u) => u.error)
-                .map((u) => (
-                  <div key={u.key} className={own.uploadError}>
-                    <RunwayErrorNotice
-                      error={u.error}
-                      modelName={`the upload of ${u.name}`}
-                      onRetry={canRetry(u.key) ? () => retry(u.key) : () => remove(u.key)}
-                    />
-                  </div>
-                ))}
-            </div>
-          </Section>
+        </>
+      );
+    } else if (selDone) {
+      const aspect = `${selDone.width} / ${selDone.height}`;
+      const what = selShowingPass1 ? 'Pass 1 of the lifestyle frame' : 'Lifestyle frame';
+      canvasState = 'live';
+      aspectRatio = aspect;
+      canvas = (
+        <>
+          {selImg && selSourceOk === true ? (
+            <CompareSlider
+              key={selDone.id}
+              className={own.canvasCompare}
+              before={selImg.url}
+              after={stillViewUrl(selDone.id)}
+              afterFallback={stillThumbUrl(selDone.id)}
+              beforeAlt={`Your render: ${selImg.name || f.title}`}
+              afterAlt={`${what}: ${f.title}`}
+              aspectRatio={aspect}
+            />
+          ) : (
+            <TakeImage key={selDone.id} full stillId={selDone.id} alt={`${what}: ${f.title}`} />
+          )}
+          {selView.state === 'pass2-failed' && (
+            <span className={own.passChip}>{selView.plate ? 'Plate only' : 'Pass 1 only'}</span>
+          )}
+        </>
+      );
+      canvasActions = (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Download size={14} />}
+            loading={frameSaver.pending}
+            aria-label={frameSaver.pending ? undefined : `Download ${title}${selShowingPass1 ? ', pass 1' : ''}`}
+            onPress={() =>
+              frameSaver.start(libraryUrl('still', selDone.id), downloadName(order, f.title, selShowingPass1))
+            }
+          >
+            {frameSaver.label('Download')}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Film size={14} />}
+            aria-label={`Animate ${title}`}
+            onPress={() => onAnimate(selDone.id, animatePreset(selDone, f.grammar))}
+          >
+            Animate
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Expand size={14} />} onPress={() => openFrame(f.image)}>
+            Open full size
+          </Button>
+        </>
+      );
+    } else if (selImg && selSourceOk !== false) {
+      canvasState = 'preview';
+      aspectRatio = sourceAspect;
+      canvas = <img src={selImg.url} alt={`Your render: ${selImg.name || f.title}`} decoding="async" />;
+      canvasNote = 'This frame will appear here once shot';
+    } else {
+      canvasState = 'live';
+      aspectRatio = sourceAspect;
+      canvas = (
+        <div className={styles.frameAlert}>
+          <Text tone="secondary" size="sm" as="p">
+            This uploaded render is no longer kept. Plan the film again to shoot it.
+          </Text>
+        </div>
+      );
+    }
+  } else if (planning) {
+    canvasState = 'live';
+    canvas = (
+      <RenderingStatus
+        label={
+          plan.isPending
+            ? `Sending the renders to ${planner.model}…`
+            : `Planning ${current?.images.length ?? uploads.length} frames: chapter, shot, light, what to keep, who is there…`
+        }
+        runKey={current?.id}
+      />
+    );
+  } else if (current?.status === 'failed') {
+    canvasState = 'live';
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="error" title="The film wasn't planned">
+          {current.error ?? 'Plan the film again.'}
+        </Alert>
+        <div className={own.retry}>
+          <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void runPlan()} disabled={!ready}>
+            {ready ? 'Plan again' : 'Add the renders again to plan'}
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (job.isLoading) {
+    canvasState = 'live';
+    canvas = <RenderingStatus label="Loading your plan…" />;
+  } else if (leadSrc && lead0) {
+    canvasState = 'preview';
+    aspectRatio = `${lead0.width} / ${lead0.height}`;
+    canvas = <img src={leadSrc} alt="" decoding="async" />;
+    canvasNote = 'Your plan of action will appear here';
+    if (uploads.length > 0) caption = `${uploads.length} render${uploads.length === 1 ? '' : 's'} to plan`;
+  } else {
+    canvasState = 'empty';
+  }
 
-          <Section step={2} title="AI and models" description="Who writes the plan of action, and which image models shoot it.">
-            <div className={own.aiRows}>
-              <PlannerRow ai={aiText.data} error={aiText.error} planner={planner} disabled={planning} />
+  const toolbar =
+    isPlanned && board.length > 0 ? (
+      <>
+        <div ref={toolsRef} role="group" aria-label="View" className={own.viewToggle}>
+          <AriaToggleButton className={own.tool} isSelected={gridOn} onChange={(on) => on && showGrid()}>
+            <LayoutGrid size={16} aria-hidden />
+            <span className={own.toolLabel}>Grid</span>
+          </AriaToggleButton>
+          <AriaToggleButton
+            className={own.tool}
+            isSelected={!gridOn && shownSheet === undefined && selectedFrame !== undefined}
+            onChange={(on) => on && showFrame()}
+          >
+            <RectangleHorizontal size={16} aria-hidden />
+            <span className={own.toolLabel}>Frame</span>
+          </AriaToggleButton>
+        </div>
+        <span className={own.toolSep} aria-hidden />
+        <AriaButton
+          className={own.toolIcon}
+          aria-label="Previous frame"
+          isDisabled={!prevFrame}
+          onPress={() => step(-1)}
+        >
+          <ChevronLeft size={18} aria-hidden />
+        </AriaButton>
+        <AriaButton className={own.toolIcon} aria-label="Next frame" isDisabled={!nextFrame} onPress={() => step(1)}>
+          <ChevronRight size={18} aria-hidden />
+        </AriaButton>
+        <AriaButton
+          className={own.tool}
+          isDisabled={!selectedFrame || selView.result?.status !== 'succeeded'}
+          onPress={() => selectedFrame && openFrame(selectedFrame.image)}
+        >
+          <Expand size={16} aria-hidden />
+          <span className={own.toolLabel}>Full screen</span>
+        </AriaButton>
+        {selectedFrame && !gridOn && shownSheet === undefined && selFinished && selView.result && (
+          <>
+            <span className={own.toolSep} aria-hidden />
+            <PassToggle
+              pass1={selPass1}
+              onChange={(next) => selView.result && showPass1(selView.result.id, next)}
+              plate={selView.plate}
+              className={own.passToggleTools}
+            />
+          </>
+        )}
+      </>
+    ) : undefined;
 
-              <div className={own.aiRow}>
-                <p className={own.aiRowHead}>
-                  Image models <span>— re-photograph each render</span>
-                </p>
-                <ToggleButtonGroup
-                  aria-label="Image models"
-                  selectionMode="single"
-                  disallowEmptySelection
-                  selectedKeys={[twoPass ? 'two' : 'one']}
-                  onSelectionChange={(keys) => {
-                    const [key] = keys;
-                    if (key !== undefined) setTwoPass(key === 'two');
-                  }}
-                  isDisabled={planning}
-                  className={own.passCount}
-                >
-                  <AriaToggleButton id="one" className={own.passCountItem}>
-                    One image model
-                  </AriaToggleButton>
-                  <AriaToggleButton id="two" className={own.passCountItem}>
-                    Two passes — x-ray plate, then develop
-                  </AriaToggleButton>
-                </ToggleButtonGroup>
-                <Text tone="muted" size="sm" as="p" className={own.aiRowNote}>
-                  {twoPass
-                    ? `Pass 1 shoots each render as a flat x-ray plate: deep focus, neutral, every decision legible. Pass 2 develops the plate into the finished film frame at full detail and matches the architecture back to your render. The cast is always made on ${imageModelName(CAST_SHEET_MODEL.imageModel)}.`
-                    : 'Each frame is one still from this model, as it comes back.'}
-                </Text>
-                <div className={styles.selectRow}>
-                  <Select
-                    label={twoPass ? 'Pass 1 — the x-ray plate' : 'Image model'}
-                    options={IMAGE_MODELS}
-                    value={imageModel}
-                    onChange={(id) => {
-                      const m = id as ImageModelId;
-                      setImageModel(m);
-                      setResolution(fourK(m));
-                    }}
-                    disabled={planning}
-                  />
-                  {imageResolutions(imageModel).length > 1 && (
-                    <Select
-                      label="Resolution"
-                      options={imageResolutions(imageModel)}
-                      value={resolution}
-                      onChange={setResolution}
-                      disabled={planning}
-                      showHint={false}
-                    />
-                  )}
-                </div>
-                {twoPass && (
-                  <div className={styles.selectRow}>
-                    <Select
-                      label="Pass 2 — the develop"
-                      options={PASS2_MODELS}
-                      value={pass2Model}
-                      onChange={(id) => {
-                        const m = id as ImageModelId;
-                        setPass2Model(m);
-                        setPass2Resolution(fourK(m));
-                      }}
-                      disabled={planning}
-                    />
-                    {imageResolutions(pass2Model).length > 1 && (
-                      <Select
-                        label="Resolution"
-                        options={imageResolutions(pass2Model)}
-                        value={pass2Resolution}
-                        onChange={setPass2Resolution}
-                        disabled={planning}
-                        showHint={false}
-                      />
-                    )}
-                  </div>
+  const strip =
+    isPlanned && board.length > 0 ? (
+      <>
+        <button
+          type="button"
+          className={own.filmCard}
+          aria-pressed={selectedFrame === undefined}
+          title="The film: renders, models, residents and the cast"
+          onClick={selectJob}
+        >
+          <Clapperboard size={18} aria-hidden />
+          <span className={own.filmName}>The film</span>
+          <span className={own.filmMeta}>
+            {board.length} frame{board.length === 1 ? '' : 's'}
+          </span>
+        </button>
+        {CHAPTERS.map((chapter, ci) => {
+          const frames = board.filter((f) => f.chapter === chapter.id);
+          if (frames.length === 0) return null;
+          // The chapter's cast sheet, once it is in, beside its name.
+          const sheet = sheets.find((s) => s.chapter === chapter.id);
+          const sheetIn = sheet !== undefined && stillById.get(sheet.stillId)?.status === 'succeeded';
+          return (
+            <section key={chapter.id} className={own.chapter} aria-labelledby={`chapter-${chapter.id}`}>
+              <div className={own.chapterHead}>
+                <span className={own.chapterMeta}>
+                  <span className={own.chapterNo} aria-hidden>
+                    {String(ci + 1).padStart(2, '0')}
+                  </span>
+                  <span className={own.chapterCount}>
+                    {frames.length} frame{frames.length === 1 ? '' : 's'}
+                  </span>
+                </span>
+                <h3 id={`chapter-${chapter.id}`} className={own.chapterName} title={chapter.hint}>
+                  {chapter.name}
+                </h3>
+                {sheet && sheetIn && (
+                  <button
+                    type="button"
+                    className={own.chapterCast}
+                    aria-pressed={sheetShown === sheet.stillId}
+                    aria-label={`Cast sheet for ${chapter.name}: ${roleNames(sheet.roles)}`}
+                    title={`Cast: ${roleNames(sheet.roles)}`}
+                    onClick={() => setSheetShown((cur) => (cur === sheet.stillId ? null : sheet.stillId))}
+                  >
+                    <img src={stillThumbUrl(sheet.stillId)} alt="" loading="lazy" decoding="async" />
+                    <span>Cast</span>
+                  </button>
                 )}
               </div>
-            </div>
-          </Section>
+              <ol className={own.frames}>
+                {frames.map((f) => {
+                  const view = views.get(f.image) ?? NO_TAKE;
+                  const img = current?.images[f.image];
+                  return (
+                    <StripCard
+                      key={`${current?.id}-${f.image}`}
+                      image={f.image}
+                      order={board.indexOf(f) + 1}
+                      title={f.title}
+                      aspect={img ? `${img.width} / ${img.height}` : '16 / 10'}
+                      thumb={thumbOf(view, img)}
+                      badge={takeBadge(view.state, Boolean(shooting[f.image]), twoPassBoard)}
+                      leftOut={!f.include}
+                      selected={selectedFrame?.image === f.image}
+                      onSelect={selectFrame}
+                    />
+                  );
+                })}
+              </ol>
+            </section>
+          );
+        })}
+      </>
+    ) : undefined;
 
-          <Section step={3} title="Residents" description="Who lives there: the same household recurs in every frame with people.">
-            <div className={styles.stack}>
-              <Select
-                label="Heritage"
-                options={ETHNICITIES}
-                value={heritage}
-                onChange={(id) => setHeritage(id as EthnicityId)}
-                disabled={planning}
-              />
-              <TextArea
-                label="The household (optional)"
-                value={household}
-                onChange={setHousehold}
-                rows={3}
-                maxLength={HOUSEHOLD_MAX}
-                disabled={planning}
-                placeholder="e.g. a young couple, their daughter of six and her grandparents; a golden retriever"
-                onSubmit={() => void runPlan()}
-              />
-              <LightReferenceField
-                image={light.image}
-                uploading={light.uploading}
-                error={light.error}
-                modelName={modelName}
-                disabled={planning}
-                onFile={(f) => void light.add(f, f.name)}
-                onRemove={light.clear}
-                stills={lightStills}
-                stillsLoading={library.isLoading}
-                stillsError={library.error}
-                onRetryStills={() => void library.refetch()}
-                matched={null}
-                onMatch={(id) => void matchStill(id)}
-              />
-              <Text tone="muted" size="sm" as="p" className={own.refNote}>
-                A photograph whose light, colour and plant realism every frame should match. Only its light is used.
+  // ---- The inspector: the film's setup, or the selected frame's fields.
+  const header = (
+    <PageHeader
+      title="Bring the home to life"
+      description={
+        selectedFrame
+          ? undefined
+          : 'Upload every render of the project. The app plans each one as a frame of a residential lifestyle film: what to keep, who is there and how far away, and how it is lit. It creates the residents once, then re-photographs each render as a real photograph.'
+      }
+    />
+  );
+
+  const jobInspector = (
+    <>
+      {header}
+      {job.error && (
+        <div className={own.pollError}>
+          <RunwayErrorNotice error={job.error} modelName="Claude" onRetry={() => void job.refetch()} />
+        </div>
+      )}
+      <Section step={1} title="Project renders" description={`Every render of one project, up to ${MAX_IMAGES}.`}>
+        <div className={styles.stack}>
+          <ImageDropZone
+            onFiles={(files) => void addFiles(files)}
+            disabled={planning || uploads.length >= MAX_IMAGES}
+            actionLabel={uploads.length ? 'Add renders' : 'Choose renders'}
+            label="Drop or choose project renders"
+          >
+            <div className={own.dropEmpty}>
+              <ImageIcon size={20} aria-hidden />
+              <Text tone="secondary" size="sm">
+                {uploads.length >= MAX_IMAGES
+                  ? `That is the full ${MAX_IMAGES}. Remove one to add another.`
+                  : 'Drop the project’s renders here, all at once. PNG, JPEG or WebP.'}
               </Text>
             </div>
-          </Section>
+          </ImageDropZone>
+          {isPlanned && current && uploads.length === 0 && (
+            <Text tone="secondary" size="sm" as="p">
+              The plan below is from an earlier session and keeps its own {current.images.length} render
+              {current.images.length === 1 ? '' : 's'}: shoot it as it is, or add renders here to plan a new film.
+            </Text>
+          )}
+          {overflow > 0 && (
+            <Alert tone="warning" title={`${overflow} render${overflow === 1 ? ' was' : 's were'} left out`}>
+              A lifestyle plan takes up to {MAX_IMAGES} renders. Remove one to add another.
+            </Alert>
+          )}
+          {uploads.length > 0 && (
+            <ul className={own.thumbs} aria-label="Project renders">
+              {uploads.map((u) => (
+                <li key={u.key} className={own.thumb}>
+                  <img className={own.thumbImg} src={u.src} alt={u.name} data-dimmed={!u.hostedUrl || undefined} />
+                  {!u.hostedUrl && !u.error && (
+                    <span className={own.thumbState} role="status">
+                      Uploading…
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={own.thumbRemove}
+                    icon={<X size={14} />}
+                    aria-label={`Remove ${u.name}`}
+                    onPress={() => remove(u.key)}
+                    disabled={planning}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {uploads
+            .filter((u) => u.error)
+            .map((u) => (
+              <div key={u.key} className={own.uploadError}>
+                <RunwayErrorNotice
+                  error={u.error}
+                  modelName={`the upload of ${u.name}`}
+                  onRetry={canRetry(u.key) ? () => retry(u.key) : () => remove(u.key)}
+                />
+              </div>
+            ))}
+        </div>
+      </Section>
 
-          <div className={styles.actionBar}>
-            <Button
-              variant="primary"
-              className={styles.generate}
-              icon={<Projector size={16} />}
-              loading={planning}
-              disabled={!ready}
-              onPress={() => void runPlan()}
+      <Section
+        step={2}
+        title="AI and models"
+        description="Who writes the plan of action, how it is directed, and which image models shoot it."
+      >
+        <div className={own.aiRows}>
+          <PlannerRow ai={aiText.data} error={aiText.error} planner={planner} disabled={planning} />
+
+          <div className={own.aiRow}>
+            <DirectionStyleSelect value={directorStyle} onChange={setDirectorStyle} disabled={planning} />
+          </div>
+
+          <div className={own.aiRow}>
+            <p className={own.aiRowHead}>
+              Image models <span>re-photograph each render</span>
+            </p>
+            <ToggleButtonGroup
+              aria-label="Image models"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[twoPass ? 'two' : 'one']}
+              onSelectionChange={(keys) => {
+                const [key] = keys;
+                if (key !== undefined) setTwoPass(key === 'two');
+              }}
+              isDisabled={planning}
+              className={own.passCount}
             >
-              {planning
-                ? 'Planning the film…'
-                : uploads.length === 0
-                  ? 'Add project renders first'
-                  : pending > 0
-                    ? 'Uploading the renders…'
-                    : failed > 0
-                      ? 'Retry or remove the failed upload'
-                      : householdTooLong
-                        ? 'Shorten the household note first'
-                        : light.uploading
-                          ? 'Uploading the lighting reference…'
-                          : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
-            </Button>
-            <Text tone="muted" size="sm" as="p" className={styles.meta}>
+              <AriaToggleButton id="one" className={own.passCountItem}>
+                One image model
+              </AriaToggleButton>
+              <AriaToggleButton id="two" className={own.passCountItem}>
+                Two passes: x-ray plate, then develop
+              </AriaToggleButton>
+            </ToggleButtonGroup>
+            <Text tone="muted" size="sm" as="p" className={own.aiRowNote}>
+              {twoPass
+                ? `Pass 1 shoots each render as a flat x-ray plate: deep focus, neutral, every decision legible. Pass 2 develops the plate into the finished film frame at full detail and matches the architecture back to your render. The cast is always made on ${imageModelName(CAST_SHEET_MODEL.imageModel)}.`
+                : 'Each frame is one still from this model, as it comes back.'}
+            </Text>
+            <div className={styles.selectRow}>
+              <Select
+                label={twoPass ? 'Pass 1: the x-ray plate' : 'Image model'}
+                options={IMAGE_MODELS}
+                value={imageModel}
+                onChange={(id) => {
+                  const m = id as ImageModelId;
+                  setImageModel(m);
+                  setResolution(fourK(m));
+                }}
+                disabled={planning}
+              />
+              {imageResolutions(imageModel).length > 1 && (
+                <Select
+                  label="Resolution"
+                  options={imageResolutions(imageModel)}
+                  value={resolution}
+                  onChange={setResolution}
+                  disabled={planning}
+                  showHint={false}
+                />
+              )}
+            </div>
+            {twoPass && (
+              <div className={styles.selectRow}>
+                <Select
+                  label="Pass 2: the develop"
+                  options={PASS2_MODELS}
+                  value={pass2Model}
+                  onChange={(id) => {
+                    const m = id as ImageModelId;
+                    setPass2Model(m);
+                    setPass2Resolution(fourK(m));
+                  }}
+                  disabled={planning}
+                />
+                {imageResolutions(pass2Model).length > 1 && (
+                  <Select
+                    label="Resolution"
+                    options={imageResolutions(pass2Model)}
+                    value={pass2Resolution}
+                    onChange={setPass2Resolution}
+                    disabled={planning}
+                    showHint={false}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </Section>
+
+      <Section step={3} title="Residents" description="Who lives there: the same household recurs in every frame with people.">
+        <div className={styles.stack}>
+          <Select
+            label="Heritage"
+            options={ETHNICITIES}
+            value={heritage}
+            onChange={(id) => setHeritage(id as EthnicityId)}
+            disabled={planning}
+          />
+          <TextArea
+            label="The household (optional)"
+            value={household}
+            onChange={setHousehold}
+            rows={3}
+            maxLength={HOUSEHOLD_MAX}
+            disabled={planning}
+            placeholder="e.g. a young couple, their daughter of six and her grandparents; a golden retriever"
+            onSubmit={() => void runPlan()}
+          />
+          <LightReferenceField
+            image={light.image}
+            uploading={light.uploading}
+            error={light.error}
+            modelName={modelName}
+            disabled={planning}
+            onFile={(f) => void light.add(f, f.name)}
+            onRemove={light.clear}
+            stills={lightStills}
+            stillsLoading={library.isLoading}
+            stillsError={library.error}
+            onRetryStills={() => void library.refetch()}
+            matched={null}
+            onMatch={(id) => void matchStill(id)}
+          />
+          <Text tone="muted" size="sm" as="p" className={own.refNote}>
+            A photograph whose light, colour and plant realism every frame should match. Only its light is used.
+          </Text>
+        </div>
+      </Section>
+
+      {isPlanned && current && (
+        <Section title="Plan of action">
+          <div ref={planRef} className={own.planIntro}>
+            <Text tone="secondary" as="p">
+              {board.length} frame{board.length === 1 ? '' : 's'} in {COUNT_WORDS[chaptersUsed]} chapter
+              {chaptersUsed === 1 ? '' : 's'}.{directed ? ` ${directed}.` : ''} Edit anything, then create the cast and
+              shoot.
+            </Text>
+            <Text tone="muted" size="sm" as="p">
+              {boardShotWith}
+              {current.lightRefUrl ? ', matched to your lighting reference' : ''}. Each list puts the planned choice
+              first. Plans come from {planner.label}. Pick a frame in the strip to change it or shoot it on its own.
+            </Text>
+            {current.warning && (
+              <Alert tone="warning" title="Part of the film wasn't planned">
+                {current.warning}
+              </Alert>
+            )}
+            <Text tone="muted" size="sm" as="p">
+              Every frame is saved to your library, tagged @lifestyle
+              {current.pass2 ? ', its x-ray plate also @pass-1. Pass 2 develops the plate on its own once it is in, while this page is open' : ''}
+              . Shoot within a day of planning: uploaded renders are only kept that long.
+            </Text>
+          </div>
+        </Section>
+      )}
+      {isPlanned && current && (
+        <CastPanel
+          imageModel={current.imageModel}
+          cast={cast}
+          needs={needs}
+          stillById={stillById}
+          mode={castMode}
+          onMode={setCastMode}
+          busy={castBusy}
+          error={castError}
+          onCast={chooseCast}
+          onApprove={approveCast}
+          upload={castUpload}
+        />
+      )}
+    </>
+  );
+
+  const frameInspector =
+    selectedFrame && current ? (
+      <>
+        {header}
+        <FrameFields
+          key={`${current.id}-${selectedFrame.image}`}
+          order={selectedIndex + 1}
+          frame={planned.get(selectedFrame.image)!}
+          choice={drafts[selectedFrame.image]}
+          modelName={imageModelName(current.imageModel)}
+          pass2ModelName={current.pass2 ? imageModelName(current.pass2.imageModel) : undefined}
+          save={saves[selectedFrame.image]}
+          view={selView}
+          done={selDone}
+          shooting={selShooting}
+          shootError={shootErrors[selectedFrame.image]}
+          retrying={Boolean(retrying[selectedFrame.image])}
+          retryError={retryErrors[selectedFrame.image]}
+          canShoot={canShoot}
+          shootingAll={shootingAll}
+          downloadError={frameSaver.error}
+          onChoose={onChoose}
+          onShoot={shoot}
+          onRetryPass2={retryPass2}
+        />
+      </>
+    ) : undefined;
+
+  // ---- The footer: the one primary action and what it costs.
+  let footer: ReactNode;
+  if (selectedFrame && current) {
+    const f = selectedFrame;
+    const blocked = notReady(f);
+    footer = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          className={own.primary}
+          icon={<Clapperboard size={18} />}
+          loading={selRendering}
+          disabled={!f.include || !canShoot || blocked !== undefined || shootingAll || Boolean(retrying[f.image])}
+          onPress={() => void shoot(f.image)}
+        >
+          {!f.include
+            ? 'Left out of the film'
+            : selRendering
+              ? 'Shooting…'
+              : selView.state !== 'none'
+                ? 'Shoot again'
+                : 'Shoot this frame'}
+        </Button>
+        <CostLine
+          summary={
+            !f.include
+              ? 'Put it back in the film to shoot it.'
+              : (blocked ??
+                (canShoot
+                  ? `This frame is ${frameStills}, billed to your own Runway credits.`
+                  : 'Approve the cast, or choose No cast, to start shooting.'))
+          }
+        />
+      </>
+    );
+  } else if (planMode) {
+    footer = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          className={own.primary}
+          icon={<Projector size={18} />}
+          loading={planning}
+          disabled={!ready}
+          onPress={() => void runPlan()}
+        >
+          {planning
+            ? 'Planning the film…'
+            : uploads.length === 0
+              ? 'Add project renders first'
+              : pending > 0
+                ? 'Uploading the renders…'
+                : failed > 0
+                  ? 'Retry or remove the failed upload'
+                  : householdTooLong
+                    ? 'Shorten the household note first'
+                    : light.uploading
+                      ? 'Uploading the lighting reference…'
+                      : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
+        </Button>
+        <CostLine
+          summary={
+            <>
               {planner.provider === 'runway'
                 ? 'Claude plans the film, a few credits for every six renders.'
                 : `${planner.model} plans the film on your own ${PROVIDER_NAMES[planner.provider]} key.`}{' '}
-              Nothing is shot until you say so.{' '}
+              Nothing is shot until you say so.
+            </>
+          }
+          details={
+            <>
               {imageModelTakesCastSheet(imageModel)
                 ? `The cast is one ${imageModelName(CAST_SHEET_MODEL.imageModel)} still per chapter; each frame is `
                 : `${modelName} takes only the render, so there is no cast; each frame is `}
@@ -979,168 +1630,104 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
                   : `two stills, an x-ray plate on ${modelName} and then the develop on ${pass2Name}.`
                 : `one ${modelName} still.`}{' '}
               Billed to your own Runway credits at each model&rsquo;s own rate.
-            </Text>
-            <RunwayErrorNotice error={plan.error} modelName="Claude" onRetry={() => void runPlan()} />
-          </div>
-        </div>
+            </>
+          }
+        />
+        <RunwayErrorNotice error={plan.error} modelName="Claude" onRetry={() => void runPlan()} />
+      </>
+    );
+  } else if (filmShot && firstTake && included[0]) {
+    // Every frame is shot: the next step is the film's first frame, animated.
+    const first = included[0];
+    const undeveloped = included.filter((f) => views.get(f.image)?.state === 'pass2-failed').length;
+    footer = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          className={own.primary}
+          icon={<Film size={18} />}
+          onPress={() => onAnimate(firstTake.id, animatePreset(firstTake, first.grammar))}
+        >
+          Animate the first frame
+        </Button>
+        <CostLine
+          summary={
+            undeveloped > 0
+              ? `Every frame is shot; ${undeveloped} develop${undeveloped === 1 ? " didn't finish, so retry it on its frame" : "s didn't finish, so retry them on their frames"}.`
+              : 'Every frame is shot. Animating opens the Video tab set up for a clip; nothing is billed until you make it.'
+          }
+        />
+      </>
+    );
+  } else {
+    // Nothing left to send: frames still on their passes, or one that must change before it can be shot.
+    const waiting = !shootingAll && unshot.length === 0 && takesOnTheirWay;
+    const stuck =
+      !shootingAll && unshot.length === 0 && !takesOnTheirWay
+        ? included.find((f) => views.get(f.image)?.result === undefined)
+        : undefined;
+    const stuckReason = stuck ? notReady(stuck) : undefined;
+    footer = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          className={own.primary}
+          icon={<Clapperboard size={18} />}
+          loading={shootingAll || waiting}
+          disabled={!stuck && (!canShoot || unshot.length === 0)}
+          onPress={() => (stuck ? selectFrame(stuck.image) : void shootAll())}
+        >
+          {shootingAll || waiting
+            ? 'Shooting the frames…'
+            : stuck
+              ? `Open frame ${board.indexOf(stuck) + 1} to finish it`
+              : unshot.length === 0
+                ? 'Nothing left to shoot'
+                : unshot.length === included.length
+                  ? unshot.length === 1
+                    ? 'Shoot the frame'
+                    : `Shoot all ${unshot.length} frames`
+                  : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
+        </Button>
+        <CostLine
+          summary={
+            !canShoot
+              ? 'Approve the cast, or choose No cast, to start shooting.'
+              : stuck && stuckReason
+                ? `Frame ${board.indexOf(stuck) + 1}: ${stuckReason}`
+                : `Each frame is ${frameStills}, billed to your own Runway credits.`
+          }
+        />
+      </>
+    );
+  }
 
-        <div className={styles.result} data-stage>
-          {current?.status === 'planned' ? (
-            <Section title="Plan of action">
-              <div className={own.boardHead}>
-                <div className={own.boardIntro}>
-                  <Text tone="secondary" as="p">
-                    {board.length} frame{board.length === 1 ? '' : 's'} in {COUNT_WORDS[chaptersUsed]} chapter
-                    {chaptersUsed === 1 ? '' : 's'}. Edit anything, then create the cast and shoot.
-                  </Text>
-                  <Text tone="muted" size="sm" as="p">
-                    {heritageName && `${heritageName} household. `}
-                    {boardShotWith}
-                    {current.lightRefUrl ? ', matched to your lighting reference' : ''}. Each list puts the planned
-                    choice first. Plans come from {planner.label}.
-                  </Text>
-                </div>
-                <div className={own.cardActions}>
-                  {(unshot.length > 0 || shootingAll) && (
-                    <Button
-                      variant="primary"
-                      icon={<Clapperboard size={16} />}
-                      loading={shootingAll}
-                      disabled={!canShoot}
-                      onPress={() => void shootAll()}
-                    >
-                      {shootingAll
-                        ? 'Shooting the frames…'
-                        : unshot.length === included.length
-                          ? unshot.length === 1
-                            ? 'Shoot the frame'
-                            : `Shoot all ${unshot.length} frames`
-                          : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {current.warning && (
-                <div className={own.pollError}>
-                  <Alert tone="warning" title="Part of the film wasn't planned">
-                    {current.warning}
-                  </Alert>
-                </div>
-              )}
-
-              <CastPanel
-                imageModel={current.imageModel}
-                cast={cast}
-                needs={needs}
-                stillById={stillById}
-                mode={castMode}
-                onMode={setCastMode}
-                busy={castBusy}
-                error={castError}
-                onCast={chooseCast}
-                onApprove={approveCast}
-              />
-
-              {CHAPTERS.map((chapter, ci) => {
-                const frames = board.filter((f) => f.chapter === chapter.id);
-                if (frames.length === 0) return null;
-                return (
-                  <section key={chapter.id} className={own.chapter} aria-labelledby={`chapter-${chapter.id}`}>
-                    <header className={own.chapterHead}>
-                      <span className={own.chapterNo} aria-hidden>
-                        {String(ci + 1).padStart(2, '0')}
-                      </span>
-                      <h3 id={`chapter-${chapter.id}`} className={own.chapterName}>
-                        {chapter.name}
-                      </h3>
-                      <span className={own.chapterHint}>{chapter.hint}</span>
-                      <span className={own.chapterCount}>
-                        {frames.length} frame{frames.length === 1 ? '' : 's'}
-                      </span>
-                    </header>
-                    <ol className={own.frames}>
-                      {frames.map((f) => {
-                        const view = views.get(f.image) ?? NO_TAKE;
-                        return (
-                          <FrameCard
-                            key={`${current.id}-${f.image}`}
-                            order={board.indexOf(f) + 1}
-                            frame={planned.get(f.image)!}
-                            choice={drafts[f.image]}
-                            img={current.images[f.image]}
-                            jobId={current.id}
-                            modelName={imageModelName(current.imageModel)}
-                            pass2ModelName={current.pass2 ? imageModelName(current.pass2.imageModel) : undefined}
-                            save={saves[f.image]}
-                            view={view}
-                            twoPass={twoPassBoard}
-                            pass1Shown={view.result ? pass1Shown[view.result.id] === true : false}
-                            onShowPass1={showPass1}
-                            shooting={Boolean(shooting[f.image])}
-                            shootError={shootErrors[f.image]}
-                            retrying={Boolean(retrying[f.image])}
-                            retryError={retryErrors[f.image]}
-                            canShoot={canShoot}
-                            shootingAll={shootingAll}
-                            onChoose={onChoose}
-                            onShoot={shoot}
-                            onRetryPass2={retryPass2}
-                            onOpen={openFrame}
-                            onAnimate={onAnimate}
-                          />
-                        );
-                      })}
-                    </ol>
-                  </section>
-                );
-              })}
-              <Text tone="muted" size="sm" as="p" className={own.saved}>
-                Every frame is saved to your library, tagged @lifestyle
-                {current.pass2 ? ', its x-ray plate also @pass-1. Pass 2 develops the plate on its own once it is in, while this page is open' : ''}
-                . Shoot within a day of planning: uploaded renders are only kept that long.
-              </Text>
-            </Section>
-          ) : (
-            <Section title="Plan of action">
-              <div className={styles.resultFrame} style={{ aspectRatio: '16 / 9', ['--ar' as string]: '16 / 9' }}>
-                {planning ? (
-                  <RenderingStatus
-                    label={
-                      plan.isPending
-                        ? `Sending the renders to ${planner.model}…`
-                        : `Planning ${current?.images.length ?? uploads.length} frames: chapter, shot, what to keep, who is there…`
-                    }
-                    runKey={current?.id}
-                  />
-                ) : current?.status === 'failed' ? (
-                  <div className={styles.frameAlert}>
-                    <Alert tone="error" title="The film wasn't planned">
-                      {current.error ?? 'Plan the film again.'}
-                    </Alert>
-                    <div className={own.retry}>
-                      <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void runPlan()} disabled={!ready}>
-                        {ready ? 'Plan again' : 'Add the renders again to plan'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : job.isLoading ? (
-                  <RenderingStatus label="Loading your plan…" />
-                ) : (
-                  <EmptyState
-                    title="Your plan of action will appear here"
-                    hint="Upload the project's renders, say who lives there, then press Plan. Each render comes back tagged with its chapter, shot, what to keep and who is there, ready to cast and shoot."
-                  />
-                )}
-              </div>
-            </Section>
-          )}
-          {job.error && (
-            <div className={own.pollError}>
-              <RunwayErrorNotice error={job.error} modelName="Claude" onRetry={() => void job.refetch()} />
-            </div>
-          )}
-        </div>
-      </div>
+  return (
+    <>
+      <Workspace
+        page="lifestyle"
+        canvasState={canvasState}
+        canvas={canvas}
+        aspectRatio={aspectRatio}
+        caption={caption}
+        canvasNote={canvasNote}
+        canvasToolbar={toolbar}
+        canvasActions={canvasActions}
+        onDropFiles={planning || uploads.length >= MAX_IMAGES ? undefined : (files) => void addFiles(files)}
+        empty={{
+          title: 'Drop the project’s renders to begin',
+          hint: 'Up to 24 renders of one project. Each comes back tagged with its chapter, shot, light, what to keep and who is there.',
+          action: 'Choose project renders',
+          label: 'Drop or choose project renders',
+        }}
+        inspector={frameInspector ?? jobInspector}
+        footer={footer}
+        strip={strip}
+        stripLabel="Frames"
+        raiseSheet={selected}
+      />
 
       {current?.status === 'planned' && (
         <LifestyleViewer
@@ -1151,7 +1738,11 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
           pass1Shown={pass1Shown}
           onShowPass1={showPass1}
           image={viewing}
-          onImage={setViewing}
+          onImage={(image) => {
+            setViewing(image);
+            // The frame stepped to on the big screen is the one selected when it closes.
+            if (image !== null) selectFrame(image);
+          }}
           onAnimate={onAnimate}
         />
       )}
@@ -1178,7 +1769,7 @@ function PlannerRow({ ai, error, planner, disabled }: PlannerRowProps) {
   const choose = trpc.settings.setAiText.useMutation({ onSettled: () => utils.settings.aiText.invalidate() });
   const head = (
     <p className={own.aiRowHead}>
-      Planner <span>— writes the plan of action</span>
+      Planner <span>writes the plan of action</span>
     </p>
   );
   if (!ai) {
@@ -1197,8 +1788,8 @@ function PlannerRow({ ai, error, planner, disabled }: PlannerRowProps) {
   const { provider, model, keys } = ai;
   const providers = [
     { id: 'runway', name: 'Runway' },
-    { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ' — add a key in Settings'}` },
-    { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ' — add a key in Settings'}` },
+    { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ' (add a key in Settings)'}` },
+    { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ' (add a key in Settings)'}` },
   ];
   const models =
     provider === 'anthropic'
@@ -1257,6 +1848,8 @@ type CastPanelProps = {
   error: unknown;
   onCast: (mode: CastMode, uploadedUrl?: string) => Promise<void>;
   onApprove: () => Promise<void>;
+  /** The person's own cast sheet, uploading or in. */
+  upload: ReturnType<typeof useReferenceUpload>;
 };
 
 /**
@@ -1265,8 +1858,19 @@ type CastPanelProps = {
  * renders), the person's own sheet, or none. Frames are shot only once it
  * is approved.
  */
-function CastPanel({ imageModel, cast, needs, stillById, mode, onMode, busy, error, onCast, onApprove }: CastPanelProps) {
-  const upload = useReferenceUpload('cast sheet');
+function CastPanel({
+  imageModel,
+  cast,
+  needs,
+  stillById,
+  mode,
+  onMode,
+  busy,
+  error,
+  onCast,
+  onApprove,
+  upload,
+}: CastPanelProps) {
   const [big, setBig] = useState<string | null>(null);
   const supported = imageModelTakesCastSheet(imageModel);
   const modelName = imageModelName(imageModel);
@@ -1311,196 +1915,188 @@ function CastPanel({ imageModel, cast, needs, stillById, mode, onMode, busy, err
   }
 
   return (
-    <section className={own.castPanel} aria-labelledby="lifestyle-cast">
-      <div className={own.castPanelHead}>
-        <h3 id="lifestyle-cast" className={own.castPanelTitle}>
-          <Users size={16} aria-hidden />
-          The residents
-        </h3>
+    <Section title="The residents">
+      <div className={own.castPanel}>
         <span className={own.castStatus} data-approved={cast?.approved || undefined}>
-          {cast?.approved && <Check size={12} aria-hidden />}
+          {cast?.approved ? <Check size={12} aria-hidden /> : <Users size={12} aria-hidden />}
           {status}
         </span>
-      </div>
-      <Text tone="secondary" size="sm" as="p" className={own.castLead}>
-        {n > 0
-          ? `The same household appears across the film. ${n === 1 ? 'One chapter has' : `${capitalised(COUNT_WORDS[n] ?? String(n))} chapters have`} residents in it; each gets one cast sheet lit in its own light, so faces, hair and clothing stay the same from frame to frame.${cast?.approved ? '' : ' Approve the cast to start shooting.'}`
-          : `No frame in the film has household residents in it, so there is no cast to create.${cast?.approved ? '' : ' Choose No cast to start shooting.'}`}
-      </Text>
-      {!supported && (
-        <Alert tone="warning" title="No cast sheet with this model">
-          {modelName} takes only the render, so the frames are shot without a cast
-          {castSheetModelNames().length > 0 ? `; plan again with ${castSheetModelNames().join(' or ')} to use one` : ''}.
-        </Alert>
-      )}
-      <div className={own.castMode}>
-        <ChoiceGroup
-          label="Cast"
-          choices={supported ? CAST_MODES : CAST_MODES.filter((m) => m.id === 'none')}
-          value={supported ? mode : 'none'}
-          onChange={(id) => onMode(id as CastMode)}
-          disabled={busy !== null}
-        />
-      </div>
+        <Text tone="secondary" size="sm" as="p" className={own.castLead}>
+          {n > 0
+            ? `The same household appears across the film. ${n === 1 ? 'One chapter has' : `${capitalised(COUNT_WORDS[n] ?? String(n))} chapters have`} residents in it; each gets one cast sheet lit in its own light, so faces, hair and clothing stay the same from frame to frame.${cast?.approved ? '' : ' Approve the cast to start shooting.'}`
+            : `No frame in the film has household residents in it, so there is no cast to create.${cast?.approved ? '' : ' Choose No cast to start shooting.'}`}
+        </Text>
+        {!supported && (
+          <Alert tone="warning" title="No cast sheet with this model">
+            {modelName} takes only the render, so the frames are shot without a cast
+            {castSheetModelNames().length > 0 ? `; plan again with ${castSheetModelNames().join(' or ')} to use one` : ''}.
+          </Alert>
+        )}
+        <div className={own.castMode}>
+          <ChoiceGroup
+            label="Cast"
+            choices={supported ? CAST_MODES : CAST_MODES.filter((m) => m.id === 'none')}
+            value={supported ? mode : 'none'}
+            onChange={(id) => onMode(id as CastMode)}
+            disabled={busy !== null}
+          />
+        </div>
 
-      {supported && mode === 'generated' && (
-        <>
-          {made.length > 0 && (
-            <ul className={own.sheets} aria-label="Cast sheets">
-              {made.map(({ sheet, still }) => {
-                const chapter = chapterById(sheet.chapter);
-                const caption = `Cast: ${chapter.name} — ${roleNames(sheet.roles)}`;
-                return (
-                  <li key={sheet.stillId} className={own.sheet}>
-                    <div
-                      className={own.sheetFrame}
-                      style={{ aspectRatio: still ? `${still.width} / ${still.height}` : '16 / 9' }}
-                    >
-                      {still?.status === 'succeeded' ? (
-                        <TakeImage
-                          stillId={sheet.stillId}
-                          alt={caption}
-                          className={styles.image}
-                          onOpen={() => setBig(sheet.stillId)}
-                          openLabel={`Open on the big screen: ${caption}`}
-                          openClassName={own.frameButton}
-                        />
-                      ) : still?.status === 'failed' ? (
-                        <div className={styles.frameAlert}>
-                          <Alert tone="error" title="This sheet didn't render">
-                            {still.error ?? 'Create the cast again.'}
-                          </Alert>
-                        </div>
-                      ) : (
-                        <RenderingStatus label="Casting the residents…" runKey={sheet.stillId} />
-                      )}
-                    </div>
-                    <Text tone="secondary" size="sm" as="p">
-                      {caption}
-                    </Text>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {stale.length > 0 && (
-            <Alert tone="warning" title="The plan has changed since the cast was made">
-              {stale.map((s) => chapterById(s.chapter).name).join(', ')} now {stale.length === 1 ? 'needs' : 'need'}{' '}
-              {stale.map((s) => roleNames(s.roles)).join('; ')}. Create the cast again to include them.
-            </Alert>
-          )}
-          <div className={own.cardActions}>
-            <Button
-              variant={made.length === 0 || anyFailed || stale.length > 0 ? 'primary' : 'ghost'}
-              icon={made.length > 0 ? <RotateCcw size={14} /> : <Users size={14} />}
-              loading={busy === 'generated'}
-              disabled={n === 0 || (busy !== null && busy !== 'generated')}
-              onPress={() => void onCast('generated')}
-            >
-              {busy === 'generated'
-                ? 'Creating the cast…'
-                : `${made.length > 0 ? 'Create the cast again' : 'Create the cast'} (${n} sheet${n === 1 ? '' : 's'})`}
-            </Button>
-            {made.length > 0 && !cast?.approved && (
+        {supported && mode === 'generated' && (
+          <>
+            {made.length > 0 && (
+              <ul className={own.sheets} aria-label="Cast sheets">
+                {made.map(({ sheet, still }) => {
+                  const chapter = chapterById(sheet.chapter);
+                  const caption = `Cast: ${chapter.name} · ${roleNames(sheet.roles)}`;
+                  return (
+                    <li key={sheet.stillId} className={own.sheet}>
+                      <div
+                        className={own.sheetFrame}
+                        style={{ aspectRatio: still ? `${still.width} / ${still.height}` : '16 / 9' }}
+                      >
+                        {still?.status === 'succeeded' ? (
+                          <TakeImage
+                            stillId={sheet.stillId}
+                            alt={caption}
+                            className={styles.image}
+                            onOpen={() => setBig(sheet.stillId)}
+                            openLabel={`Open on the big screen: ${caption}`}
+                            openClassName={own.frameButton}
+                          />
+                        ) : still?.status === 'failed' ? (
+                          <div className={styles.frameAlert}>
+                            <Alert tone="error" title="This sheet didn't render">
+                              {still.error ?? 'Create the cast again.'}
+                            </Alert>
+                          </div>
+                        ) : (
+                          <RenderingStatus label="Casting the residents…" runKey={sheet.stillId} />
+                        )}
+                      </div>
+                      <Text tone="secondary" size="sm" as="p">
+                        {caption}
+                      </Text>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {stale.length > 0 && (
+              <Alert tone="warning" title="The plan has changed since the cast was made">
+                {stale.map((s) => chapterById(s.chapter).name).join(', ')} now {stale.length === 1 ? 'needs' : 'need'}{' '}
+                {stale.map((s) => roleNames(s.roles)).join('; ')}. Create the cast again to include them.
+              </Alert>
+            )}
+            <div className={own.cardActions}>
               <Button
-                variant="primary"
-                icon={<Check size={14} />}
-                loading={busy === 'approve'}
-                disabled={!allDone || (busy !== null && busy !== 'approve')}
-                onPress={() => void onApprove()}
+                variant={made.length === 0 || anyFailed || stale.length > 0 ? 'primary' : 'ghost'}
+                icon={made.length > 0 ? <RotateCcw size={14} /> : <Users size={14} />}
+                loading={busy === 'generated'}
+                disabled={n === 0 || (busy !== null && busy !== 'generated')}
+                onPress={() => void onCast('generated')}
               >
-                Approve cast
+                {busy === 'generated'
+                  ? 'Creating the cast…'
+                  : `${made.length > 0 ? 'Create the cast again' : 'Create the cast'} (${n} sheet${n === 1 ? '' : 's'})`}
+              </Button>
+              {made.length > 0 && !cast?.approved && (
+                <Button
+                  variant="primary"
+                  icon={<Check size={14} />}
+                  loading={busy === 'approve'}
+                  disabled={!allDone || (busy !== null && busy !== 'approve')}
+                  onPress={() => void onApprove()}
+                >
+                  Approve cast
+                </Button>
+              )}
+            </div>
+            <Text tone="muted" size="sm" as="p">
+              {made.length > 0 && !allDone && !anyFailed
+                ? 'The sheets land in about a minute. Approve them once you like the faces.'
+                : `Each sheet is one ${imageModelName(CAST_SHEET_MODEL.imageModel)} still at ${imageResolutionName(CAST_SHEET_MODEL.imageModel, CAST_SHEET_MODEL.resolution) ?? '4K'}; every press makes a new set.`}
+            </Text>
+          </>
+        )}
+
+        {supported && mode === 'uploaded' && (
+          <>
+            <CastSheetField
+              sheet={ownSheet}
+              uploading={upload.uploading || busy === 'uploaded'}
+              error={upload.error}
+              supported={supported}
+              modelName={modelName}
+              alternatives={castSheetModelNames()}
+              disabled={busy !== null}
+              onFile={(f) => void onSheet(f)}
+              onRemove={removeSheet}
+            />
+            {cast?.mode === 'uploaded' && (
+              <Text tone="muted" size="sm" as="p">
+                Every frame with residents is shot with your cast sheet.
+              </Text>
+            )}
+          </>
+        )}
+
+        {(!supported || mode === 'none') && (
+          <div className={own.castNone}>
+            <Text tone="muted" size="sm" as="p">
+              Each frame casts its residents from its own brief, so faces may change from frame to frame.
+            </Text>
+            {cast?.mode !== 'none' && (
+              <Button
+                icon={<Clapperboard size={14} />}
+                loading={busy === 'none'}
+                disabled={busy !== null && busy !== 'none'}
+                onPress={() => void onCast('none')}
+              >
+                Shoot without a cast
               </Button>
             )}
           </div>
-          <Text tone="muted" size="sm" as="p">
-            {made.length > 0 && !allDone && !anyFailed
-              ? 'The sheets land in about a minute. Approve them once you like the faces.'
-              : `Each sheet is one ${imageModelName(CAST_SHEET_MODEL.imageModel)} still at ${imageResolutionName(CAST_SHEET_MODEL.imageModel, CAST_SHEET_MODEL.resolution) ?? '4K'}; every press makes a new set.`}
-          </Text>
-        </>
-      )}
-
-      {supported && mode === 'uploaded' && (
-        <>
-          <CastSheetField
-            sheet={ownSheet}
-            uploading={upload.uploading || busy === 'uploaded'}
-            error={upload.error}
-            supported={supported}
-            modelName={modelName}
-            alternatives={castSheetModelNames()}
-            disabled={busy !== null}
-            onFile={(f) => void onSheet(f)}
-            onRemove={removeSheet}
-          />
-          {cast?.mode === 'uploaded' && (
-            <Text tone="muted" size="sm" as="p">
-              Every frame with residents is shot with your cast sheet.
-            </Text>
-          )}
-        </>
-      )}
-
-      {(!supported || mode === 'none') && (
-        <div className={own.castNone}>
-          <Text tone="muted" size="sm" as="p">
-            Each frame casts its residents from its own brief, so faces may change from frame to frame.
-          </Text>
-          {cast?.mode !== 'none' && (
-            <Button
-              icon={<Clapperboard size={14} />}
-              loading={busy === 'none'}
-              disabled={busy !== null && busy !== 'none'}
-              onPress={() => void onCast('none')}
-            >
-              Shoot without a cast
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* A cast error comes from making the sheets, which are always on CAST_SHEET_MODEL. */}
-      <RunwayErrorNotice error={error} modelName={imageModelName(CAST_SHEET_MODEL.imageModel)} />
-
-      <FullscreenDialog isOpen={bigSheet !== undefined} title={bigSheet ? `Cast: ${chapterById(bigSheet.sheet.chapter).name}` : ''} onClose={() => setBig(null)}>
-        {bigSheet && (
-          <div
-            className={own.viewerPicture}
-            style={{
-              aspectRatio: bigSheet.still ? `${bigSheet.still.width} / ${bigSheet.still.height}` : '16 / 9',
-              ['--ar' as string]: bigSheet.still ? `${bigSheet.still.width} / ${bigSheet.still.height}` : '16 / 9',
-            }}
-          >
-            <TakeImage
-              full
-              stillId={bigSheet.sheet.stillId}
-              alt={`Cast sheet: ${roleNames(bigSheet.sheet.roles)}`}
-              className={own.viewerImage}
-            />
-          </div>
         )}
-      </FullscreenDialog>
-    </section>
+
+        {/* A cast error comes from making the sheets, which are always on CAST_SHEET_MODEL. */}
+        <RunwayErrorNotice error={error} modelName={imageModelName(CAST_SHEET_MODEL.imageModel)} />
+
+        <FullscreenDialog isOpen={bigSheet !== undefined} title={bigSheet ? `Cast: ${chapterById(bigSheet.sheet.chapter).name}` : ''} onClose={() => setBig(null)}>
+          {bigSheet && (
+            <div
+              className={own.viewerPicture}
+              style={{
+                aspectRatio: bigSheet.still ? `${bigSheet.still.width} / ${bigSheet.still.height}` : '16 / 9',
+                ['--ar' as string]: bigSheet.still ? `${bigSheet.still.width} / ${bigSheet.still.height}` : '16 / 9',
+              }}
+            >
+              <TakeImage
+                full
+                stillId={bigSheet.sheet.stillId}
+                alt={`Cast sheet: ${roleNames(bigSheet.sheet.roles)}`}
+                className={own.viewerImage}
+              />
+            </div>
+          )}
+        </FullscreenDialog>
+      </div>
+    </Section>
   );
 }
 
-type FrameCardProps = {
+type FrameFieldsProps = {
   order: number;
-  /** The planner's frame; the card reads the person's changes over it. */
+  /** The planner's frame; the fields read the person's changes over it. */
   frame: LifestyleFrame;
   choice: LifestyleChoice | undefined;
-  img: LifestyleImage | undefined;
-  jobId: string;
   modelName: string;
   /** The model that finishes each take; unset on a one-pass plan. */
   pass2ModelName: string | undefined;
   save: SaveState | undefined;
   view: TakeView;
-  twoPass: boolean;
-  /** The take is shown as its first pass rather than the final. */
-  pass1Shown: boolean;
-  onShowPass1: (resultId: string, pass1: boolean) => void;
+  /** The take on show (the final, or its first pass), once there is one. */
+  done: Still | undefined;
   shooting: boolean;
   shootError: unknown;
   retrying: boolean;
@@ -1509,14 +2105,14 @@ type FrameCardProps = {
   canShoot: boolean;
   /** The whole board is being shot in turn, so no frame is shot on its own. */
   shootingAll: boolean;
+  /** The canvas's download of this frame failed. */
+  downloadError: string | null;
   onChoose: (image: number, patch: LifestyleChoice) => void;
   onShoot: (image: number, fixes?: string) => Promise<void>;
   onRetryPass2: (image: number, stillId: string) => Promise<void>;
-  onOpen: (image: number) => void;
-  onAnimate: (stillId: string, preset: VideoPreset) => void;
 };
 
-/** What the card's picture says while a take is on its way. */
+/** What the canvas says while a frame's take is on its way. */
 function renderingLabel(state: TakeState, shooting: boolean, twoPass: boolean, plate: boolean): string {
   if (shooting) return 'Starting the take…';
   if (state === 'pass2-waiting') return plate ? 'Pass 2 of 2: starting the develop…' : 'Pass 2 of 2: starting…';
@@ -1555,53 +2151,234 @@ function PassToggle({ pass1, onChange, plate, className }: PassToggleProps) {
   );
 }
 
-/** One frame of the plan, and its take once shot. Memoised, with its own
- * download state, so typing in one card doesn't re-render the others. */
-const FrameCard = memo(function FrameCard({
+/** A frame's state as the filmstrip and the contact sheet badge it. */
+type TakeBadge = {
+  take: 'none' | 'pass1' | 'pass2' | 'ready' | 'failed' | 'pass2-failed';
+  label: string | undefined;
+};
+
+function takeBadge(state: TakeState, shooting: boolean, twoPass: boolean): TakeBadge {
+  if (shooting || state === 'pass1-pending') return { take: 'pass1', label: twoPass ? 'Pass 1 of 2' : 'Shooting' };
+  if (state === 'pass2-waiting' || state === 'pass2-pending') return { take: 'pass2', label: 'Pass 2 of 2' };
+  if (state === 'done') return { take: 'ready', label: 'Ready' };
+  if (state === 'pass1-failed') return { take: 'failed', label: 'Failed' };
+  if (state === 'pass2-failed') return { take: 'pass2-failed', label: 'Pass 2 failed' };
+  return { take: 'none', label: undefined };
+}
+
+/** The small picture of a frame: its take, else pass 1 while pass 2 runs, else its render. */
+function thumbOf(view: TakeView, img: LifestyleImage | undefined): string | undefined {
+  if (view.result?.status === 'succeeded') return stillThumbUrl(view.result.id);
+  if (view.pass1?.status === 'succeeded') return stillThumbUrl(view.pass1.id);
+  return img?.url;
+}
+
+/** A thumbnail that steps aside for a plain tile once its render has expired. */
+function Thumb({ src }: { src: string | undefined }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  if (!src || broken === src) {
+    return (
+      <span className={own.thumbGone} aria-hidden>
+        <ImageIcon size={16} />
+      </span>
+    );
+  }
+  return (
+    <img className={own.thumbPic} src={src} alt="" loading="lazy" decoding="async" onError={() => setBroken(src)} />
+  );
+}
+
+type FrameThumbProps = {
+  image: number;
+  order: number;
+  title: string;
+  thumb: string | undefined;
+  badge: TakeBadge;
+  leftOut: boolean;
+  selected: boolean;
+  onSelect: (image: number) => void;
+};
+
+function frameName(order: number, title: string, badge: TakeBadge, leftOut: boolean): string {
+  return `Frame ${order}: ${title}${leftOut ? ', left out' : ''}${badge.label ? `, ${badge.label.toLowerCase()}` : ''}`;
+}
+
+/** One frame in the filmstrip: its picture, number and state; pressing it selects it. */
+const StripCard = memo(function StripCard({
+  image,
+  order,
+  title,
+  aspect,
+  thumb,
+  badge,
+  leftOut,
+  selected,
+  onSelect,
+}: FrameThumbProps & { aspect: string }) {
+  const name = frameName(order, title, badge, leftOut);
+  return (
+    <li className={own.stripItem} aria-current={selected || undefined}>
+      <button
+        type="button"
+        className={own.stripCard}
+        style={{ ['--ar' as string]: aspect }}
+        aria-pressed={selected}
+        aria-label={name}
+        title={name}
+        data-take={badge.take}
+        data-left-out={leftOut || undefined}
+        onClick={() => onSelect(image)}
+      >
+        <Thumb src={thumb} />
+        <span className={own.cardNumber} aria-hidden>
+          {order}
+        </span>
+        {badge.label && (
+          <span className={own.badge} data-take={badge.take}>
+            {badge.label}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+});
+
+/** One frame on the contact sheet: picture, number, title, chapter and state. */
+const GridCard = memo(function GridCard({
+  image,
+  order,
+  title,
+  chapterName,
+  thumb,
+  badge,
+  leftOut,
+  selected,
+  onSelect,
+}: FrameThumbProps & { chapterName: string }) {
+  return (
+    <li className={own.gridItem}>
+      <button
+        type="button"
+        className={own.gridCard}
+        aria-pressed={selected}
+        aria-label={frameName(order, title, badge, leftOut)}
+        data-take={badge.take}
+        data-left-out={leftOut || undefined}
+        onClick={() => onSelect(image)}
+      >
+        <span className={own.gridPic}>
+          <Thumb src={thumb} />
+          {badge.label && (
+            <span className={own.badge} data-take={badge.take}>
+              {badge.label}
+            </span>
+          )}
+        </span>
+        <span className={own.gridText}>
+          <span className={own.gridTitle}>
+            <span className={own.cardNo}>{order}</span>
+            {title}
+          </span>
+          <span className={own.gridChip}>{leftOut ? `${chapterName} · left out` : chapterName}</span>
+        </span>
+      </button>
+    </li>
+  );
+});
+
+/** The selected frame in the inspector: its fields, its take's state and errors. Memoised, so the
+ * board's other changes don't re-render it while the person types. */
+const FrameFields = memo(function FrameFields({
   order,
   frame,
   choice,
-  img,
-  jobId,
   modelName,
   pass2ModelName,
   save,
   view,
-  twoPass,
-  pass1Shown,
-  onShowPass1,
+  done,
   shooting,
   shootError,
   retrying,
   retryError,
   canShoot,
   shootingAll,
+  downloadError,
   onChoose,
   onShoot,
   onRetryPass2,
-  onOpen,
-  onAnimate,
-}: FrameCardProps) {
-  const saver = useDownload();
-  const [sourceBroken, setSourceBroken] = useState(false);
+}: FrameFieldsProps) {
   const f = useMemo(() => boardFrame(frame, choice), [frame, choice]);
+  const preset = lightingPresetById(f.lighting);
   const grammarOptions = useMemo(() => plannedFirst(GRAMMARS, frame.grammar), [frame.grammar]);
   const chapterOptions = useMemo(() => plannedFirst(CHAPTERS, frame.chapter), [frame.chapter]);
+  const lightingOptions = useMemo(
+    () => [
+      {
+        id: '',
+        name: 'As the chapter has it',
+        hint: "The chapter's light, shaped by the Sun and Light fields",
+        group: frame.lighting ? 'Other' : 'Planned',
+      },
+      ...plannedFirst(
+        LIGHTING_PRESETS.filter((p) => p.setting === f.setting),
+        frame.lighting ?? ''
+      ),
+    ],
+    [frame.lighting, f.setting]
+  );
+  const sunOptions = useMemo(() => {
+    // A preset allows only the sun positions its relation names.
+    if (preset) {
+      const ids = presetSunIds(preset);
+      return plannedFirst(
+        SUN_POSITIONS.filter((s) => ids.includes(s.id)),
+        frame.sun && ids.includes(frame.sun) ? frame.sun : ''
+      );
+    }
+    return [
+      {
+        id: '',
+        name: 'As the chapter has it',
+        hint: "No lighting design: the chapter's fixed sun",
+        group: frame.sun ? 'Other' : 'Planned',
+      },
+      ...plannedFirst(SUN_POSITIONS, frame.sun ?? ''),
+    ];
+  }, [frame.sun, preset]);
   const grammar = grammarById(f.grammar);
-  const aspect = img ? `${img.width} / ${img.height}` : '16 / 9';
+  const depthOptions = useMemo(
+    () => [
+      {
+        id: '',
+        name: 'As the shot has it',
+        hint: `${grammar.lens}, the shot's own depth of field`,
+        group: frame.depth ? 'Other' : 'Planned',
+      },
+      ...plannedFirst(DEPTH_PRESETS, frame.depth ?? ''),
+    ],
+    [frame.depth, grammar.lens]
+  );
+  const focusOptions = useMemo(
+    () => [
+      {
+        id: '',
+        name: grammar.people ? 'The people' : 'The subject',
+        hint: "The shot's own focus",
+        group: frame.focus ? 'Other' : 'Planned',
+      },
+      ...plannedFirst(FOCUS_TARGETS, frame.focus ?? ''),
+    ],
+    [frame.focus, grammar.people]
+  );
   const title = `${order}. ${f.title}`;
-  const { state, pass1, result } = view;
+  const { state, pass1 } = view;
   const rendering = shooting || inFlight(state);
-  // The finished take, as the final or (by choice, or while pass 2 can't be had) its first pass.
-  const finished = state === 'done' && view.pass2 !== undefined;
-  const done = state === 'done' || state === 'pass2-failed' ? (finished && pass1Shown ? pass1 : result) : undefined;
-  const showingPass1 = twoPass && done !== undefined && done === pass1;
   const blocked = notReady(f);
   const moment = momentById(f.moment);
   const place = [f.space, f.setting === 'interior' ? 'interior' : 'exterior'].filter(Boolean).join(' · ');
   // The check reviews the take as it was shot, so a frame since changed to Empty can still be checked.
   const checkPeople = done !== undefined && grammarById(done.lifestyle?.grammar ?? f.grammar).people;
-  const passOne = (state === 'pass2-waiting' || state === 'pass2-pending') && !shooting ? pass1 : undefined;
 
   function pickGrammar(id: string) {
     const next = grammarById(id);
@@ -1615,97 +2392,8 @@ const FrameCard = memo(function FrameCard({
   }
 
   return (
-    <li className={own.card} data-left-out={!f.include || undefined}>
-      <div className={own.cardFrame} style={{ aspectRatio: aspect }}>
-        {rendering ? (
-          <>
-            {/* Pass 1 is in: it shows, stepped back, while pass 2 finishes it. */}
-            {passOne && (
-              <TakeImage
-                key={passOne.id}
-                stillId={passOne.id}
-                alt={view.plate ? `X-ray plate of ${f.title}` : `Pass 1 of ${f.title}`}
-                className={`${styles.image} ${own.passOverlay}`}
-              />
-            )}
-            <RenderingStatus
-              label={renderingLabel(state, shooting, twoPass, view.plate)}
-              runKey={passOne ? `${passOne.id}-pass2` : (pass1?.id ?? `${jobId}-${frame.image}`)}
-            />
-          </>
-        ) : done ? (
-          <>
-            <TakeImage
-              key={done.id}
-              stillId={done.id}
-              alt={`${showingPass1 ? 'Pass 1 of the lifestyle frame' : 'Lifestyle frame'}: ${f.title}`}
-              className={styles.image}
-              onOpen={() => onOpen(frame.image)}
-              openLabel={`Compare with your render: ${title}`}
-              openClassName={own.frameButton}
-            />
-            {state === 'pass2-failed' && (
-              <span className={own.passChip}>{view.plate ? 'Plate only' : 'Pass 1 only'}</span>
-            )}
-            {finished && result && (
-              <PassToggle
-                pass1={pass1Shown}
-                onChange={(next) => onShowPass1(result.id, next)}
-                plate={view.plate}
-                className={own.passToggleOnFrame}
-              />
-            )}
-          </>
-        ) : img && !sourceBroken ? (
-          <>
-            <img
-              className={`${styles.image} ${own.source}`}
-              src={img.url}
-              alt={`Your render: ${img.name || f.title}`}
-              loading="lazy"
-              decoding="async"
-              onError={() => setSourceBroken(true)}
-            />
-            <span className={own.sourceChip}>Your render</span>
-          </>
-        ) : (
-          <div className={styles.frameAlert}>
-            <Text tone="muted" size="sm" as="p">
-              This uploaded render is no longer kept. Plan the film again to shoot it.
-            </Text>
-          </div>
-        )}
-      </div>
-
-      {state === 'pass1-failed' && !shooting && (
-        <Alert tone="error" title="This frame didn't render">
-          {pass1?.error ?? 'Shoot it again.'}
-        </Alert>
-      )}
-      {state === 'pass2-failed' && !shooting && pass1 && (
-        <Alert tone="warning" title="Pass 2 didn't finish">
-          {view.note && (/[.!?]$/.test(view.note) ? `${view.note} ` : `${view.note}. `)}
-          Pass 1 is shown meanwhile; retry pass 2 to finish it{pass2ModelName ? ` on ${pass2ModelName}` : ''}.
-          <div className={own.passRetry}>
-            <Button
-              size="sm"
-              icon={<RotateCcw size={14} />}
-              loading={retrying}
-              disabled={retrying || shootingAll}
-              onPress={() => void onRetryPass2(frame.image, pass1.id)}
-            >
-              Retry pass 2
-            </Button>
-          </div>
-        </Alert>
-      )}
-
-      <div className={own.cardText}>
-        <h4 className={own.cardTitle}>
-          <span className={own.cardNo}>{order}</span>
-          {f.title}
-          <span className={own.space}>{place}</span>
-        </h4>
+    <Section title={`Frame ${order}: ${f.title}`} description={place} label="this frame">
+      <div className={own.fields} data-left-out={!f.include || undefined}>
         <ul className={own.tags} aria-label={`Tags for ${title}`}>
           <li className={own.tag}>
             {grammar.name}, {grammar.lens}
@@ -1716,156 +2404,193 @@ const FrameCard = memo(function FrameCard({
             !grammar.people && <li className={own.tag}>No people</li>
           )}
           {moment && <li className={own.tag}>{moment.name}</li>}
+          {preset && <li className={own.tag}>{preset.name}</li>}
+          {f.sun && <li className={own.tag}>Sun: {SUN_POSITIONS.find((s) => s.id === f.sun)?.name.toLowerCase()}</li>}
+          {f.depth && (
+            <li className={own.tag}>
+              {DEPTH_PRESETS.find((d) => d.id === f.depth)?.name}
+              {f.focus ? `, on ${FOCUS_TARGETS.find((t) => t.id === f.focus)?.name.toLowerCase()}` : ''}
+            </li>
+          )}
           {!f.include && (
             <li className={own.tag} data-tone="muted">
               Left out
             </li>
           )}
         </ul>
-      </div>
 
-      {f.include && (
-        <div className={own.options}>
-          <div className={own.optionRow}>
-            <Select label="Shot" options={grammarOptions} value={f.grammar} onChange={pickGrammar} disabled={rendering} />
-            <Select
-              label="Chapter"
-              options={chapterOptions}
-              value={f.chapter}
-              onChange={(id) => onChoose(frame.image, { chapter: id as ChapterId })}
-              disabled={rendering}
-            />
-          </div>
-          <TextArea
-            label="Keep exactly"
-            value={f.keep}
-            onChange={(v) => onChoose(frame.image, { keep: v })}
-            rows={2}
-            maxLength={KEEP_MAX}
-            disabled={rendering}
-            placeholder="e.g. the free-form pool, the timber pavilions, the palms and the pink paving"
-          />
-          {grammar.reframe && (
-            <TextInput
-              label="Move in on"
-              value={f.crop}
-              onChange={(v) => onChoose(frame.image, { crop: v })}
-              maxLength={CROP_MAX}
-              disabled={rendering}
-              placeholder="e.g. the nearest lounger at bottom left"
-            />
-          )}
-          <TextArea
-            label={grammar.people ? 'Who is there and where' : 'What the frame shows'}
-            value={f.people}
-            onChange={(v) => onChoose(frame.image, { people: v })}
-            rows={3}
-            maxLength={PEOPLE_MAX}
-            disabled={rendering}
-            placeholder={
-              grammar.people
-                ? 'e.g. the mother reads on the far lounger while the daughter dips her feet in the pool'
-                : 'e.g. No people. Petals fallen on the stone path by the bench.'
-            }
-          />
-          <TextInput
-            label="Direction (optional)"
-            value={f.note}
-            onChange={(v) => onChoose(frame.image, { note: v })}
-            maxLength={NOTE_MAX}
-            disabled={rendering}
-            placeholder="e.g. a softer sky, the umbrellas closed"
-            onPressEnter={() => {
-              if (canShoot && !blocked && !rendering && !shootingAll) void onShoot(frame.image);
-            }}
-          />
-          {f.why && (
-            <Text tone="muted" size="sm" as="p">
-              Why: {f.why}
-            </Text>
-          )}
-        </div>
-      )}
+        {state === 'pass1-failed' && !shooting && (
+          <Alert tone="error" title="This frame didn't render">
+            {pass1?.error ?? 'Shoot it again.'}
+          </Alert>
+        )}
+        {state === 'pass2-failed' && !shooting && pass1 && (
+          <Alert tone="warning" title="Pass 2 didn't finish">
+            {view.note && (/[.!?]$/.test(view.note) ? `${view.note} ` : `${view.note}. `)}
+            Pass 1 is shown meanwhile; retry pass 2 to finish it{pass2ModelName ? ` on ${pass2ModelName}` : ''}.
+            <div className={own.passRetry}>
+              <Button
+                size="sm"
+                icon={<RotateCcw size={14} />}
+                loading={retrying}
+                disabled={retrying || shootingAll}
+                onPress={() => void onRetryPass2(frame.image, pass1.id)}
+              >
+                Retry pass 2
+              </Button>
+            </div>
+          </Alert>
+        )}
 
-      <div className={own.cardActions}>
-        <ToggleButton
-          selected={f.include}
-          onChange={(next) => onChoose(frame.image, { include: next })}
-          disabled={rendering}
-        >
-          {f.include ? 'In the film' : 'Left out'}
-        </ToggleButton>
         {f.include && (
-          <Button
-            size="sm"
-            icon={<Clapperboard size={14} />}
-            loading={rendering}
-            disabled={!canShoot || blocked !== undefined || shootingAll || retrying}
-            onPress={() => void onShoot(frame.image)}
+          <div className={own.options}>
+            <div className={own.optionRow}>
+              <Select label="Shot" options={grammarOptions} value={f.grammar} onChange={pickGrammar} disabled={rendering} />
+              <Select
+                label="Chapter"
+                options={chapterOptions}
+                value={f.chapter}
+                onChange={(id) => onChoose(frame.image, { chapter: id as ChapterId })}
+                disabled={rendering}
+              />
+            </div>
+            {/* A reframed shot says what it moves in on, right under the shot. */}
+            {grammar.reframe && (
+              <TextInput
+                label="Move in on"
+                value={f.crop}
+                onChange={(v) => onChoose(frame.image, { crop: v })}
+                maxLength={CROP_MAX}
+                disabled={rendering}
+                placeholder="e.g. the nearest lounger at bottom left"
+              />
+            )}
+            <div className={own.optionRow}>
+              <TextArea
+                label="Keep exactly"
+                value={f.keep}
+                onChange={(v) => onChoose(frame.image, { keep: v })}
+                rows={2}
+                maxLength={KEEP_MAX}
+                disabled={rendering}
+                placeholder="e.g. the free-form pool, the timber pavilions, the palms and the pink paving"
+                className={own.pairField}
+              />
+              <TextArea
+                label={grammar.people ? 'Who is there and where' : 'What the frame shows'}
+                value={f.people}
+                onChange={(v) => onChoose(frame.image, { people: v })}
+                rows={3}
+                maxLength={PEOPLE_MAX}
+                disabled={rendering}
+                className={own.pairField}
+                placeholder={
+                  grammar.people
+                    ? 'e.g. the mother reads on the far lounger while the daughter dips her feet in the pool'
+                    : 'e.g. No people. Petals fallen on the stone path by the bench.'
+                }
+              />
+            </div>
+            <TextInput
+              label="Direction (optional)"
+              value={f.note}
+              onChange={(v) => onChoose(frame.image, { note: v })}
+              maxLength={NOTE_MAX}
+              disabled={rendering}
+              placeholder="e.g. a softer sky, the umbrellas closed"
+              onPressEnter={() => {
+                if (canShoot && !blocked && !rendering && !shootingAll) void onShoot(frame.image);
+              }}
+            />
+            <div className={own.optionRow}>
+              <Select
+                label="Lighting"
+                options={lightingOptions}
+                value={f.lighting ?? ''}
+                onChange={(id) => onChoose(frame.image, { lighting: id === '' ? null : (id as LightingPresetId) })}
+                disabled={rendering}
+              />
+              {(!preset || presetSunIds(preset).length > 1) && (
+                <Select
+                  label="Sun"
+                  options={sunOptions}
+                  value={preset ? presetSun(preset, f.sun) : (f.sun ?? '')}
+                  onChange={(id) => onChoose(frame.image, { sun: id === '' ? null : (id as SunPositionId) })}
+                  disabled={rendering}
+                />
+              )}
+            </div>
+            <TextArea
+              label="Light"
+              value={f.light ?? ''}
+              onChange={(v) => onChoose(frame.image, { light: v })}
+              rows={2}
+              maxLength={LIGHT_MAX}
+              disabled={rendering}
+              placeholder="e.g. the tower on the left keeps the near walkway in shade; sun breaks through the trees in pools down the middle; she walks into the first pool, rim-lit against the shaded façade"
+            />
+            <div className={own.optionRow}>
+              <Select
+                label="Depth"
+                options={depthOptions}
+                value={f.depth ?? ''}
+                onChange={(id) => onChoose(frame.image, { depth: id === '' ? null : (id as DepthId) })}
+                disabled={rendering}
+              />
+              <Select
+                label="Focus"
+                options={focusOptions}
+                value={f.focus ?? ''}
+                onChange={(id) => onChoose(frame.image, { focus: id === '' ? null : (id as FocusId) })}
+                disabled={rendering}
+              />
+            </div>
+            {f.why && (
+              <Text tone="muted" size="sm" as="p">
+                Why: {f.why}
+              </Text>
+            )}
+          </div>
+        )}
+
+        <div className={own.cardActions}>
+          <ToggleButton
+            selected={f.include}
+            onChange={(next) => onChoose(frame.image, { include: next })}
+            disabled={rendering}
           >
-            {rendering ? 'Shooting…' : state !== 'none' ? 'Shoot again' : 'Shoot this frame'}
-          </Button>
+            {f.include ? 'In the film' : 'Left out'}
+          </ToggleButton>
+          <span className={own.saveState} role="status">
+            {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : ''}
+          </span>
+        </div>
+        {save && typeof save === 'object' && <RunwayErrorNotice error={save.error} modelName="your plan" />}
+        <RunwayErrorNotice error={shootError} modelName={modelName} onRetry={() => void onShoot(frame.image)} />
+        {/* A retry's error only while its pass 2 still hasn't finished: one that lost a race to a poll has moved on. */}
+        {state === 'pass2-failed' && pass1 && retryError !== undefined && !saysOnlyThis(retryError, view.note) && (
+          <RunwayErrorNotice
+            error={retryError}
+            modelName={pass2ModelName ?? modelName}
+            onRetry={() => void onRetryPass2(frame.image, pass1.id)}
+          />
         )}
-        {done && (
-          <>
-            <Button size="sm" variant="ghost" icon={<Expand size={14} />} onPress={() => onOpen(frame.image)}>
-              Compare
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<Download size={14} />}
-              loading={saver.pending}
-              aria-label={saver.pending ? undefined : `Download ${title}${showingPass1 ? ', pass 1' : ''}`}
-              onPress={() => saver.start(libraryUrl('still', done.id), downloadName(order, f.title, showingPass1))}
-            >
-              {saver.label('Download')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<Film size={14} />}
-              aria-label={`Animate ${title}`}
-              onPress={() => onAnimate(done.id, animatePreset(done, f.grammar))}
-            >
-              Animate
-            </Button>
-          </>
+        {downloadError && (
+          <Alert tone="error" title="Download failed">
+            {downloadError}
+          </Alert>
         )}
-        <span className={own.saveState} role="status">
-          {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : ''}
-        </span>
+        {checkPeople && (
+          <PeopleCheck
+            key={done.id}
+            stillId={done.id}
+            autoRun={false}
+            onFix={(fixes) => void onShoot(frame.image, fixes)}
+            fixing={rendering}
+          />
+        )}
       </div>
-      {f.include && blocked && (
-        <Text tone="muted" size="sm" as="p">
-          {blocked}
-        </Text>
-      )}
-      {save && typeof save === 'object' && <RunwayErrorNotice error={save.error} modelName="your plan" />}
-      <RunwayErrorNotice error={shootError} modelName={modelName} onRetry={() => void onShoot(frame.image)} />
-      {/* A retry's error only while its pass 2 still hasn't finished: one that lost a race to a poll has moved on. */}
-      {state === 'pass2-failed' && pass1 && retryError !== undefined && !saysOnlyThis(retryError, view.note) && (
-        <RunwayErrorNotice
-          error={retryError}
-          modelName={pass2ModelName ?? modelName}
-          onRetry={() => void onRetryPass2(frame.image, pass1.id)}
-        />
-      )}
-      {saver.error && (
-        <Alert tone="error" title="Download failed">
-          {saver.error}
-        </Alert>
-      )}
-      {checkPeople && (
-        <PeopleCheck
-          key={done.id}
-          stillId={done.id}
-          autoRun={false}
-          onFix={(fixes) => void onShoot(frame.image, fixes)}
-          fixing={rendering}
-        />
-      )}
-    </li>
+    </Section>
   );
 });
 

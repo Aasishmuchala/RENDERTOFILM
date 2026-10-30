@@ -1,9 +1,11 @@
 .painter {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* The tools sit above the picture, never over it: every pixel of the
+   picture stays paintable. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -11,57 +13,70 @@
   gap: 8px;
 }
 
+/* Tool and brush size: segmented controls with 36 px segments (DESIGN 2.8,
+   toolbar targets). The selected one takes the glass-button fill and edge. */
 .segment {
   display: inline-flex;
-  padding: 2px;
   gap: 2px;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-sunken);
+  padding: 3px;
+  border-radius: var(--r-control);
+  background-color: var(--bay-border-hair);
 }
 
 .segItem {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 28px;
-  height: 26px;
-  padding: 0 9px;
+  gap: 5px;
+  min-width: 36px;
+  height: 36px;
+  /* Tight enough that both groups share one row in a 400 px inspector. */
+  padding: 0 8px;
   border: 0;
   border-radius: var(--bay-r-sm);
-  background: transparent;
+  background-color: transparent;
   color: var(--bay-text-2);
-  font: inherit;
-  font-size: 13px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   cursor: pointer;
   outline: none;
-  transition: background var(--bay-dur-fast) var(--bay-ease);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
 }
 
-.segItem[data-hovered] {
+.segItem[data-hovered],
+.segItem[data-focus-visible] {
+  background-color: var(--bay-border-hair);
   color: var(--bay-text);
 }
 
+.segItem[data-pressed] {
+  background-color: var(--glass-btn);
+}
+
 .segItem[data-selected] {
-  background: var(--bay-bg-surface);
-  color: var(--bay-accent-fg);
-  box-shadow: 0 0 0 1px var(--bay-border-hair);
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
 }
 
 .segItem[data-focus-visible] {
-  box-shadow: 0 0 0 2px var(--bay-border-focus);
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
 }
 
 .segItem[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .dot {
   display: block;
   border-radius: 50%;
-  background: currentColor;
+  background-color: currentColor;
 }
 
 .dot[data-size='s'] {
@@ -79,18 +94,21 @@
   height: 14px;
 }
 
+/* The picture being marked: an accent ring says "marking". The tint stays
+   the accent at half strength (rgba(var(--bay-accent-rgb), 0.5) once drawn). */
 .surface {
   position: relative;
   width: 100%;
   overflow: hidden;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-sunken);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-sunken);
   box-shadow: 0 0 0 2px var(--bay-accent);
   touch-action: none;
   user-select: none;
 }
 
 .surfaceLarge {
+  border-radius: var(--r-control);
   box-shadow: none;
 }
 
@@ -123,11 +141,12 @@
   pointer-events: none;
 }
 
+/* The brush outline: ink with a dark halo, so it reads on light and dark. */
 .cursor {
   position: absolute;
-  border: 1.5px solid #fff;
+  border: 1.5px solid var(--bay-text);
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(30, 27, 24, 0.6);
+  box-shadow: 0 0 0 1px var(--scrim);
   pointer-events: none;
 }
 
@@ -151,40 +170,54 @@
 
 .status {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-3);
 }
 
+/* Full size: a glass dialog over a dark scrim. The scrim fades its colour,
+   not its opacity, so the panel's backdrop blur is never cut off. */
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(20, 17, 14, 0.86);
+  padding: clamp(12px, 3vw, 24px);
+  background: var(--scrim);
 }
 
 .overlay[data-entering] {
-  animation: fade var(--bay-dur) var(--bay-ease);
+  animation: scrimIn var(--dur-3) var(--ease-out);
+}
+
+.overlay[data-exiting] {
+  animation: scrimOut 160ms var(--ease-out) forwards;
 }
 
 .modal {
+  composes: glass-thick from global;
   max-width: 100%;
   max-height: 100%;
+  border-radius: var(--r-panel);
   outline: none;
 }
 
+.modal[data-entering] {
+  animation: dialogIn var(--dur-3) var(--ease-spring);
+}
+
+.modal[data-exiting] {
+  animation: dialogOut 160ms var(--ease-out) forwards;
+}
+
+/* Rows and padding fit the 230 px the picture leaves (its inline width). */
 .dialog {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 24px;
-  max-height: calc(100vh - 48px);
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-bg-surface);
-  box-shadow: var(--bay-shadow-pop);
+  padding: 16px 20px 20px;
+  max-height: calc(100dvh - 48px);
   outline: none;
 }
 
@@ -196,18 +229,84 @@
   gap: 12px;
 }
 
+/* On the glass panel: 36 px buttons and ink-2 text (never ink 3 on glass).
+   Icon-only buttons (they carry an aria-label) are square; close is round. */
+.dialog .actions button,
+.dialog .bar > button {
+  min-width: 36px;
+  height: 36px;
+}
+
+.dialog .actions button[aria-label] {
+  width: 36px;
+  padding: 0;
+}
+
+.dialog .bar > button[aria-label] {
+  width: 36px;
+  padding: 0;
+  border-radius: var(--r-pill);
+}
+
+.dialog .status {
+  color: var(--bay-text-2);
+}
+
 .title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 500;
+  font: var(--text-title-2);
+  letter-spacing: var(--track-title-2);
+  color: var(--bay-text);
 }
 
 .bigFrame {
   max-width: 100%;
 }
 
-@keyframes fade {
+@media (prefers-reduced-motion: reduce) {
+  .modal[data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .modal[data-exiting] {
+    animation-name: fadeOut;
+  }
+}
+
+@keyframes scrimIn {
   from {
+    background-color: transparent;
+  }
+}
+
+@keyframes scrimOut {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes dialogOut {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
     opacity: 0;
   }
 }

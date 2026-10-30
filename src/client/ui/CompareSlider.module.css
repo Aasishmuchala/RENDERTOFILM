@@ -1,12 +1,21 @@
 .frame {
   position: relative;
+  /* Its own stacking context, so the handle and chips stay inside it. */
+  isolation: isolate;
   /* Fits the whole picture in the window on the stage (see Studio .resultFrame). */
-  width: min(100%, calc((100vh - var(--app-header, 60px) - 200px) * (var(--ar, 16 / 9))));
+  width: min(100%, calc((100dvh - var(--app-header, 0px) - var(--app-bottom, 0px) - 200px) * (var(--ar, 16 / 9))));
   margin-inline: auto;
   overflow: hidden;
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-stage-frame);
+  border-radius: var(--r-card);
+  background-color: var(--bay-stage-frame);
+  box-shadow: var(--bay-shadow-stage);
   user-select: none;
+}
+
+@supports (corner-shape: squircle) {
+  .frame {
+    corner-shape: squircle;
+  }
 }
 
 .image {
@@ -22,41 +31,69 @@
   clip-path: inset(0 0 0 var(--pos));
 }
 
+/* The wipe line. */
 .divider {
   position: absolute;
   top: 0;
   bottom: 0;
   left: var(--pos);
-  width: 1px;
-  margin-left: -0.5px;
-  background: #f6f1e9;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.35);
+  width: 2px;
+  margin-left: -1px;
+  background-color: color-mix(in srgb, var(--bay-text) 90%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--bay-stage-frame) 35%, transparent);
   pointer-events: none;
 }
 
+/* The handle: a 36 px glass-button lens on the line (glass-btn fill, the
+   glass edge, a light blur), ringed so it reads over any picture. */
 .divider::after {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
   border-radius: 50%;
-  background: #f6f1e9;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  background-color: var(--glass-btn);
+  -webkit-backdrop-filter: blur(16px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(16px) saturate(var(--glass-saturate));
+  box-shadow:
+    var(--glass-edge),
+    0 0 0 1.5px color-mix(in srgb, var(--bay-text) 90%, transparent),
+    0 4px 14px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
 }
 
+/* The grip on the lens: two small arrows, left and right. */
+.divider::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 10px;
+  margin: -5px 0 0 -7px;
+  background-color: var(--bay-text);
+  clip-path: path(evenodd, 'M0 5 L5 0 L5 10 Z M14 5 L9 0 L9 10 Z');
+}
+
+/* "Render" and "Film still": caption chips on thin glass. The fill is the
+   standard glass fill rather than the thin one, so the caption keeps AA
+   contrast over a bright sky; only the edge, since a panel's drop shadow
+   would smudge the picture around a chip this small. */
 .tag {
+  composes: glass-thin from global;
+  --glass-fill-thin: var(--glass-fill);
+  --glass-shadow: 0 0 0 transparent;
   position: absolute;
   top: 12px;
-  padding: 3px 10px;
-  border-radius: var(--bay-r-pill);
-  background: rgba(30, 27, 24, 0.68);
-  color: #f6f1e9;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  z-index: 1;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  color: var(--bay-text);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
   pointer-events: none;
 }
 
@@ -68,9 +105,12 @@
   right: 12px;
 }
 
+/* A native range input over the whole frame: the full frame is its hit
+   area, and the arrow keys move it. */
 .range {
   position: absolute;
   inset: 0;
+  z-index: 2;
   width: 100%;
   height: 100%;
   margin: 0;
@@ -83,7 +123,21 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 900px) {
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .divider::after {
+    background-color: var(--glass-solid);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .divider::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--glass-solid);
+  }
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
   .frame {
     width: 100%;
   }

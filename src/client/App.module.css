@@ -1,10 +1,25 @@
-/* The app's mark: an aperture on the garden green. */
-.mark {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: var(--bay-brand);
-  color: var(--bay-brand-fg);
+/* A page becoming the one showing settles in with a short fade (DESIGN.md
+   2.7, page switch). Opacity only: a transformed panel would become the
+   containing block of anything `position: fixed` inside it (Phase 9,
+   decision 2), so the page never rises. Reduced motion: the same fade. */
+.panelActive {
+  animation: panelIn 200ms var(--ease-out);
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes panelFade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panelActive {
+    animation-name: panelFade;
+  }
 }

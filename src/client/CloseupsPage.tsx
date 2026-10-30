@@ -1,28 +1,36 @@
-import { Download, Focus, Maximize2, RotateCcw } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CircleAlert, Clock, Download, Focus, Maximize2, RotateCcw } from 'lucide-react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Label, Radio, RadioGroup } from 'react-aria-components';
 
 import type { CloseupJob, CloseupShot } from '../closeups-api.ts';
 import type { Still } from '../api.ts';
+import { litFromReference, lookLabel } from '../looks.ts';
 import {
   defaultImageResolution,
   IMAGE_MODELS,
   imageModelName,
+  imageResolutionName,
   imageResolutions,
   motionLabel,
   videoModelName,
   type ImageModelId,
 } from '../models.ts';
 import { Section } from './layouts/Section.tsx';
-import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
+import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
+import { useAmbient } from './lib/ambient.tsx';
+import { clipPosterUrl, libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
+import { CostLine } from './ui/CostLine.tsx';
 import { EmptyState } from './ui/EmptyState.tsx';
 import { FilterChips } from './ui/FilterChips.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { ImagePicker } from './ui/ImagePicker.tsx';
+import { ImagePlaceholder } from './ui/ImagePlaceholder.tsx';
 import { Lightbox } from './ui/Lightbox.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
@@ -79,10 +87,17 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   const [direction, setDirection] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ id: string; title: string } | null>(null);
+  /** The close-up on the canvas, per search; the first until one is picked in the strip. */
+  const [picked, setPicked] = useState<{ job: string; index: number } | null>(null);
 
   const find = trpc.closeups.find.useMutation();
   const analyze = trpc.closeups.analyze.useMutation();
   const render = trpc.closeups.render.useMutation();
+  // A double-click's second press arrives before isPending shows: each paid
+  // step is sent once however fast it is pressed.
+  const findGuard = useInFlight();
+  const analyzeGuard = useInFlight();
+  const renderGuard = useInFlight();
 
   const stalledRef = useRef(false);
   // With no search started here yet, this is the newest one, so a reload picks up where it was.
@@ -105,8 +120,8 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   const advanced = useRef(new Set<string>());
   const currentId = current?.id;
   const currentStatus = current?.status;
-  const analyzeMutate = analyze.mutate;
-  const renderMutate = render.mutate;
+  const analyzeAsync = analyze.mutateAsync;
+  const renderAsync = render.mutateAsync;
   const refetchJob = job.refetch;
   // A search already running when the page loaded is picked up and watched.
   // One paused before a paid step waits for "Continue", so a reload never spends.
@@ -118,20 +133,27 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   const startStep = useCallback(
     (id: string, status: CloseupJob['status'] | undefined) => {
       if (status === 'captured') {
-        analyzeMutate({ id }, { onSettled: () => void refetchJob() });
+        if (!analyzeGuard.start()) return;
+        analyzeAsync({ id })
+          // Shown by RunwayErrorNotice from analyze.error.
+          .catch(() => undefined)
+          .finally(() => {
+            analyzeGuard.end();
+            void refetchJob();
+          });
       } else if (status === 'picked') {
-        renderMutate(
-          { id },
-          {
-            onSettled: () => {
-              void refetchJob();
-              void utils.library.invalidate();
-            },
-          }
-        );
+        if (!renderGuard.start()) return;
+        renderAsync({ id })
+          // Shown by RunwayErrorNotice from render.error.
+          .catch(() => undefined)
+          .finally(() => {
+            renderGuard.end();
+            void refetchJob();
+            void utils.library.invalidate();
+          });
       }
     },
-    [analyzeMutate, renderMutate, refetchJob, utils]
+    [analyzeAsync, renderAsync, analyzeGuard, renderGuard, refetchJob, utils]
   );
   useEffect(() => {
     if (!currentId || currentId !== jobId) return;
@@ -153,20 +175,27 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
     () =>
       clips.slice(0, shown).map((c) => ({
         id: c.id,
-        src: stillThumbUrl(c.stillId),
+        // A clip with no poster and no still left shows a plain frame.
+        src: clipPosterUrl(c, stillById) ?? '',
         alt: `Video: ${clipCaption(c)}`,
         caption: clipCaption(c),
       })),
-    [clips, shown]
+    [clips, shown, stillById]
   );
   const stillItems = useMemo(
     () =>
-      stills.slice(0, shown).map((s) => ({
-        id: s.id,
-        src: stillThumbUrl(s.id),
-        alt: `Still: ${stillCaption(s)}`,
-        caption: stillCaption(s),
-      })),
+      stills.slice(0, shown).map((s) => {
+        // Two lines: the look, then model, resolution and time; the tooltip holds both in full.
+        const [look, detail] = stillLines(s);
+        return {
+          id: s.id,
+          src: stillThumbUrl(s.id),
+          alt: `Still: ${look}. ${detail}`,
+          caption: look,
+          detail,
+          title: `${look}, ${detail}`,
+        };
+      }),
     [stills, shown]
   );
   const openZoom = useCallback((id: string, title: string) => setZoom({ id, title }), []);
@@ -228,6 +257,7 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
 
   async function run() {
     if (!ready || working) return;
+    if (!findGuard.start()) return;
     analyze.reset();
     render.reset();
     const settings = { count, imageModel, resolution, direction };
@@ -247,12 +277,15 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
       setJobId(id);
     } catch {
       // Shown by RunwayErrorNotice from find.error.
+    } finally {
+      findGuard.end();
     }
   }
 
   /** Retry whichever step failed, or continue a paused search, with the same settings. */
   function retryStep() {
-    if (!current) return;
+    // A step already on its way is not reset or sent again.
+    if (!current || analyzeGuard.busy() || renderGuard.busy()) return;
     analyze.reset();
     render.reset();
     setJobId(current.id);
@@ -281,157 +314,405 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
 
   const sourcePreview =
     kind === 'clip' && selectedClip
-      ? stillViewUrl(selectedClip.stillId)
+      ? (clipPosterUrl(selectedClip, stillById, 'view') ?? null)
       : kind === 'still' && selectedStill
         ? stillViewUrl(selectedStill.id)
         : kind === 'upload' && upload
           ? upload.src
           : null;
 
+  // The room takes the light of the first finished close-up, else of the
+  // source being searched (thumbnails; an unsent upload is its local copy).
+  const firstShot = showShots ? shots.find((s) => s.stillId && stillById.get(s.stillId)?.status === 'succeeded') : undefined;
+  const sourceThumb =
+    kind === 'clip' && selectedClip
+      ? (clipPosterUrl(selectedClip, stillById) ?? null)
+      : kind === 'still' && selectedStill
+        ? stillThumbUrl(selectedStill.id)
+        : kind === 'upload' && upload
+          ? upload.src
+          : null;
+  useAmbient(firstShot?.stillId ? stillThumbUrl(firstShot.stillId) : sourceThumb);
+
+  const libraryLoaded = library.data !== undefined;
+  // The close-up on the canvas: the one picked in the strip, else the first.
+  const pickedIndex =
+    showShots && current && picked?.job === current.id ? Math.min(picked.index, Math.max(0, shots.length - 1)) : 0;
+  const pickedShot = showShots && current ? shots[pickedIndex] : undefined;
+  const pickedStill = pickedShot?.stillId ? stillById.get(pickedShot.stillId) : undefined;
+  const pickedState = pickedShot && current ? shotState(pickedShot, pickedStill, current.status, libraryLoaded) : null;
+  // A close-up not in yet is being shot while the search runs, or while its still is at Runway.
+  const shooting = current !== null && (working || current.status === 'done');
+  const jobAspect = current ? `${current.width} / ${current.height}` : aspect;
+  const sourceAspect =
+    kind === 'clip' && clipStill
+      ? `${clipStill.width} / ${clipStill.height}`
+      : kind === 'still' && selectedStill
+        ? `${selectedStill.width} / ${selectedStill.height}`
+        : kind === 'upload' && upload
+          ? `${upload.width} / ${upload.height}`
+          : aspect;
+
+  // The picture the search looked in, for close-ups not shot yet.
+  const allClips = library.data?.clips;
+  const jobSource = useMemo(() => {
+    const src = current?.source;
+    if (!src) return null;
+    if (src.kind === 'still' && src.id) return { thumb: stillThumbUrl(src.id), view: stillViewUrl(src.id) };
+    if (src.kind === 'clip' && src.id) {
+      const clip = allClips?.find((c) => c.id === src.id);
+      return clip
+        ? { thumb: clipPosterUrl(clip, stillById) ?? null, view: clipPosterUrl(clip, stillById, 'view') ?? null }
+        : null;
+    }
+    if (src.kind === 'upload' && src.url) {
+      const local = upload?.hostedUrl === src.url ? upload.src : src.url;
+      return { thumb: local, view: local };
+    }
+    return null;
+  }, [current?.source, allClips, stillById, upload]);
+
+  const saver = useDownload();
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const onPick = useCallback((job: string, index: number) => setPicked({ job, index }), []);
+
+  const planned = (n: number, model: ImageModelId, res: string) => {
+    const resName = imageResolutionName(model, res);
+    return `${n} close-ups · ${imageModelName(model)}${resName ? ` · ${resName}` : ''}`;
+  };
+
+  let canvasState: CanvasState;
+  let canvas: ReactNode = null;
+  let canvasAspect = aspect;
+  let canvasNote: string | undefined;
+  let caption: string | undefined = current ? planned(current.count, current.imageModel, current.resolution) : undefined;
+  let canvasActions: ReactNode;
+
+  if (showShots && current && pickedShot && pickedState) {
+    const title = sentenceCase(pickedShot.subject);
+    canvasAspect = jobAspect;
+    caption = `Close-up ${pickedIndex + 1} of ${shots.length} · ${title}${pickedShot.why ? ` · ${pickedShot.why}` : ''}`;
+    if (pickedState === 'done' && pickedStill) {
+      const id = pickedStill.id;
+      canvasState = 'live';
+      canvas = <img key={id} src={stillViewUrl(id)} alt={`Close-up: ${title}`} decoding="async" />;
+      canvasActions = (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Download size={14} />}
+            loading={saver.pending && savingId === id}
+            onPress={() => {
+              setSavingId(id);
+              saver.start(libraryUrl('still', id), `close-up-${pickedIndex + 1}.png`);
+            }}
+          >
+            {savingId === id ? saver.label('Download') : 'Download'}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Maximize2 size={14} />} onPress={() => openZoom(id, title)}>
+            Full size
+          </Button>
+          <Button size="sm" variant="ghost" onPress={() => onAnimate(id)}>
+            Make a video
+          </Button>
+        </>
+      );
+    } else if (pickedState === 'removed') {
+      canvasState = 'live';
+      canvas = (
+        <div className={styles.frameAlert}>
+          <Text tone="muted" size="sm" as="p">
+            This close-up was removed from your library.
+          </Text>
+        </div>
+      );
+    } else if (pickedState === 'failed') {
+      canvasState = 'live';
+      canvas = (
+        <div className={styles.frameAlert}>
+          <Alert tone="error" title="This close-up didn't render">
+            {pickedStill?.error ?? pickedShot.error ?? 'Try finding close-ups again.'}
+          </Alert>
+        </div>
+      );
+    } else if (shooting) {
+      canvasState = 'live';
+      canvas = (
+        <RenderingStatus
+          label={current.status === 'done' ? 'Shooting the close-up…' : 'Lining up the shot…'}
+          runKey={`${current.id}-${pickedIndex}`}
+        />
+      );
+    } else {
+      // Found, not shot: the frame it was found in, dimmed.
+      canvasState = 'preview';
+      canvas = jobSource?.view ? (
+        <img src={jobSource.view} alt="" decoding="async" />
+      ) : (
+        <ImagePlaceholder label={`Close-up: ${title}`} aspectRatio={jobAspect} />
+      );
+      canvasNote = 'Not rendered yet';
+    }
+  } else if (paused && current) {
+    canvasState = 'live';
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="info" title="Your last search is waiting">
+          {current.status === 'captured'
+            ? 'The frames are in. Continue to look for the close-ups in them.'
+            : `${current.picks?.length ?? current.count} close-ups were found. Continue to shoot them.`}
+        </Alert>
+        <div className={own.retry}>
+          <Button size="sm" variant="primary" onPress={retryStep}>
+            Continue
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (working) {
+    canvasState = 'live';
+    canvas = (
+      <RenderingStatus
+        label={
+          find.isPending
+            ? 'Starting the search…'
+            : current?.status === 'capturing'
+              ? 'Taking frames from the video…'
+              : 'Looking for the most cinematic details…'
+        }
+        runKey={current?.id}
+      />
+    );
+    if (find.isPending) caption = planned(count, imageModel, resolution);
+  } else if (current?.status === 'failed' && current.id === jobId) {
+    canvasState = 'live';
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="error" title="The search didn't finish">
+          {current.error ?? 'Try finding close-ups again.'}
+        </Alert>
+        <div className={own.retry}>
+          <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void run()} disabled={!ready}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (sourcePreview) {
+    canvasState = 'preview';
+    canvasAspect = sourceAspect;
+    canvas = <img src={sourcePreview} alt="The source to search for close-ups" decoding="async" />;
+    canvasNote = 'The close-ups you find will appear here';
+    caption = planned(count, imageModel, resolution);
+  } else if (kind === 'clip' && selectedClip) {
+    canvasState = 'preview';
+    canvasAspect = sourceAspect;
+    canvas = <ImagePlaceholder label={`Video: ${clipCaption(selectedClip)}`} aspectRatio={sourceAspect} />;
+    canvasNote = 'The close-ups you find will appear here';
+    caption = planned(count, imageModel, resolution);
+  } else {
+    canvasState = 'empty';
+  }
+
   return (
     <>
-      <div className={styles.layout}>
-        <div className={styles.controls}>
-          <PageHeader
-            title="Find the close-ups"
-            description="Pick a video, a still or an image of your own. The app finds the most cinematic details in it and shoots each one as a close-up."
-          />
-          <Section step={1} title="Source" description="Where to look for close-ups.">
-            <div className={styles.stack}>
-              <FilterChips
-                label="Look in"
-                options={SOURCES}
-                value={kind}
-                onChange={(id) => {
-                  setKind(id as SourceKind);
-                  setShown(PAGE);
-                }}
-              />
-              {kind === 'upload' ? (
-                <>
-                  <ImageDropZone onFile={(f) => void onFile(f)} disabled={working || uploading} actionLabel={upload ? 'Replace image' : 'Choose an image'}>
-                    {upload ? (
-                      <figure className={styles.frame} style={{ aspectRatio: `${upload.width} / ${upload.height}` }}>
-                        <img className={styles.image} src={upload.src} alt={`Uploaded image: ${upload.name}`} />
-                      </figure>
-                    ) : (
-                      <div className={own.dropEmpty}>
-                        <Focus size={20} aria-hidden />
-                        <Text tone="secondary" size="sm">
-                          Drop a render, a film still or a photo here. PNG, JPEG or WebP.
-                        </Text>
-                      </div>
+      <Workspace
+        page="closeups"
+        canvasState={canvasState}
+        canvas={canvas}
+        aspectRatio={canvasAspect}
+        caption={caption}
+        canvasNote={canvasNote}
+        canvasActions={canvasActions}
+        onDropFiles={
+          working || uploading
+            ? undefined
+            : (files) => {
+                const file = files[0];
+                if (!file) return;
+                setKind('upload');
+                setShown(PAGE);
+                void onFile(file);
+              }
+        }
+        empty={{
+          title: 'Drop an image to find its close-ups',
+          hint: 'Or pick a video or a still in the controls. PNG, JPEG or WebP.',
+          action: 'Choose an image',
+          label: 'Drop or choose an image',
+        }}
+        stripLabel="Close-ups"
+        strip={
+          showShots && current ? (
+            <ShotStrip
+              shots={shots}
+              jobId={current.id}
+              jobStatus={current.status}
+              aspect={jobAspect}
+              stillById={stillById}
+              libraryLoaded={libraryLoaded}
+              sourceThumb={jobSource?.thumb ?? null}
+              shooting={shooting}
+              value={pickedIndex}
+              onPick={onPick}
+            />
+          ) : undefined
+        }
+        inspector={
+          <>
+            <PageHeader
+              title="Find the close-ups"
+              description="Pick a video, a still or an image of your own. The app finds the most cinematic details in it and shoots each one as a close-up."
+            />
+            {showShots && (
+              <Text tone="muted" size="sm" as="p" className={own.saved}>
+                Every close-up is saved to your library, tagged @close-up.
+              </Text>
+            )}
+            <Section step={1} title="Source" description="Where to look for close-ups.">
+              <div className={styles.stack}>
+                <FilterChips
+                  label="Look in"
+                  options={SOURCES}
+                  value={kind}
+                  onChange={(id) => {
+                    setKind(id as SourceKind);
+                    setShown(PAGE);
+                  }}
+                />
+                {kind === 'upload' ? (
+                  <>
+                    <ImageDropZone
+                      onFile={(f) => void onFile(f)}
+                      disabled={working || uploading}
+                      actionLabel={upload ? 'Replace image' : 'Choose an image'}
+                      label="Drop or choose an image"
+                    >
+                      {upload ? (
+                        <figure className={styles.frame} style={{ aspectRatio: `${upload.width} / ${upload.height}` }}>
+                          <img className={styles.image} src={upload.src} alt={`Uploaded image: ${upload.name}`} />
+                        </figure>
+                      ) : (
+                        <div className={own.dropEmpty}>
+                          <Focus size={20} aria-hidden />
+                          <Text tone="secondary" size="sm">
+                            Drop a render, a film still or a photo here. PNG, JPEG or WebP.
+                          </Text>
+                        </div>
+                      )}
+                    </ImageDropZone>
+                    {uploading && (
+                      <Text tone="muted" size="sm" as="p">
+                        Uploading the image…
+                      </Text>
                     )}
-                  </ImageDropZone>
-                  {uploading && (
-                    <Text tone="muted" size="sm" as="p">
-                      Uploading the image…
-                    </Text>
-                  )}
-                  <RunwayErrorNotice error={uploadError} modelName="the upload" onRetry={() => setUploadError(null)} />
-                </>
-              ) : library.isLoading ? (
-                <SkeletonBlock height={180} />
-              ) : library.error ? (
-                <RunwayErrorNotice error={library.error} modelName="your library" />
-              ) : kind === 'clip' ? (
-                clips.length === 0 ? (
+                    <RunwayErrorNotice error={uploadError} modelName="the upload" onRetry={() => setUploadError(null)} />
+                  </>
+                ) : library.isLoading ? (
+                  <SkeletonBlock height={180} />
+                ) : library.error ? (
+                  <RunwayErrorNotice error={library.error} modelName="your library" />
+                ) : kind === 'clip' ? (
+                  clips.length === 0 ? (
+                    <EmptyState
+                      title="No videos yet"
+                      hint="Make a video on the Video tab, or look in a still or an uploaded image instead."
+                      action={<Button onPress={() => setKind('still')}>Use a still</Button>}
+                    />
+                  ) : (
+                    <ImagePicker
+                      label="Video to search"
+                      value={clipId}
+                      onChange={setClipId}
+                      disabled={working}
+                      items={clipItems}
+                    />
+                  )
+                ) : stills.length === 0 ? (
                   <EmptyState
-                    title="No videos yet"
-                    hint="Make a video on the Video tab, or look in a still or an uploaded image instead."
-                    action={<Button onPress={() => setKind('still')}>Use a still</Button>}
+                    title="No film stills yet"
+                    hint="Make a still on the Stills tab, or upload an image instead."
+                    action={<Button onPress={onGoToStills}>Go to Stills</Button>}
                   />
                 ) : (
                   <ImagePicker
-                    label="Video to search"
-                    value={clipId}
-                    onChange={setClipId}
+                    label="Still to search"
+                    value={stillId}
+                    onChange={setStillId}
                     disabled={working}
-                    items={clipItems}
+                    items={stillItems}
                   />
-                )
-              ) : stills.length === 0 ? (
-                <EmptyState
-                  title="No film stills yet"
-                  hint="Make a still on the Stills tab, or upload an image instead."
-                  action={<Button onPress={onGoToStills}>Go to Stills</Button>}
-                />
-              ) : (
-                <ImagePicker
-                  label="Still to search"
-                  value={stillId}
-                  onChange={setStillId}
-                  disabled={working}
-                  items={stillItems}
-                />
-              )}
-              {kind !== 'upload' && (kind === 'clip' ? clips : stills).length > shown && (
-                <div>
-                  <Button size="sm" variant="ghost" onPress={() => setShown((n) => n + PAGE)}>
-                    Show {Math.min(PAGE, (kind === 'clip' ? clips : stills).length - shown)} more
-                  </Button>
-                </div>
-              )}
-              {kind === 'clip' && (
-                <Text tone="muted" size="sm" as="p">
-                  Six frames are taken across the video, and the best moments are picked from them.
-                </Text>
-              )}
-            </div>
-          </Section>
+                )}
+                {kind !== 'upload' && (kind === 'clip' ? clips : stills).length > shown && (
+                  <div>
+                    <Button size="sm" variant="ghost" onPress={() => setShown((n) => n + PAGE)}>
+                      Show {Math.min(PAGE, (kind === 'clip' ? clips : stills).length - shown)} more
+                    </Button>
+                  </div>
+                )}
+                {kind === 'clip' && (
+                  <Text tone="muted" size="sm" as="p">
+                    Six frames are taken across the video, and the best moments are picked from them.
+                  </Text>
+                )}
+              </div>
+            </Section>
 
-          <Section step={2} title="Shots" description="How many close-ups to make, and anything to look for.">
-            <div className={styles.stack}>
-              <Select
-                label="Number of close-ups"
-                options={COUNTS}
-                value={String(count)}
-                onChange={(id) => setCount(Number(id))}
-                disabled={working}
-                showHint={false}
-              />
-              <TextInput
-                label="Look for (optional)"
-                value={direction}
-                onChange={setDirection}
-                maxLength={400}
-                disabled={working}
-                placeholder="e.g. stone and timber textures, the people at the pool"
-                onPressEnter={() => void run()}
-              />
-            </div>
-          </Section>
-
-          <Section step={3} title="Model" description="Shoots each close-up from the frame it was found in.">
-            <div className={styles.selectRow}>
-              <Select
-                label="Image model"
-                options={IMAGE_MODELS}
-                value={imageModel}
-                onChange={(id) => {
-                  const m = id as ImageModelId;
-                  setImageModel(m);
-                  setResolution(defaultImageResolution(m));
-                }}
-                disabled={working}
-              />
-              {imageResolutions(imageModel).length > 1 && (
+            <Section step={2} title="Shots" description="How many close-ups to make, and anything to look for.">
+              <div className={styles.stack}>
                 <Select
-                  label="Resolution"
-                  options={imageResolutions(imageModel)}
-                  value={resolution}
-                  onChange={setResolution}
+                  label="Number of close-ups"
+                  options={COUNTS}
+                  value={String(count)}
+                  onChange={(id) => setCount(Number(id))}
                   disabled={working}
                   showHint={false}
                 />
-              )}
-            </div>
-          </Section>
+                <TextInput
+                  label="Look for (optional)"
+                  value={direction}
+                  onChange={setDirection}
+                  maxLength={400}
+                  disabled={working}
+                  placeholder="e.g. stone and timber textures, the people at the pool"
+                  onPressEnter={() => void run()}
+                />
+              </div>
+            </Section>
 
-          <div className={styles.actionBar}>
+            <Section step={3} title="Model" description="Shoots each close-up from the frame it was found in.">
+              <div className={styles.selectRow}>
+                <Select
+                  label="Image model"
+                  options={IMAGE_MODELS}
+                  value={imageModel}
+                  onChange={(id) => {
+                    const m = id as ImageModelId;
+                    setImageModel(m);
+                    setResolution(defaultImageResolution(m));
+                  }}
+                  disabled={working}
+                />
+                {imageResolutions(imageModel).length > 1 && (
+                  <Select
+                    label="Resolution"
+                    options={imageResolutions(imageModel)}
+                    value={resolution}
+                    onChange={setResolution}
+                    disabled={working}
+                    showHint={false}
+                  />
+                )}
+              </div>
+            </Section>
+          </>
+        }
+        footer={
+          <>
             <Button
               variant="primary"
-              className={styles.generate}
+              size="lg"
               icon={<Focus size={16} />}
               loading={working}
               disabled={!ready}
@@ -449,97 +730,26 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
                         ? 'Pick a video first'
                         : 'Pick a still first'}
             </Button>
-            <Text tone="muted" size="sm" as="p" className={styles.meta}>
-              Claude looks for the shots, then {imageModelName(imageModel)} makes {count} close-ups. Billed to your
-              own Runway credits: a few for the search, and each close-up costs the same as a still.
-            </Text>
+            <CostLine
+              summary={`Claude looks for the shots, then ${imageModelName(imageModel)} makes ${count} close-ups.`}
+              details="Billed to your own Runway credits: a few for the search, and each close-up costs the same as a still."
+            />
             <RunwayErrorNotice
               error={stepError}
               modelName={find.error || analyze.error ? 'Claude' : imageModelName(current?.imageModel ?? imageModel)}
               onRetry={() => (find.error ? void run() : retryStep())}
             />
-          </div>
-        </div>
-
-        <div className={styles.result} data-stage>
-          <Section title="Close-ups">
-            {showShots && current ? (
-              <>
-                <div className={own.shots}>
-                  {shots.map((shot, i) => (
-                    <ShotCard
-                      key={`${current.id}-${i}`}
-                      shot={shot}
-                      index={i}
-                      jobId={current.id}
-                      jobStatus={current.status}
-                      aspect={`${current.width} / ${current.height}`}
-                      still={shot.stillId ? stillById.get(shot.stillId) : undefined}
-                      libraryLoaded={library.data !== undefined}
-                      onZoom={openZoom}
-                      onAnimate={onAnimate}
-                    />
-                  ))}
-                </div>
-                <Text tone="muted" size="sm" as="p" className={own.saved}>
-                  Every close-up is saved to your library, tagged @close-up.
-                </Text>
-              </>
-            ) : (
-              <div className={styles.resultFrame} style={{ aspectRatio: aspect, ['--ar' as string]: aspect }}>
-                {paused && current ? (
-                  <div className={styles.frameAlert}>
-                    <Alert tone="info" title="Your last search is waiting">
-                      {current.status === 'captured'
-                        ? 'The frames are in. Continue to look for the close-ups in them.'
-                        : `${current.picks?.length ?? current.count} close-ups were found. Continue to shoot them.`}
-                    </Alert>
-                    <div className={own.retry}>
-                      <Button size="sm" variant="primary" onPress={retryStep}>
-                        Continue
-                      </Button>
-                    </div>
-                  </div>
-                ) : working ? (
-                  <RenderingStatus
-                    label={
-                      find.isPending
-                        ? 'Starting the search…'
-                        : current?.status === 'capturing'
-                          ? 'Taking frames from the video…'
-                          : 'Looking for the most cinematic details…'
-                    }
-                    runKey={current?.id}
-                  />
-                ) : current?.status === 'failed' && current.id === jobId ? (
-                  <div className={styles.frameAlert}>
-                    <Alert tone="error" title="The search didn't finish">
-                      {current.error ?? 'Try finding close-ups again.'}
-                    </Alert>
-                    <div className={own.retry}>
-                      <Button size="sm" icon={<RotateCcw size={14} />} onPress={() => void run()} disabled={!ready}>
-                        Try again
-                      </Button>
-                    </div>
-                  </div>
-                ) : sourcePreview ? (
-                  <img className={styles.image} src={sourcePreview} alt="The source to search for close-ups" decoding="async" />
-                ) : (
-                  <EmptyState
-                    title="Your close-ups will appear here"
-                    hint="Pick a video, a still or an image, then press Find close-ups."
-                  />
-                )}
-              </div>
-            )}
-          </Section>
-          {job.error && (
-            <div className={own.pollError}>
+            {job.error && (
               <RunwayErrorNotice error={job.error} modelName="Claude" onRetry={() => void job.refetch()} />
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+            {saver.error && (
+              <Alert tone="error" title="Download failed">
+                {saver.error}
+              </Alert>
+            )}
+          </>
+        }
+      />
 
       <Lightbox
         src={zoom ? stillViewUrl(zoom.id) : null}
@@ -551,112 +761,113 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   );
 }
 
-type ShotCardProps = {
-  shot: CloseupShot;
-  index: number;
+type ShotState = 'done' | 'pending' | 'failed' | 'removed';
+
+const SHOT_TEXT: Record<ShotState, string> = {
+  done: 'Ready',
+  pending: 'Not rendered yet',
+  failed: "Didn't render",
+  removed: 'Removed from your library',
+};
+
+function shotState(
+  shot: CloseupShot,
+  still: Still | undefined,
+  jobStatus: CloseupJob['status'],
+  libraryLoaded: boolean
+): ShotState {
+  if (still?.status === 'succeeded') return 'done';
+  if (jobStatus === 'done' && shot.stillId !== undefined && still === undefined && libraryLoaded) return 'removed';
+  if (still?.status === 'failed' || shot.error) return 'failed';
+  return 'pending';
+}
+
+type ShotStripProps = {
+  shots: readonly CloseupShot[];
   jobId: string;
   jobStatus: CloseupJob['status'];
   aspect: string;
-  still: Still | undefined;
+  stillById: ReadonlyMap<string, Still>;
   libraryLoaded: boolean;
-  onZoom: (id: string, title: string) => void;
-  onAnimate: (stillId: string) => void;
+  /** The picture the search looked in, under a close-up not shot yet. */
+  sourceThumb: string | null;
+  shooting: boolean;
+  value: number;
+  onPick: (job: string, index: number) => void;
 };
 
-/** One close-up on the contact sheet. Memoised, with its own download state,
- * so a poll or one card's download doesn't re-render the others. */
-const ShotCard = memo(function ShotCard({
-  shot,
-  index,
+/** The close-ups found, as a row of cards in the strip. A radio group: arrow
+ * keys move, the chosen card is the one on the canvas. Memoised, so a poll
+ * that changes nothing here doesn't re-render it. */
+const ShotStrip = memo(function ShotStrip({
+  shots,
   jobId,
   jobStatus,
   aspect,
-  still,
+  stillById,
   libraryLoaded,
-  onZoom,
-  onAnimate,
-}: ShotCardProps) {
-  const removed = jobStatus === 'done' && shot.stillId !== undefined && still === undefined && libraryLoaded;
-  const saver = useDownload();
-  const title = shot.subject;
+  sourceThumb,
+  shooting,
+  value,
+  onPick,
+}: ShotStripProps) {
   return (
-    <article className={own.shot}>
-      <div className={own.shotFrame} style={{ aspectRatio: aspect }}>
-        {still?.status === 'succeeded' ? (
-          <button
-            type="button"
-            className={own.shotButton}
-            onClick={() => onZoom(still.id, title)}
-            aria-label={`Open full size: ${title}`}
+    <RadioGroup
+      className={own.strip}
+      aria-label="Close-ups found"
+      value={String(value)}
+      onChange={(v) => onPick(jobId, Number(v))}
+      orientation="horizontal"
+    >
+      {shots.map((shot, i) => {
+        const still = shot.stillId ? stillById.get(shot.stillId) : undefined;
+        const state = shotState(shot, still, jobStatus, libraryLoaded);
+        const text = state === 'pending' && shooting ? 'Shooting' : SHOT_TEXT[state];
+        const thumb = state === 'done' && still ? stillThumbUrl(still.id) : sourceThumb;
+        return (
+          <Radio
+            key={`${jobId}-${i}`}
+            value={String(i)}
+            className={own.card}
+            data-shot={state}
+            aria-label={`Close-up ${i + 1}: ${sentenceCase(shot.subject)}, ${text.toLowerCase()}`}
           >
-            <img
-              className={styles.image}
-              src={stillThumbUrl(still.id)}
-              alt={`Close-up: ${title}`}
-              loading="lazy"
-              decoding="async"
-            />
-          </button>
-        ) : removed ? (
-          <div className={styles.frameAlert}>
-            <Text tone="muted" size="sm" as="p">
-              This close-up was removed from your library.
-            </Text>
-          </div>
-        ) : still?.status === 'failed' || shot.error ? (
-          <div className={styles.frameAlert}>
-            <Alert tone="error" title="This close-up didn't render">
-              {still?.error ?? shot.error ?? 'Try finding close-ups again.'}
-            </Alert>
-          </div>
-        ) : (
-          <RenderingStatus
-            label={jobStatus === 'done' ? 'Shooting the close-up…' : 'Lining up the shot…'}
-            runKey={`${jobId}-${index}`}
-          />
-        )}
-      </div>
-      <div className={own.shotText}>
-        <Text size="sm" className={own.subject}>
-          {shot.subject}
-        </Text>
-        {shot.why && (
-          <Text tone="muted" size="sm" as="p">
-            {shot.why}
-          </Text>
-        )}
-      </div>
-      {still?.status === 'succeeded' && (
-        <div className={own.shotActions}>
-          <Button
-            size="sm"
-            icon={<Download size={14} />}
-            loading={saver.pending}
-            onPress={() => saver.start(libraryUrl('still', still.id), `close-up-${index + 1}.png`)}
-          >
-            {saver.label('Download')}
-          </Button>
-          <Button size="sm" variant="ghost" icon={<Maximize2 size={14} />} onPress={() => onZoom(still.id, title)}>
-            Full size
-          </Button>
-          <Button size="sm" variant="ghost" onPress={() => onAnimate(still.id)}>
-            Make a video
-          </Button>
-        </div>
-      )}
-      {saver.error && (
-        <Alert tone="error" title="Download failed">
-          {saver.error}
-        </Alert>
-      )}
-    </article>
+            <span className={own.thumb} style={{ aspectRatio: aspect }}>
+              {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" />}
+              {state !== 'done' && (
+                <span className={own.badge} aria-hidden>
+                  {state === 'pending' ? <Clock size={12} /> : <CircleAlert size={12} />}
+                </span>
+              )}
+            </span>
+            <span className={own.cardText} aria-hidden>
+              <span className={own.cardTitle}>{sentenceCase(shot.subject)}</span>
+              <span className={own.cardSub}>{text}</span>
+            </span>
+          </Radio>
+        );
+      })}
+    </RadioGroup>
   );
 });
+
+/** The planner writes subjects as phrases ("the bronze crane…"); labels start with a capital, the stored text unchanged. */
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 function clipCaption(c: { videoModel: Parameters<typeof videoModelName>[0]; motion: Parameters<typeof motionLabel>[0]; moveStyle?: Parameters<typeof motionLabel>[1]; speed?: Parameters<typeof motionLabel>[2] }): string {
   return `${motionLabel(c.motion, c.moveStyle, c.speed)}, ${videoModelName(c.videoModel)}`;
 }
 
-function stillCaption(s: Still): string {
-  return s.closeup ? `Close-up: ${s.closeup.subject}` : s.direction?.trim() ? s.direction.trim().slice(0, 60) : `${imageModelName(s.imageModel)} still`;
+/** A still picker card's two lines: its look, then its model, resolution and time. */
+function stillLines(s: Still): [string, string] {
+  const res = imageResolutionName(s.imageModel, s.resolution);
+  const when = new Date(s.createdAt).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return [lookLabel(s.look, litFromReference(s)), `${imageModelName(s.imageModel)}${res ? `, ${res}` : ''}, ${when}`];
 }

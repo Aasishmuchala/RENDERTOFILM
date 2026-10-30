@@ -1,4 +1,13 @@
-/* The Lifestyle tab's own pieces; the layout and stage come from Studio.module.css. */
+/* The Lifestyle tab's own pieces on the Workspace (Phase 9): the inspector's
+   fields, the canvas toolbar's controls, the filmstrip's chapters and frame
+   cards, and the contact sheet. Every value is a token (DESIGN.md 2). The
+   panels' glass is the Workspace's; cards on it are solid (no glass on glass)
+   and text set straight on it is ink 1 or 2. */
+
+/* The footer's one primary action, the panel's full width. */
+.primary {
+  width: 100%;
+}
 
 .dropEmpty {
   display: grid;
@@ -7,7 +16,7 @@
   min-height: 140px;
   padding: 20px 20px 56px;
   border: 1px dashed var(--bay-border-strong);
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-bg-subtle);
   color: var(--bay-text-3);
   text-align: center;
@@ -36,7 +45,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: opacity var(--bay-dur) var(--bay-ease);
+  transition: opacity var(--dur-2) var(--ease-out);
 }
 
 .thumbImg[data-dimmed] {
@@ -47,16 +56,18 @@
   position: absolute;
   inset: auto 0 0;
   padding: 3px 6px;
-  font-size: 11px;
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
   color: var(--bay-text-2);
   background: var(--bay-bg-surface);
 }
 
+/* The remove button sits on the picture: a solid backing so the cross reads. */
 .thumbRemove {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: var(--bay-bg-surface);
+  background-color: var(--bay-bg-surface);
 }
 
 .uploadError {
@@ -72,7 +83,7 @@
 .aiRows {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 24px;
 }
 
 .aiRow {
@@ -82,10 +93,12 @@
   min-width: 0;
 }
 
+/* "Planner writes the plan of action": the name in ink, what it does in ink 3. */
 .aiRowHead {
   margin: 0;
-  font-size: 14px;
+  font: var(--text-callout);
   font-weight: 500;
+  letter-spacing: var(--track-callout);
   color: var(--bay-text);
 }
 
@@ -110,14 +123,15 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* One image model | Two passes: a quiet segmented control, two equal halves on a sunken track. */
+/* One image model | Two passes: the segmented control (DESIGN 4, as ui/Tabs),
+   two equal halves on a quiet track; a label may take two lines. */
 .passCount {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;
-  padding: 2px;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-sunken);
+  padding: 3px;
+  border-radius: var(--r-control);
+  background-color: var(--bay-border-hair);
 }
 
 .passCountItem {
@@ -125,102 +139,85 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 36px;
+  min-height: 32px;
   padding: 6px 10px;
   border: 0;
   border-radius: var(--bay-r-sm);
-  background: transparent;
+  background-color: transparent;
   color: var(--bay-text-2);
-  font: inherit;
-  font-size: 13px;
+  font: var(--text-callout);
   font-weight: 500;
-  line-height: 1.3;
+  letter-spacing: var(--track-callout);
   text-align: center;
   cursor: pointer;
   outline: none;
   transition:
-    background var(--bay-dur-fast) var(--bay-ease),
-    color var(--bay-dur-fast) var(--bay-ease);
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
 }
 
-.passCountItem[data-hovered] {
+.passCountItem[data-hovered],
+.passCountItem[data-focus-visible] {
+  background-color: var(--bay-border-hair);
   color: var(--bay-text);
 }
 
 .passCountItem[data-selected] {
-  background: var(--bay-bg-surface);
-  color: var(--bay-accent-fg);
-  box-shadow: 0 0 0 1px var(--bay-border-hair);
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
+}
+
+/* As ui/Tabs: the selected half brightens a step on hover and focus. */
+.passCountItem[data-selected][data-hovered],
+.passCountItem[data-selected][data-focus-visible],
+.passCountItem[data-pressed] {
+  background-color: var(--glass-btn-pressed);
 }
 
 .passCountItem[data-focus-visible] {
-  box-shadow: 0 0 0 2px var(--bay-border-focus);
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
 }
 
 .passCountItem[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.boardHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-  margin-bottom: 28px;
-}
-
-.boardIntro {
+/* ---- The inspector: the plan of action and the residents. */
+.planIntro {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: 64ch;
+  gap: 10px;
 }
 
-.boardIntro > p {
+.planIntro > p {
   margin: 0;
 }
 
-/* ---- The cast: one quiet raised panel between the plan and the frames. */
+.pollError {
+  margin-bottom: 16px;
+}
+
 .castPanel {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-bottom: 48px;
-  padding: 24px 28px 26px;
-  border: 1px solid var(--bay-stage-line);
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-stage-raised);
-}
-
-.castPanelHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-}
-
-.castPanelTitle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--bay-text);
 }
 
 .castStatus {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
   border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-pill);
-  font-size: 12px;
-  color: var(--bay-text-3);
+  border-radius: var(--r-pill);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
 }
 
 .castStatus[data-approved] {
@@ -234,7 +231,7 @@
 }
 
 .castMode {
-  max-width: 360px;
+  max-width: 100%;
 }
 
 .castNone {
@@ -244,10 +241,11 @@
   gap: 10px 16px;
 }
 
+/* The cast sheets, two to a row in the panel. */
 .sheets {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
-  gap: 20px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+  gap: 14px 12px;
   margin: 4px 0 0;
   padding: 0;
   list-style: none;
@@ -260,12 +258,16 @@
   min-width: 0;
 }
 
+.sheet > p {
+  margin: 0;
+}
+
 .sheetFrame {
   display: grid;
   place-items: center;
   border-radius: var(--bay-r-md);
   background: var(--bay-stage-frame);
-  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
+  box-shadow: 0 0 0 1px var(--bay-stage-line);
   overflow: hidden;
 }
 
@@ -273,125 +275,140 @@
   grid-area: 1 / 1;
 }
 
-/* ---- The chapters: a numbered hairline heading over each one's frames. */
-.chapter + .chapter {
-  margin-top: 64px;
+/* ---- The selected frame's fields. A container, so a pair of fields sits
+   side by side only where the panel is wide enough for both. */
+.fields {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.chapterHead {
+/* The plan's tags for a frame: its shot and lens, who is there, its moment. */
+.tags {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 14px;
-  margin-bottom: 24px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--bay-stage-line);
-}
-
-.chapterNo {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.12em;
-  color: var(--bay-accent-fg);
-}
-
-.chapterName {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  color: var(--bay-text);
-}
-
-.chapterHint {
-  font-size: 13px;
-  color: var(--bay-text-3);
-}
-
-.chapterCount {
-  margin-left: auto;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--bay-text-3);
-}
-
-/* The frames of a chapter, in film order, as many columns as fit. */
-.frames {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
-  gap: 40px 28px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.card {
+.tag {
+  padding: 3px 9px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-pill);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-2);
+}
+
+.tag::first-letter {
+  text-transform: uppercase;
+}
+
+.tag[data-tone='muted'] {
+  border-style: dashed;
+}
+
+.options {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-width: 0;
 }
 
-.cardFrame {
-  position: relative;
+.optionRow {
   display: grid;
-  place-items: center;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-stage-frame);
-  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
-  overflow: hidden;
-  transition: opacity var(--bay-dur) var(--bay-ease);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
 }
 
-.cardFrame > * {
-  grid-area: 1 / 1;
+@container (min-width: 560px) {
+  .optionRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-/* A frame left out of the film steps back. */
-.card[data-left-out] .cardFrame {
-  opacity: 0.35;
+/* Two text areas in a row share one height. */
+.pairField {
+  align-self: stretch;
 }
 
-/* The render reads as a sketch until its frame is shot. */
-.source {
-  opacity: 0.6;
+.pairField > textarea {
+  flex: 1 1 auto;
 }
 
-.sourceChip {
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.saveState {
+  margin-left: auto;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.passRetry {
+  margin-top: 10px;
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardNo {
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-accent-fg);
+}
+
+.retry {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* ---- The canvas: a take against its render, pass 1 under the status. */
+.canvasCompare {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* "Plate only": the frame stands on its first pass until pass 2 is retried. */
+.passChip {
+  position: relative;
+  z-index: 1;
   align-self: end;
   justify-self: start;
-  margin: 8px;
+  margin: 12px;
   padding: 2px 8px;
-  border-radius: var(--bay-r-pill);
-  font-size: 11px;
-  color: var(--bay-text-2);
-  background: rgba(30, 27, 24, 0.7);
+  border-radius: var(--r-pill);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-warn-fg);
+  background: var(--scrim-chip);
+  pointer-events: none;
 }
 
 /* ---- Two passes: pass 1 stepped back under the status while pass 2 finishes it. */
 .passOverlay {
   opacity: 0.42;
   filter: saturate(0.8);
-  animation: passIn 600ms var(--bay-ease) both;
+  animation: passIn 600ms var(--ease-out) both;
 }
 
 @keyframes passIn {
   from {
     opacity: 0;
   }
-}
-
-/* "Pass 1 only": the frame stands on its first pass until pass 2 is retried. */
-.passChip {
-  align-self: end;
-  justify-self: start;
-  margin: 8px;
-  padding: 2px 8px;
-  border-radius: var(--bay-r-pill);
-  font-size: 11px;
-  color: var(--bay-warn-fg);
-  background: rgba(30, 27, 24, 0.78);
-  pointer-events: none;
 }
 
 /* Final | Pass 1, two pills joined into one quiet segmented control. */
@@ -419,141 +436,565 @@
   display: none;
 }
 
-/* On the card's picture, top right, on a soft dark backing so it reads over any photograph. */
-.passToggleOnFrame {
-  align-self: start;
-  justify-self: end;
-  margin: 8px;
-  border-radius: var(--bay-r-pill);
-  background: rgba(30, 27, 24, 0.72);
-  backdrop-filter: blur(6px);
+/* In the canvas toolbar, beside the view controls. */
+.passToggleTools {
+  align-self: center;
+  margin: 0 4px 0 2px;
 }
 
-.passToggleOnFrame > button {
-  height: 24px;
-  padding: 0 10px;
-  font-size: 12px;
+/* ---- The canvas toolbar: Grid | Frame, previous and next, full screen.
+   Ghost buttons on the toolbar's thin glass, 36 px tall. */
+.viewToggle {
+  display: flex;
+  gap: 2px;
 }
 
-.passRetry {
-  margin-top: 10px;
-}
-
-.frameButton {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 0;
+.tool,
+.toolIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
   border: 0;
-  background: none;
-  cursor: zoom-in;
+  border-radius: var(--r-bar);
+  background-color: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
 }
 
-.frameButton:focus-visible {
+.toolIcon {
+  width: 36px;
+  padding: 0;
+}
+
+.tool[data-hovered],
+.toolIcon[data-hovered] {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.tool[data-pressed],
+.toolIcon[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+  color: var(--bay-text);
+}
+
+.tool[data-selected] {
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
+}
+
+.tool[data-selected] > svg {
+  color: var(--bay-accent-fg);
+}
+
+.tool[data-selected][data-hovered],
+.tool[data-selected][data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+.tool[data-focus-visible],
+.toolIcon[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
 }
 
-.cardText {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.tool[data-disabled],
+.toolIcon[data-disabled] {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.cardTitle {
+.toolSep {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--bay-border);
+}
+
+/* ---- The filmstrip: the film's card, then each chapter's name and frames. */
+.filmCard {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 500;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 2px;
+  width: 104px;
+  height: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-md);
+  background-color: var(--bay-bg-surface);
+  color: var(--bay-text-2);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background-color var(--dur-1) var(--ease-out);
+}
+
+.filmCard > svg {
+  margin-bottom: auto;
+}
+
+.filmName {
+  font: var(--text-subhead);
+  font-weight: 600;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text);
 }
 
-.cardNo {
+.filmMeta {
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
   font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) {
+  .filmCard:hover {
+    border-color: var(--bay-border-strong);
+    background-color: var(--bay-bg-subtle);
+  }
+}
+
+.filmCard:active {
+  background-color: var(--bay-bg-subtle);
+}
+
+.filmCard[aria-pressed='true'] {
+  border-color: var(--bay-accent);
+  color: var(--bay-text);
+}
+
+.filmCard[aria-pressed='true'] > svg {
   color: var(--bay-accent-fg);
 }
 
-.space {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--bay-text-3);
-  text-align: right;
+.filmCard:focus-visible,
+.chapterCast:focus-visible,
+.stripCard:focus-visible,
+.gridCard:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
 }
 
-/* The plan's tags for a frame: its shot and lens, who is there, its moment. */
-.tags {
+.chapter {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+  height: 100%;
+  padding-left: 8px;
+  border-left: 1px solid var(--bay-border);
+}
+
+.chapterHead {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 112px;
+  min-width: 0;
+  height: 100%;
+  padding: 2px 2px 0;
+}
+
+.chapterMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-2);
+}
+
+.chapterNo {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--bay-accent-fg);
+}
+
+.chapterCount {
+  font-variant-numeric: tabular-nums;
+}
+
+.chapterName {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font: var(--text-subhead);
+  font-weight: 600;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* The chapter's cast sheet: a small pill that puts the sheet on the canvas. */
+.chapterCast {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-top: auto;
+  padding: 2px 10px 2px 2px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-pill);
+  background-color: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: var(--track-caption);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.chapterCast > img {
+  display: block;
+  width: 34px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  object-fit: cover;
+  background: var(--bay-stage-frame);
+}
+
+@media (hover: hover) {
+  .chapterCast:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+}
+
+.chapterCast:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+.chapterCast[aria-pressed='true'] {
+  border-color: var(--bay-accent);
+  color: var(--bay-accent-fg);
+}
+
+.frames {
+  display: flex;
+  gap: 6px;
+  height: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.tag {
-  padding: 2px 9px;
-  border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-pill);
-  font-size: 11px;
+.stripItem {
+  height: 100%;
+}
+
+/* A frame card: its picture at its own shape, the strip's full height; the
+   number and its state ride on the picture. */
+.stripCard {
+  position: relative;
+  display: block;
+  height: 100%;
+  aspect-ratio: var(--ar, 16 / 10);
+  min-width: 56px;
+  max-width: 176px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--bay-r-md);
+  background-color: var(--bay-stage-frame);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* The edge, drawn over the picture: a hairline at rest, the accent when selected. */
+.stripCard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--bay-stage-line);
+  pointer-events: none;
+}
+
+.stripCard[aria-pressed='true']::after {
+  box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+.thumbPic,
+.thumbGone {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.thumbPic {
+  display: block;
+  object-fit: cover;
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    opacity var(--dur-1) var(--ease-out);
+}
+
+.thumbGone {
+  display: grid;
+  place-items: center;
   color: var(--bay-text-2);
+  background-color: var(--bay-bg-subtle);
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
-.tag::first-letter {
-  text-transform: uppercase;
+@media (hover: hover) {
+  :is(.stripCard, .gridCard):hover .thumbPic {
+    transform: scale(1.04);
+  }
+
+  :is(.stripCard, .gridCard):hover .thumbGone {
+    background-color: var(--bay-bg-surface);
+  }
 }
 
-.tag[data-tone='muted'] {
-  color: var(--bay-text-3);
-  border-style: dashed;
+:is(.stripCard, .gridCard):active .thumbPic {
+  transform: scale(1.02);
 }
 
-.options {
+/* A frame left out of the film steps back. */
+:is(.stripCard, .gridCard)[data-left-out] .thumbPic {
+  opacity: 0.35;
+}
+
+.cardNumber,
+.badge {
+  position: absolute;
+  z-index: 3;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--scrim-chip);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cardNumber {
+  top: 4px;
+  left: 4px;
+  min-width: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--bay-text);
+}
+
+.badge {
+  bottom: 4px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--bay-text);
+}
+
+.badge[data-take='pass1'],
+.badge[data-take='pass2'] {
+  color: var(--bay-accent-fg);
+}
+
+.badge[data-take='ready'] {
+  color: var(--bay-ok-fg);
+}
+
+.badge[data-take='failed'] {
+  color: var(--bay-err-fg);
+}
+
+.badge[data-take='pass2-failed'] {
+  color: var(--bay-warn-fg);
+}
+
+/* A take on its way: a slow light sweeps across the picture. */
+:is(.stripCard, .gridPic):is([data-take='pass1'], [data-take='pass2'])::before,
+.gridCard:is([data-take='pass1'], [data-take='pass2']) .gridPic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(100deg, transparent 30%, var(--bay-accent-soft) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: sweep 1.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/* ---- The contact sheet ('free' canvas): every frame, in film order. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 4px 4px 24px;
+  list-style: none;
+}
+
+.gridItem {
+  min-width: 0;
+}
+
+.gridCard {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+  color: var(--bay-text);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
 }
 
-.optionRow {
-  display: grid;
-  /* Side by side only where both values and their group fit. */
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px;
-  align-items: start;
+@media (hover: hover) {
+  .gridCard:hover {
+    border-color: var(--bay-border-strong);
+  }
 }
 
-.cardActions {
+.gridCard[aria-pressed='true'] {
+  border-color: var(--bay-accent);
+  box-shadow: 0 0 0 1px var(--bay-accent);
+}
+
+.gridPic {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  background-color: var(--bay-stage-frame);
+  overflow: hidden;
+}
+
+.gridText {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px 12px;
 }
 
-.saveState {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--bay-text-3);
-}
-
-.saved {
-  margin-top: 48px;
-  text-align: center;
-}
-
-.retry {
+.gridTitle {
   display: flex;
-  justify-content: center;
-  margin-top: 12px;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-subhead);
+  font-weight: 600;
+  letter-spacing: var(--track-subhead);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.pollError {
-  margin-top: 16px;
+.gridChip {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-pill);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.boardHead + .pollError {
-  margin: -12px 0 28px;
+/* A shot frame (or a cast sheet) opens on the big screen. Hover and focus
+   bring the picture forward inside its clipped frame (DESIGN 2.7, cards). */
+.frameButton {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.frameButton > img {
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    opacity var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .frameButton:hover > img {
+    transform: scale(1.03);
+  }
+}
+
+.frameButton:focus-visible > img {
+  transform: scale(1.03);
+}
+
+.frameButton:active > img {
+  transform: scale(1.015);
+}
+
+/* The ring is drawn over the picture (an outline would sit under the scaled image). */
+.frameButton:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.frameButton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--bay-border-focus);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.frameButton:focus-visible::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frameButton:hover > img,
+  .frameButton:focus-visible > img,
+  .frameButton:active > img {
+    transform: none;
+    opacity: 0.88;
+  }
 }
 
 /* ---- The big screen (FullscreenDialog): a take against its render. */
@@ -562,7 +1003,7 @@
   display: grid;
   place-items: center;
   width: min(100%, calc(var(--fit-h, 70vh) * var(--ar, 16 / 9)));
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-stage-frame);
   overflow: hidden;
 }
@@ -589,12 +1030,71 @@
   gap: 20px;
 }
 
-@media (max-width: 680px) {
-  .castPanel {
-    padding: 20px 18px 22px;
+/* Phone: the 96 px strip holds the chapter's name on one line. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .filmCard {
+    width: 84px;
+    padding: 8px 10px;
   }
 
-  .chapterCount {
-    margin-left: 0;
+  .chapterHead {
+    width: 96px;
+  }
+
+  .chapterName {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
+    gap: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumbPic {
+    transition: opacity var(--dur-1) var(--ease-out);
+  }
+
+  :is(.stripCard, .gridCard):hover .thumbPic,
+  :is(.stripCard, .gridCard):active .thumbPic {
+    transform: none;
+    opacity: 0.82;
+  }
+
+  :is(.stripCard, .gridPic)::before,
+  .gridCard .gridPic::before {
+    animation: none;
+  }
+}
+
+/* Continuous corners on the cards and frames (DESIGN 2.3). */
+@supports (corner-shape: squircle) {
+  .dropEmpty,
+  .gridCard,
+  .stripCard,
+  .filmCard,
+  .sheetFrame,
+  .viewerPicture {
+    corner-shape: squircle;
+  }
+}
+
+/* Phone: the toolbar's view toggles keep their icons; the names stay for
+   assistive tech (the toolbar is narrow there). */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .tool {
+    width: 40px;
+    padding: 0;
+  }
+
+  .toolLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

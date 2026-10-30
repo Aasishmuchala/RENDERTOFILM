@@ -1,6 +1,10 @@
+/* The people check of a finished still (DESIGN 3.3): a block in the
+   inspector's "This take" group, set apart from the upscale below it by a
+   hairline, like `.upscale` in Studio.module.css. It owns no control of its
+   own; the buttons are ui/Button and carry their own states. */
 .panel {
-  margin-top: 20px;
-  padding: 20px 0 0;
+  margin-top: 28px;
+  padding: 22px 0 0;
   border: 0;
   border-top: 1px solid var(--bay-border-hair);
   border-radius: 0;
@@ -11,7 +15,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 8px;
 }
 
@@ -20,17 +25,22 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
 }
 
+/* The verdict badge: the caption role, in its status tone, with a hairline
+   of the same colour so the fill reads against the stage. */
 .pass,
 .issues {
-  padding: 2px 10px;
-  border-radius: var(--bay-r-pill);
-  font-size: 12px;
-  font-weight: 500;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: var(--r-pill);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .pass {
@@ -44,6 +54,7 @@
 }
 
 .lead {
+  max-width: 62ch;
   margin: 0 0 12px;
 }
 
@@ -57,23 +68,24 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 0 14px;
+  gap: 10px;
+  max-width: 62ch;
+  margin: 0 0 16px;
   padding: 0;
   list-style: none;
 }
 
 .item {
   display: grid;
-  grid-template-columns: 14px 1fr;
+  grid-template-columns: 14px minmax(0, 1fr);
   gap: 8px;
-  font-size: 13px;
-  line-height: 1.5;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
 }
 
 .item svg {
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 .itemName {
@@ -97,9 +109,20 @@
 }
 
 .fixes {
+  max-width: 62ch;
   margin: 10px 0 0;
 }
 
 .note {
+  max-width: 62ch;
   margin: 12px 0 0;
+}
+
+/* The "This take" group in the Stills inspector: the people check and the
+   upscales, each ruled off from the one before; the first sits straight
+   under the group's title, which already has its own rule above. */
+.take > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }

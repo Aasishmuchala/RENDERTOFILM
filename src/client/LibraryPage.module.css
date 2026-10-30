@@ -1,82 +1,117 @@
-/* The library fills the window under the header, with generous gutters. */
-.screen {
-  padding: 48px clamp(20px, 4vw, 72px) 96px;
+/* The library is a contact sheet on the Workspace's free canvas (Phase 9):
+   pictures fill the room, the search and the Show filter ride in the canvas
+   toolbar, and the selected item opens in the inspector. The sheet brings its
+   own padding, enough for the selection and focus rings. */
+
+/* ---------------------------------------------------------------- toolbar */
+
+/* The search field, slimmed to the toolbar's 36 px controls. */
+.search {
+  width: clamp(160px, 24vw, 280px);
 }
 
-@media (max-width: 680px) {
-  .screen {
-    padding: 28px 16px 56px;
-  }
+.search input {
+  height: 36px;
 }
 
-.page {
+/* The Show filter reads as one inline control: its label beside the chip. */
+.kind > * {
+  width: auto;
+}
+
+.kind > * > * {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.kind label {
+  padding-left: 8px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.kind button {
+  width: auto;
+}
+
+/* ---------------------------------------------------------------- sheet */
+
+.sheet {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-/* Search, kind and tags on one surface, so filtering reads as one control. */
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 0 0 20px;
-  border: 0;
-  border-bottom: 1px solid var(--bay-border-hair);
-  border-radius: 0;
-  background: transparent;
+  padding: 4px 6px 32px;
 }
 
-.tags {
-  flex-basis: 100%;
-  padding-top: 4px;
-}
-
-/* FilterChips brings its own bottom margin; the toolbar's gap replaces it. */
-.toolbar > * {
-  margin-bottom: 0;
-}
-
-.search {
-  flex: 1 1 280px;
-  max-width: 420px;
+.center {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 24px;
 }
 
 .summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 26px;
+  margin: 0;
+  padding: 0 2px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
 }
 
+/* Photos-like: small gaps, many pictures, one frame for every thumbnail. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
-  gap: 44px 28px;
-  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .card {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+}
+
+/* The whole card selects its item: the picture and its one-line title. */
+.select {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
+  width: 100%;
   margin: 0;
-  min-width: 0;
+  padding: 0 0 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+@supports (corner-shape: squircle) {
+  .media,
+  .preview {
+    corner-shape: squircle;
+  }
 }
 
 /* One landscape frame for every thumbnail: the grid reads as a contact
    sheet. Portrait takes sit whole inside it on the stage black. */
-.media {
+.media,
+.preview {
   position: relative;
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 10;
   overflow: hidden;
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-stage-frame);
-  box-shadow: inset 0 0 0 1px rgba(246, 241, 233, 0.06);
+  box-shadow: inset 0 0 0 1px var(--bay-border-hair);
+  transition: box-shadow var(--dur-1) var(--ease-out);
 }
 
 .img {
@@ -85,125 +120,347 @@
   height: 100%;
   object-fit: cover;
   background: var(--bay-stage-frame);
+  transition: transform var(--dur-2) var(--ease-out);
 }
 
-.media[data-portrait] .img {
+:is(.media, .preview)[data-portrait] .img {
   object-fit: contain;
 }
 
-.zoom {
+.caption {
   display: block;
-  width: 100%;
-  height: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .select:hover .media {
+    box-shadow: inset 0 0 0 1px var(--bay-border-strong);
+  }
+
+  .select:hover .img {
+    transform: scale(1.03);
+  }
+
+  .select:hover .caption {
+    color: var(--bay-text);
+  }
+}
+
+.select:active .media {
+  transform: scale(0.99);
+}
+
+/* Selected: an accent ring around the picture, the title in ink 1. */
+.select[aria-pressed='true'] .media {
+  box-shadow:
+    inset 0 0 0 1px var(--bay-border-hair),
+    0 0 0 2px var(--bay-accent);
+}
+
+.select[aria-pressed='true'] .caption {
+  color: var(--bay-text);
+}
+
+.select:focus-visible .media {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 3px;
+}
+
+/* The zoom and play buttons sit over the picture, beside the select button
+   (a button cannot hold another). Only the buttons take the pointer. */
+.over {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  aspect-ratio: 16 / 10;
+  pointer-events: none;
+}
+
+.preview .over {
+  inset: 0;
+  aspect-ratio: auto;
+}
+
+.over > * {
+  pointer-events: auto;
+}
+
+/* Small dark chips over the picture, dense enough to read on any frame. */
+.zoom,
+.badge {
+  position: absolute;
+  top: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--bay-r-sm);
+  background-color: var(--glass-fill-thick);
+  color: var(--bay-text);
+}
+
+.badge {
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.zoom {
+  right: 6px;
+  top: 6px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
-  background: none;
   cursor: zoom-in;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .zoom:hover {
+    background-color: var(--scrim-chip);
+  }
+}
+
+.zoom:active {
+  transform: scale(0.94);
 }
 
 .zoom:focus-visible {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 
-.zoomIcon {
+/* A clip's one play glyph, centred on its poster. */
+.play {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 50%;
+  left: 50%;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--bay-r-sm);
-  background: rgba(30, 27, 24, 0.6);
-  color: #fff;
-  pointer-events: none;
+  width: 44px;
+  height: 44px;
+  padding: 0 0 0 3px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background-color: var(--glass-fill-thick);
+  color: var(--bay-text);
+  cursor: pointer;
+  translate: -50% -50%;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
-.badge {
+@media (hover: hover) {
+  .play:hover {
+    background-color: var(--scrim-chip);
+    transform: scale(1.06);
+  }
+}
+
+.play:active {
+  transform: scale(0.94);
+}
+
+.play:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.player {
   position: absolute;
-  top: 8px;
-  left: 8px;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--bay-r-sm);
-  background: rgba(30, 27, 24, 0.55);
-  color: #fff;
-  pointer-events: none;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-card);
+  background: var(--bay-stage-frame);
+  object-fit: contain;
 }
 
 .pending {
-  position: relative;
-  height: 100%;
-}
-
-.pending > :first-child {
-  height: 100%;
-}
-
-.pendingLabel {
-  position: absolute;
-  inset: 0;
   display: grid;
   place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bay-skeleton);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
-.caption {
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.more {
+  align-self: center;
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- inspector */
+
+.filters {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+/* Machine batch ids (a job's or a test run's tag) wait folded under one
+   "Batches" toggle after the named tags; the chevron turns as it opens. */
+.batches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.batchesTrigger {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
   gap: 6px;
-  padding: 0 2px;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
 }
 
-.titleRow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+.batchesTrigger[data-hovered],
+.batchesTrigger[data-focus-visible] {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
 }
 
-.titleText {
+.batchesTrigger[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+.batchesTrigger[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.batchesChevron {
+  flex: none;
+  transition: rotate var(--dur-2) var(--ease-out);
+}
+
+.batches[data-expanded] .batchesChevron {
+  rotate: 90deg;
+}
+
+.batchesCount {
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
+}
+
+.item {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  min-width: 0;
+  gap: 14px;
 }
 
-.cardActions {
+.itemText {
   display: flex;
-  flex: none;
+  flex-direction: column;
   gap: 2px;
+}
+
+.itemTitle {
+  margin: 0;
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.itemTags {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .autoTags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* An automatic tag is a filter: a quiet pill that fills like a glass button
+   on hover and press. */
 .autoTag {
-  padding: 1px 7px;
-  border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-pill);
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-pill);
   background: transparent;
-  font: inherit;
-  font-size: 12px;
-  color: var(--bay-text-3);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
   cursor: pointer;
-  transition: border-color var(--bay-dur) var(--bay-ease);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
-.autoTag:hover {
-  border-color: var(--bay-border-strong);
+@media (hover: hover) {
+  .autoTag:hover {
+    border-color: var(--bay-border-strong);
+    background: var(--glass-btn);
+    color: var(--bay-text);
+  }
+}
+
+.autoTag:active {
+  background: var(--glass-btn-pressed);
+  transform: scale(0.98);
 }
 
 .autoTag:focus-visible {
+  border-color: var(--bay-border-strong);
+  background: var(--glass-btn);
+  color: var(--bay-text);
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
+.itemActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Reserved, so "Saving" and "Saved" never move what is under it. */
 .saveState {
   min-height: 18px;
 }
@@ -212,6 +469,41 @@
   color: var(--bay-err-fg);
 }
 
-.more {
-  align-self: center;
+/* ---------------------------------------------------------------- phone */
+
+/* Two columns of square-ish pictures; the search shares the toolbar with
+   the Show chip. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .media,
+  .card > .over {
+    aspect-ratio: 1;
+  }
+
+  .sheet {
+    padding: 4px 4px 24px;
+  }
+
+  .search {
+    width: clamp(140px, 42vw, 220px);
+  }
+}
+
+/* Reduced motion: the ring and the border carry every state, nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .select:hover .img,
+  .select:active .media,
+  .zoom:active,
+  .play:hover,
+  .play:active,
+  .autoTag:active {
+    transform: none;
+  }
+
+  .pending {
+    animation: none;
+  }
 }

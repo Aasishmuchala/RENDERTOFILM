@@ -16,7 +16,7 @@ import {
   registerClient,
 } from './mcp.ts';
 import { putObject } from './storage.ts';
-import { thumbUrl, viewUrl } from './thumbs.ts';
+import { posterUrl, thumbUrl, viewUrl } from './thumbs.ts';
 
 /**
  * The one boundary literal for raw routes. `mountApi`'s router prefix, the
@@ -48,6 +48,40 @@ function isTransientUploadError(err: unknown): boolean {
   const status = (err as { status?: unknown }).status;
   if (typeof status === 'number') return status >= 500;
   return /failed \(5\d\d\)/.test(err.message);
+}
+
+/**
+ * Hand uploaded bytes to Runway as an ephemeral asset and answer `{ url }`.
+ * Runway's upload occasionally stalls; give each try a deadline and retry
+ * once, so the visitor gets an answer well before the gateway gives up.
+ */
+async function uploadWithRetry(ctx: Koa.Context, bytes: Buffer, filename: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const { url } = await ctx.state.runway!.uploadAsset(bytes, {
+        filename,
+        signal: AbortSignal.timeout(UPLOAD_ATTEMPT_MS),
+      });
+      ctx.body = { url };
+      return;
+    } catch (err) {
+      const stalled = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      if (attempt < 2 && (stalled || isTransientUploadError(err))) continue;
+      if (!stalled && !isTransientUploadError(err)) throw err;
+      console.error('[upload] Runway upload did not finish', err);
+      ctx.status = 504;
+      ctx.body = { error: 'Runway is slow to accept uploads right now. Try again in a moment.' };
+      return;
+    }
+  }
+}
+
+/** The box types an MP4 (`ftyp`) or an older QuickTime movie can start with, at byte 4 of the file. */
+const CLIP_ATOMS = new Set(['ftyp', 'moov', 'mdat', 'wide', 'free', 'skip', 'pnot']);
+
+/** Whether these first bytes begin a real MP4 or MOV (ISO base media: a 4-byte size, then the box type). */
+function looksLikeClip(head: Buffer): boolean {
+  return head.length >= 8 && CLIP_ATOMS.has(head.toString('latin1', 4, 8));
 }
 
 export function isApiPath(path: string): boolean {
@@ -272,27 +306,36 @@ export function mountApi(app: Koa) {
     }
     if (total === 0) ctx.throw(400, 'The upload was empty.');
     const ext = type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
-    const bytes = Buffer.concat(chunks);
-    // Runway's upload occasionally stalls; give each try a deadline and retry
-    // once, so the visitor gets an answer well before the gateway gives up.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const { url } = await ctx.state.runway!.uploadAsset(bytes, {
-          filename: `render.${ext}`,
-          signal: AbortSignal.timeout(UPLOAD_ATTEMPT_MS),
-        });
-        ctx.body = { url };
-        return;
-      } catch (err) {
-        const stalled = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
-        if (attempt < 2 && (stalled || isTransientUploadError(err))) continue;
-        if (!stalled && !isTransientUploadError(err)) throw err;
-        console.error('[upload] Runway upload did not finish', err);
-        ctx.status = 504;
-        ctx.body = { error: 'Runway is slow to accept uploads right now. Try again in a moment.' };
-        return;
+    await uploadWithRetry(ctx, Buffer.concat(chunks), `render.${ext}`);
+  });
+
+  // Upload a reference clip (raw MP4 or MOV bytes) as an ephemeral Runway
+  // asset, so Recreate in 4K (src/recreate-api.ts) can pass it to the model
+  // as the motion reference. Sent as is, so the limit is a clip's, not a still's.
+  api.post('/upload-clip', requireRunwayUser(), async (ctx) => {
+    const type = ctx.request.type.trim().toLowerCase();
+    if (type !== 'video/mp4' && type !== 'video/quicktime') {
+      ctx.throw(415, 'Upload an MP4 or MOV clip.');
+    }
+    const limit = 100 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let checked = false;
+    for await (const chunk of ctx.req) {
+      const buf: Buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      total += buf.length;
+      if (total > limit) ctx.throw(413, 'That clip is over 100 MB.');
+      chunks.push(buf);
+      // The Content-Type is only the sender's word (a text file can be named
+      // .mp4): look at the first bytes, before reading the rest of the body.
+      if (!checked && total >= 8) {
+        checked = true;
+        if (!looksLikeClip(Buffer.concat(chunks))) ctx.throw(415, 'Upload an MP4 or MOV clip.');
       }
     }
+    if (total === 0) ctx.throw(400, 'The upload was empty.');
+    if (!checked) ctx.throw(415, 'Upload an MP4 or MOV clip.');
+    await uploadWithRetry(ctx, Buffer.concat(chunks), type === 'video/quicktime' ? 'reference.mov' : 'reference.mp4');
   });
 
   // Store the area marked on a render (a black-and-white PNG, white = may
@@ -359,7 +402,9 @@ export function mountApi(app: Koa) {
     // big screen. Without either, the original Runway file (downloads).
     const thumb = kind === 'still' && ctx.query['thumb'] !== undefined;
     const view = kind === 'still' && !thumb && ctx.query['view'] !== undefined;
-    const variant = thumb ? ':thumb' : view ? ':view' : '';
+    // `?poster` asks for a clip's own poster (`Clip.posterKey`, src/thumbs.ts).
+    const poster = kind === 'clip' && ctx.query['poster'] !== undefined;
+    const variant = thumb ? ':thumb' : view ? ':view' : poster ? ':poster' : '';
     const cacheKey = owner ? `${owner}:${kind}:${id}${variant}` : null;
     const hit = cacheKey ? signedUrls.get(cacheKey) : undefined;
     if (hit && hit.exp > Date.now()) {
@@ -368,6 +413,19 @@ export function mountApi(app: Koa) {
       return;
     }
     const lib = owner && kind !== 'edit' ? await readLibrary(owner) : null;
+    if (poster) {
+      const key = lib?.clips.find((c) => c.id === id)?.posterKey;
+      if (!key) {
+        ctx.status = 404;
+        ctx.body = { error: 'That file is not available.' };
+        return;
+      }
+      const url = await posterUrl(key);
+      if (cacheKey) rememberSignedUrl(cacheKey, url);
+      ctx.set('Cache-Control', 'private, max-age=300');
+      ctx.redirect(url);
+      return;
+    }
     const still = kind === 'still' ? lib?.stills.find((s) => s.id === id) : undefined;
     const owned =
       kind === 'still'

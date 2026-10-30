@@ -1,103 +1,113 @@
-.shell,
-.shellFill {
-  background: var(--bay-bg-canvas);
-  color: var(--bay-text);
-  font-family: var(--bay-font-sans);
-}
-
+/* The shell (DESIGN.md 3.1). It owns the fixed chrome and tells the pages how
+   much of the window it takes: `--app-header` (the 48 px top bar, every
+   width), `--app-dock` (outside the phone layout: the 56 px dock plus its 16 px
+   float; the Workspace keeps clear of it), `--app-bottom` (phones, that is
+   portrait under 900 px or anything under 480: the floating tab bar's
+   footprint) and `--app-subnav` (phones, on a Shoot page: the row
+   of Shoot modes under the top bar; 0 elsewhere). */
 .shell {
-  --app-header: 60px;
-  min-height: 100vh;
+  --app-header: 48px;
+  --app-subnav: 0px;
+  --app-dock: calc(72px + env(safe-area-inset-bottom));
+  --app-bottom: 0px;
+  position: relative;
+  min-height: 100dvh;
+  color: var(--bay-text);
 }
 
-/* `fillViewport`: the page owns its own scrolling, so the shell is exactly
-   one viewport tall and `main` takes whatever the header leaves. */
-.shellFill {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Calm header on the canvas itself, closed by a single hairline. */
-.header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 24px;
-  flex: none;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: var(--app-header, 60px);
-  padding: 0 28px;
-  border-bottom: 1px solid var(--bay-border-hair);
-  background: var(--bay-bg-surface);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.title {
-  font-size: 16px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-}
-
-.nav {
-  display: flex;
-  justify-content: center;
-  align-self: stretch;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.main {
-  margin: 0 auto;
-  padding: 48px 32px 80px;
-}
-
-/* Full width: the page owns its edges (the studio workspace runs edge to
-   edge; the library pads itself). */
-.mainWide {
-  width: 100%;
-}
-
-/* Phones: brand and account on one row, the tabs on their own below. */
-@media (max-width: 680px) {
+/* Phones: no dock; `--app-bottom` is exactly the floating tab bar's
+   footprint (its 10 px float plus its 64 px height, above the home
+   indicator), so whatever rests on it shows no strip of page between. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
   .shell {
-    --app-header: 104px;
+    --app-dock: 0px;
+    --app-bottom: calc(10px + 64px + env(safe-area-inset-bottom));
   }
 
-  .header {
-    grid-template-columns: 1fr auto;
-    row-gap: 0;
-    height: auto;
-    padding: 10px 16px 0;
-  }
-
-  .nav {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    justify-content: stretch;
-  }
-
-  .main {
-    padding: 28px 16px 56px;
+  .shell[data-shoot] {
+    --app-subnav: 52px;
   }
 }
 
-.mainFill {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+/* A short window with the dock: it floats 8 px up instead of 16. */
+@media (height < 640px) and (width >= 900px), (height < 640px) and (width >= 480px) and (orientation: landscape) {
+  .shell {
+    --app-dock: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Above the ambient (z-index 0); the glass chrome sits above this. The top
+   bar (and on a phone's Shoot page the modes row) is fixed, so the page
+   starts under it. */
+.main {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding-top: calc(var(--app-header) + var(--app-subnav));
+  outline: none;
+}
+
+/* Phones: the shell clears the floating tab bar for every page. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .main {
+    padding-bottom: var(--app-bottom);
+  }
+}
+
+/* The first Tab stop. Off screen until focused, then a small accent chip. */
+.skip {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-control);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  text-decoration: none;
+  transform: translateY(calc(-100% - 20px));
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.skip:focus,
+.skip:focus-visible {
+  transform: none;
+}
+
+/* The ambient backdrop (lib/ambient.tsx): the room's light. A static warm
+   gradient by default; the current frame, blurred and dimmed, cross-fades
+   over it. Fixed under everything, never interactive. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(
+    60% 50% at 30% 20%,
+    color-mix(in srgb, var(--bay-accent) 7%, var(--bay-bg-canvas)),
+    var(--bay-bg-canvas)
+  );
+}
+
+.ambientImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.2);
+  filter: blur(48px) saturate(1.5) brightness(0.3);
+  opacity: 0;
+  transition: opacity 1200ms var(--ease-out);
+}
+
+.ambientImage[data-shown] {
+  opacity: 1;
 }

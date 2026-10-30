@@ -1,3 +1,7 @@
+/* Slider (DESIGN 4): a 4 px sunken rail, an accent fill, a 20 px white knob.
+   The knob grows 5% on hover and drag (the `scale` property, because
+   react-aria positions the knob with an inline transform); the ring sits on
+   the knob. The track box is 28 px tall so the whole row is a real target. */
 .slider {
   display: flex;
   flex-direction: column;
@@ -13,19 +17,22 @@
 }
 
 .label {
-  font-size: 13px;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
 }
 
 .output {
-  font-size: 12px;
-  color: var(--bay-text-3);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
 }
 
 .track {
   position: relative;
-  height: 22px;
+  height: 28px;
   cursor: pointer;
 }
 
@@ -35,13 +42,14 @@
   top: 50%;
   height: 4px;
   margin-top: -2px;
-  border-radius: var(--bay-r-pill);
+  border-radius: var(--r-pill);
 }
 
 .rail {
   left: 0;
   right: 0;
   background: var(--bay-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--bay-border-hair);
 }
 
 .fill {
@@ -50,18 +58,20 @@
 
 .thumb {
   top: 50%;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--bay-bg-surface);
-  border: 2px solid var(--bay-accent);
-  box-shadow: var(--bay-shadow-1);
-  transition: transform var(--bay-dur-fast) var(--bay-ease);
+  background: var(--bay-text);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--bay-bg-canvas) 70%, transparent);
+  transition:
+    scale var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
 }
 
 .thumb[data-hovered],
 .thumb[data-dragging] {
-  transform: scale(1.12);
+  scale: 1.05;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--bay-bg-canvas) 80%, transparent);
 }
 
 .thumb[data-focus-visible] {
@@ -69,10 +79,21 @@
   outline-offset: 2px;
 }
 
-.slider[data-disabled] {
-  opacity: 0.55;
+/* Disabled: the track fades to 0.45 like every other control; the words stay
+   at ink 3 rather than fading, so they keep their contrast. */
+.slider[data-disabled] .label,
+.slider[data-disabled] .output {
+  color: var(--bay-text-3);
 }
 
 .slider[data-disabled] .track {
+  opacity: 0.45;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumb[data-hovered],
+  .thumb[data-dragging] {
+    scale: none;
+  }
 }

@@ -1,5 +1,21 @@
-/* The Director tab's own pieces; the layout and stage come from Studio.module.css. */
+/* The Director tab's own pieces; the canvas, inspector and strip come from
+   the Workspace (layouts/Workspace.module.css). Frames and clips are cards
+   (DESIGN 4): solid surface, hairline, continuous corners, and a 2 px accent
+   ring on the frame that is selected. Nothing here is glass. */
 
+@supports (corner-shape: squircle) {
+  .dropEmpty,
+  .thumb,
+  .stripCard,
+  .jobCard,
+  .sheetCard,
+  .clip,
+  .filmControls {
+    corner-shape: squircle;
+  }
+}
+
+/* ---- The inspector: project images. */
 .dropEmpty {
   display: grid;
   place-items: center;
@@ -7,10 +23,19 @@
   min-height: 140px;
   padding: 20px 20px 56px;
   border: 1px dashed var(--bay-border-strong);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-subtle);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-sunken);
   color: var(--bay-text-3);
   text-align: center;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .dropEmpty:hover {
+    background: var(--bay-bg-subtle);
+  }
 }
 
 /* The uploaded set: small 16:10 tiles, three or four to a row. */
@@ -26,6 +51,7 @@
 .thumb {
   position: relative;
   aspect-ratio: 16 / 10;
+  border: 1px solid var(--bay-border-hair);
   border-radius: var(--bay-r-sm);
   background: var(--bay-bg-sunken);
   overflow: hidden;
@@ -36,7 +62,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: opacity var(--bay-dur) var(--bay-ease);
+  transition: opacity var(--dur-2) var(--ease-out);
 }
 
 .thumbImg[data-dimmed] {
@@ -46,96 +72,44 @@
 .thumbState {
   position: absolute;
   inset: auto 0 0;
-  padding: 3px 6px;
-  font-size: 11px;
+  padding: 3px 8px;
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
   color: var(--bay-text-2);
-  background: var(--bay-bg-surface);
+  background: var(--scrim-chip);
 }
 
-.thumbRemove {
+/* A dark chip over the picture so the cross reads on any image. The two-class
+   selectors keep these ahead of the ghost button's own states. */
+.thumb .thumbRemove {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: var(--bay-bg-surface);
+  width: 28px;
+  padding: 0;
+  background: var(--scrim);
+  color: var(--bay-text);
+}
+
+.thumb .thumbRemove[data-hovered] {
+  background: var(--scrim-chip-hover);
+}
+
+.thumb .thumbRemove[data-pressed] {
+  background: var(--scrim-chip-pressed);
 }
 
 .uploadError {
   min-width: 0;
 }
 
-.boardHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-  margin-bottom: 24px;
-}
-
-.boardHead > p {
-  max-width: 64ch;
-}
-
-/* The storyboard: frames in story order, as many columns as fit. */
-.frames {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
-  gap: 36px 28px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.card {
+/* ---- The storyboard in the inspector. */
+.replan {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.cardFrame {
-  position: relative;
-  display: grid;
-  place-items: center;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-stage-frame);
-  box-shadow: 0 0 0 1px rgba(246, 241, 233, 0.06);
-  overflow: hidden;
-}
-
-.cardFrame > * {
-  grid-area: 1 / 1;
-}
-
-/* The source image reads as a sketch until its frame is shot. */
-.source {
-  opacity: 0.6;
-}
-
-.sourceChip {
-  align-self: end;
-  justify-self: start;
-  margin: 8px;
-  padding: 2px 8px;
-  border-radius: var(--bay-r-pill);
-  font-size: 11px;
-  color: var(--bay-text-2);
-  background: rgba(30, 27, 24, 0.7);
-}
-
-.frameButton {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: zoom-in;
-}
-
-.frameButton:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: -2px;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 .cardText {
@@ -144,32 +118,24 @@
   gap: 4px;
 }
 
-.cardTitle {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--bay-text);
-}
-
 .cardNo {
   font-variant-numeric: tabular-nums;
   color: var(--bay-accent-fg);
 }
 
 .space {
+  flex: none;
   margin-left: auto;
-  font-size: 12px;
-  font-weight: 400;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }
 
+/* The frame's light, camera, people and direction (FrameControls). */
 .options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .cardActions {
@@ -180,14 +146,14 @@
 }
 
 .saveState {
-  margin-left: auto;
-  font-size: 12px;
+  min-height: 1lh;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }
 
-.saved {
-  margin-top: 32px;
-  text-align: center;
+.cardActions .saveState {
+  margin-left: auto;
 }
 
 .retry {
@@ -196,13 +162,375 @@
   margin-top: 12px;
 }
 
-.pollError {
-  margin-top: 16px;
+/* The source image reads as a sketch until its frame is shot. */
+.source {
+  opacity: 0.6;
 }
 
-/* A done frame chosen for the film carries an accent ring. */
-.cardFrame[data-chosen] {
-  box-shadow: 0 0 0 2px var(--bay-accent);
+/* ---- The canvas: one frame, as the viewer shows it. */
+.canvasCompare {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.canvasImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* The canvas toolbar's buttons: 36 px ghosts on the thin glass pill, the
+   view that is showing filled. */
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-control);
+  background-color: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-footnote);
+  font-weight: 500;
+  letter-spacing: var(--track-footnote);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.tool[aria-label] {
+  padding: 0;
+}
+
+@media (hover: hover) {
+  .tool:hover:not(:disabled) {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+}
+
+.tool:active:not(:disabled) {
+  background-color: var(--glass-btn-pressed);
+}
+
+.tool[aria-pressed='true'] {
+  background-color: var(--glass-btn-selected);
+  color: var(--bay-text);
+}
+
+.tool:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.tool:disabled {
+  color: var(--bay-text-4);
+  cursor: default;
+}
+
+.toolSep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--bay-border);
+}
+
+/* ---- The strip: the storyboard's card, then the frames in story order. */
+.jobCard {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 2px;
+  height: 100%;
+  min-width: 112px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-control);
+  outline: 1px solid var(--bay-border-hair);
+  outline-offset: -1px;
+  background-color: var(--bay-bg-surface);
+  color: var(--bay-text-2);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    outline-color var(--dur-1) var(--ease-out);
+}
+
+.jobCardTitle {
+  margin-top: 4px;
+  font: var(--text-subhead);
+  font-weight: 600;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+}
+
+.jobCardMeta {
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-2);
+}
+
+.strip {
+  display: flex;
+  gap: 8px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stripItem {
+  flex: none;
+  height: 100%;
+  scroll-snap-align: start;
+}
+
+.stripCard {
+  position: relative;
+  display: block;
+  height: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-control);
+  background-color: var(--bay-stage-frame);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* The hairline and the selection ring sit over the picture (an outline
+   would paint under it). */
+.stripCard::after,
+.sheetCard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--bay-border-hair);
+  pointer-events: none;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+
+.stripCard .thumbPicture {
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .jobCard:hover {
+    background-color: var(--bay-bg-subtle);
+    outline-color: var(--bay-border-strong);
+  }
+
+  .stripCard:hover::after {
+    box-shadow: inset 0 0 0 1px var(--bay-border-strong);
+  }
+
+  .stripCard:hover .thumbPicture {
+    transform: scale(1.04);
+  }
+}
+
+.jobCard:active {
+  outline-color: var(--bay-text-3);
+}
+
+.stripCard:active::after {
+  box-shadow: inset 0 0 0 1px var(--bay-text-3);
+}
+
+/* The selected card: a 2 px accent ring over the picture. */
+.jobCard[aria-pressed='true'] {
+  outline: 2px solid var(--bay-accent);
+  outline-offset: -2px;
+}
+
+.stripCard[aria-pressed='true']::after {
+  box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+/* Focus: a ring just outside the card, inside the strip's 4 px padding. */
+.jobCard:focus-visible,
+.stripCard:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+/* A frame's picture in a card: the take, else its image dimmed. */
+.thumbPicture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbBlank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--bay-stage-raised);
+}
+
+.stripNo {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--scrim-chip);
+  color: var(--bay-text);
+  font: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: var(--track-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--scrim-chip);
+  color: var(--bay-text);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  white-space: nowrap;
+}
+
+.badge[data-state='shooting'] {
+  color: var(--bay-accent-fg);
+}
+
+.badge[data-state='failed'] {
+  color: var(--bay-err-fg);
+}
+
+/* In the film: a filled accent check in the corner. */
+.tick {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-pill);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+/* ---- The contact sheet: every frame on the canvas, as many columns as fit. */
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  align-items: start;
+  gap: 16px;
+  margin: 0;
+  padding: 4px 4px 24px;
+  list-style: none;
+}
+
+.sheetItem {
+  min-width: 0;
+}
+
+.sheetCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+  color: var(--bay-text);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.sheetCard .thumbPicture {
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .sheetCard:hover {
+    background-color: var(--bay-bg-subtle);
+  }
+
+  .sheetCard:hover::after {
+    box-shadow: inset 0 0 0 1px var(--bay-border-strong);
+  }
+
+  .sheetCard:hover .thumbPicture {
+    transform: scale(1.03);
+  }
+}
+
+.sheetCard:active::after {
+  box-shadow: inset 0 0 0 1px var(--bay-text-3);
+}
+
+.sheetCard[aria-current='true']::after {
+  box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+.sheetCard:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.sheetFrame {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--bay-stage-frame);
+  overflow: hidden;
+}
+
+.sheetText {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+}
+
+.sheetTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---- The big-screen viewer (FullscreenDialog). */
@@ -211,7 +539,7 @@
   display: grid;
   place-items: center;
   width: min(100%, calc(var(--fit-h, 70vh) * var(--ar, 16 / 9)));
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-stage-frame);
   overflow: hidden;
 }
@@ -254,63 +582,100 @@
   gap: 8px;
 }
 
+.viewerLabel {
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+}
+
 .viewerShoot {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-/* ---- The film step: chosen frames made into clips. */
+/* ---- The film step: chosen frames made into clips. A section of the
+   inspector, so its layout follows its own width, not the window's. */
 .film {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--bay-border-hair);
+  container-type: inline-size;
+}
+
+.filmEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px dashed var(--bay-border);
+  border-radius: var(--r-card);
+}
+
+.filmEmptyTitle {
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
 }
 
 .filmGrid {
   display: grid;
-  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-  gap: 32px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
   align-items: start;
 }
 
-@media (max-width: 1200px) {
-  .filmGrid {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* The settings, one group on a card. */
 .filmControls {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-surface);
+}
+
+@container (min-width: 860px) {
+  .filmGrid {
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  }
 }
 
 .filmRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
   align-items: start;
 }
 
-.filmPick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+/* A narrow card, or the beside-the-clips column: one control to a row. */
+@container (max-width: 520px) {
+  .filmRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (min-width: 860px) {
+  .filmRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .filmAction {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 4px;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.filmMake {
+  width: 100%;
 }
 
 .clips {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-  gap: 24px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -319,14 +684,16 @@
 .clip {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   min-width: 0;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-surface);
+  overflow: hidden;
 }
 
 .clipFrame {
   display: grid;
   place-items: center;
-  border-radius: var(--bay-r-md);
   background: var(--bay-stage-frame);
   overflow: hidden;
 }
@@ -343,25 +710,78 @@
   background: var(--bay-stage-frame);
 }
 
+.clipBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
 .clipTitle {
   display: flex;
   align-items: baseline;
   gap: 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
   color: var(--bay-text);
 }
 
 .clipMeta {
   margin-left: auto;
-  font-size: 12px;
-  font-weight: 400;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }
 
-@media (max-width: 680px) {
-  .filmRow {
-    grid-template-columns: 1fr;
+/* Reduced motion: the outline and the ring carry the state; nothing zooms. */
+@media (prefers-reduced-motion: reduce) {
+  .stripCard:hover .thumbPicture,
+  .sheetCard:hover .thumbPicture {
+    transform: none;
+  }
+}
+
+/* ---- Phone and narrow windows: the clips are a strip you swipe through,
+   one card snapping at a time, the next peeking in from the sheet's edge (its
+   20 px gutter is the strip's own padding). The 3 px above and below keep a
+   focus ring from being clipped. The contact sheet goes two to a row. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .clips {
+    display: flex;
+    gap: 12px;
+    margin: -3px -20px;
+    padding: 3px 20px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 20px;
+  }
+
+  .clips > .clip {
+    flex: 0 0 min(78%, 300px);
+    scroll-snap-align: start;
+  }
+
+  .sheet {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .sheetText {
+    padding: 8px 10px 10px;
+  }
+
+  .sheetText .space {
+    display: none;
+  }
+
+  .jobCard {
+    min-width: 96px;
+    padding: 0 12px;
+  }
+
+  .filmControls {
+    padding: 16px;
   }
 }

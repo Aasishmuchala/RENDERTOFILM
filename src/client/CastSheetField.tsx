@@ -64,6 +64,7 @@ export function CastSheetField({
             onFile={onFile}
             disabled={locked}
             actionLabel={sheet ? 'Replace' : 'Choose photo'}
+            label="Drop or choose a cast sheet"
           >
             {sheet ? (
               <figure className={styles.castThumb}>

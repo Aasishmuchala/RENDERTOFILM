@@ -1,8 +1,9 @@
 import { Clapperboard, Film, Scissors } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Clip, Still } from '../../api.ts';
 import {
+  ANIMATE_VIDEO_MODELS,
   defaultVideoResolution,
   defaultVideoSeconds,
   MOTIONS,
@@ -21,10 +22,10 @@ import {
 import type { FramePlan, StoryboardJob } from '../../storyboard-api.ts';
 import { Section } from '../layouts/Section.tsx';
 import { libraryUrl, stillThumbUrl } from '../lib/download.ts';
+import { useInFlight } from '../lib/useInFlight.ts';
 import { trpc } from '../trpc.ts';
 import { Alert } from '../ui/Alert.tsx';
 import { Button } from '../ui/Button.tsx';
-import { EmptyState } from '../ui/EmptyState.tsx';
 import { RenderingStatus } from '../ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from '../ui/RunwayErrorNotice.tsx';
 import { Select } from '../ui/Select.tsx';
@@ -122,6 +123,13 @@ export function suggestedMove(frame: FramePlan, order: number, count: number): M
   return order % 2 === 0 ? 'drift-left' : 'drift-right';
 }
 
+/** The film's next step, which the page's footer offers once every frame is shot. */
+export type FilmNext =
+  /** Clips to make for the frames chosen for the film, or a batch starting them. */
+  | { kind: 'make'; label: string; busy: boolean; cost: string; make: () => void; error: unknown; modelName: string }
+  /** Nothing to make: no frame is chosen yet, or every chosen frame has a clip (some may still render). */
+  | { kind: 'edit'; film: number; rendering: number };
+
 export type FilmStepProps = {
   job: StoryboardJob;
   frames: readonly FramePlan[];
@@ -132,11 +140,18 @@ export type FilmStepProps = {
   clips: readonly Clip[];
   onMade: () => Promise<unknown>;
   onGoToEdit: () => void;
+  /** Told the film's next step as it changes, and null when this step goes. */
+  onNext?: ((next: FilmNext | null) => void) | undefined;
+  /** The page's footer offers the next step, so this section doesn't repeat it. */
+  actionInFooter?: boolean | undefined;
 };
 
 /** Step two of the Director tab: the chosen frames, shot as clips in story order. */
-export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit }: FilmStepProps) {
+export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit, onNext, actionInFooter = false }: FilmStepProps) {
   const utils = trpc.useUtils();
+  // This section's button and the page's footer both start a batch; a
+  // double-click on either starts one.
+  const makeGuard = useInFlight();
   const [s, setS] = useFilmSettings(job.id);
   const [making, setMaking] = useState<number | null>(null);
   /** The frames the running batch makes, for its "clip N of M" count. */
@@ -174,6 +189,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   });
 
   async function make(list: typeof film) {
+    if (!makeGuard.start()) return;
     setBatchError(null);
     setBatch(list.map(({ frame }) => frame.image));
     for (const { frame, order } of list) {
@@ -209,7 +225,37 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
       }
     }
     setMaking(null);
+    makeGuard.end();
   }
+
+  const makeLabel = busy
+    ? `Starting clip ${batch.indexOf(making ?? -1) + 1} of ${batch.length}…`
+    : missing.length === 0
+      ? 'Every chosen frame has a clip'
+      : missing.length === film.length
+        ? `Make ${film.length} clip${film.length === 1 ? '' : 's'}`
+        : `Make the other ${missing.length} clip${missing.length === 1 ? '' : 's'}`;
+  const cost = `${film.length} clip${film.length === 1 ? '' : 's'} of ${seconds} seconds with ${videoModelName(s.videoModel)}. Each costs the same as one on the Video tab, billed to your own Runway credits.`;
+  const offersMake = film.length > 0 && (busy || missing.length > 0);
+  const makeMissing = useRef(() => {});
+  makeMissing.current = () => void make(missing);
+  // Before paint, so the footer never shows a step this section has moved past.
+  useLayoutEffect(() => {
+    onNext?.(
+      offersMake
+        ? {
+            kind: 'make',
+            label: makeLabel,
+            busy,
+            cost,
+            make: () => makeMissing.current(),
+            error: batchError,
+            modelName: videoModelName(s.videoModel),
+          }
+        : { kind: 'edit', film: film.length, rendering }
+    );
+  }, [onNext, offersMake, makeLabel, busy, cost, batchError, s.videoModel, film.length, rendering]);
+  useLayoutEffect(() => () => onNext?.(null), [onNext]);
 
   const secondsOptions = durations.map((n) => ({ id: String(n), name: `${n} seconds` }));
   const anyTravel = film.some(({ frame, order }) => {
@@ -217,28 +263,31 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
     return m !== 'still-life' && m !== 'focus-pull';
   });
 
+  // A section of the inspector; its layout follows its own width (the film class), not the window's.
   return (
-    <div className={own.film}>
-      <Section
-        title="Make the film"
-        description="Each frame you chose becomes one clip, in story order, with the same camera presets as the Video tab."
-      >
+    <Section
+      title="Make the film"
+      description="Each frame you chose becomes one clip, in story order, with the same camera presets as the Video tab."
+    >
+      <div className={own.film}>
         {film.length === 0 ? (
-          <EmptyState
-            title="Choose the frames for your film"
-            hint={
-              chosen.size > 0
+          <div className={own.filmEmpty}>
+            <Text as="p" className={own.filmEmptyTitle}>
+              Choose the frames for your film
+            </Text>
+            <Text tone="muted" size="sm" as="p">
+              {chosen.size > 0
                 ? 'The frames you chose are not shot yet. Shoot them, then come back here.'
-                : 'Press Use in film on each shot frame you want, or Choose all shot frames above. They become clips here.'
-            }
-          />
+                : 'Press Use in film on each shot frame you want, or Choose all shot frames above. They become clips here.'}
+            </Text>
+          </div>
         ) : (
           <div className={own.filmGrid}>
             <div className={own.filmControls}>
               <div className={own.filmRow}>
                 <Select
                   label="Video model"
-                  options={VIDEO_MODELS}
+                  options={ANIMATE_VIDEO_MODELS}
                   value={s.videoModel}
                   onChange={(id) => {
                     const m = id as VideoModelId;
@@ -311,35 +360,36 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                 placeholder="e.g. leaves stir in a light breeze, water ripples softly"
               />
               <div className={own.filmAction}>
-                <Button
-                  variant="primary"
-                  icon={<Clapperboard size={16} />}
-                  loading={busy}
-                  disabled={missing.length === 0 && !busy}
-                  onPress={() => void make(missing)}
-                >
-                  {busy
-                    ? `Starting clip ${batch.indexOf(making ?? -1) + 1} of ${batch.length}…`
-                    : missing.length === 0
-                      ? 'Every chosen frame has a clip'
-                      : missing.length === film.length
-                        ? `Make ${film.length} clip${film.length === 1 ? '' : 's'}`
-                        : `Make the other ${missing.length} clip${missing.length === 1 ? '' : 's'}`}
-                </Button>
+                {!actionInFooter && (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className={own.filmMake}
+                    icon={<Clapperboard size={16} />}
+                    loading={busy}
+                    disabled={missing.length === 0 && !busy}
+                    onPress={() => void make(missing)}
+                  >
+                    {makeLabel}
+                  </Button>
+                )}
                 <Text tone="muted" size="sm" as="p">
-                  {film.length} clip{film.length === 1 ? '' : 's'} of {seconds} seconds with {videoModelName(s.videoModel)}.
-                  Each costs the same as one on the Video tab, billed to your own Runway credits.
+                  {cost}
                 </Text>
-                {madeAny && (
+                {/* Once the footer's next step is Edit, it is the way there. */}
+                {madeAny && !(actionInFooter && !offersMake) && (
                   <Button icon={<Scissors size={16} />} onPress={onGoToEdit} disabled={rendering > 0}>
                     {rendering > 0 ? `${rendering} clip${rendering === 1 ? ' is' : 's are'} still rendering` : 'Cut them on the Edit tab'}
                   </Button>
                 )}
-                <RunwayErrorNotice
-                  error={batchError}
-                  modelName={videoModelName(s.videoModel)}
-                  onRetry={busy ? undefined : () => void make(missing)}
-                />
+                {/* A batch the footer started shows its refusal there, by its button. */}
+                {!(actionInFooter && offersMake) && (
+                  <RunwayErrorNotice
+                    error={batchError}
+                    modelName={videoModelName(s.videoModel)}
+                    onRetry={busy ? undefined : () => void make(missing)}
+                  />
+                )}
               </div>
             </div>
 
@@ -369,42 +419,44 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                         <img className={own.clipVideo} src={stillThumbUrl(take.id)} alt={`Film still: ${frame.title}`} loading="lazy" decoding="async" />
                       )}
                     </div>
-                    <h3 className={own.clipTitle}>
-                      <span className={own.cardNo}>{order}</span>
-                      {frame.title}
-                      {clip?.status === 'succeeded' && <span className={own.clipMeta}>{videoModelName(clip.videoModel)}</span>}
-                    </h3>
-                    <Select
-                      label="Camera move"
-                      options={MOTIONS}
-                      value={moveOf(frame, order)}
-                      onChange={(id) => set({ moves: { ...s.moves, [frame.image]: id as MotionId } })}
-                      disabled={busy}
-                    />
-                    {clip?.status === 'failed' && !starting && (
-                      <Alert tone="error" title="This clip didn't render">
-                        {clip.error ?? 'Make it again.'}
-                      </Alert>
-                    )}
-                    {clip?.status === 'succeeded' && (
-                      <div className={own.cardActions}>
-                        <Button size="sm" variant="ghost" icon={<Film size={14} />} onPress={() => void make([{ frame, order }])} disabled={busy}>
-                          Make again
-                        </Button>
-                      </div>
-                    )}
-                    <RunwayErrorNotice
-                      error={errors[frame.image]}
-                      modelName={videoModelName(s.videoModel)}
-                      onRetry={busy ? undefined : () => void make([{ frame, order }])}
-                    />
+                    <div className={own.clipBody}>
+                      <h3 className={own.clipTitle}>
+                        <span className={own.cardNo}>{order}</span>
+                        {frame.title}
+                        {clip?.status === 'succeeded' && <span className={own.clipMeta}>{videoModelName(clip.videoModel)}</span>}
+                      </h3>
+                      <Select
+                        label="Camera move"
+                        options={MOTIONS}
+                        value={moveOf(frame, order)}
+                        onChange={(id) => set({ moves: { ...s.moves, [frame.image]: id as MotionId } })}
+                        disabled={busy}
+                      />
+                      {clip?.status === 'failed' && !starting && (
+                        <Alert tone="error" title="This clip didn't render">
+                          {clip.error ?? 'Make it again.'}
+                        </Alert>
+                      )}
+                      {clip?.status === 'succeeded' && (
+                        <div className={own.cardActions}>
+                          <Button size="sm" variant="ghost" icon={<Film size={14} />} onPress={() => void make([{ frame, order }])} disabled={busy}>
+                            Make again
+                          </Button>
+                        </div>
+                      )}
+                      <RunwayErrorNotice
+                        error={errors[frame.image]}
+                        modelName={videoModelName(s.videoModel)}
+                        onRetry={busy ? undefined : () => void make([{ frame, order }])}
+                      />
+                    </div>
                   </li>
                 );
               })}
             </ol>
           </div>
         )}
-      </Section>
-    </div>
+      </div>
+    </Section>
   );
 }

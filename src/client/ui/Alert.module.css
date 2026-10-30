@@ -1,8 +1,14 @@
+/* Alerts (DESIGN 4): radius 12, the subhead role, a tone fill from the status
+   tokens with a hairline in the tone's own colour so the fill reads against
+   the dark surface. Solid, never glass. */
 .alert {
   display: flex;
   gap: 10px;
   padding: 12px 14px;
-  border-radius: var(--bay-r-lg);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 12px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
 }
 
 .icon {
@@ -15,19 +21,22 @@
 }
 
 .title {
-  font-size: 13px;
   font-weight: 500;
 }
 
 .content {
-  font-size: 13px;
-  line-height: 1.55;
   margin-top: 2px;
 }
 
 .content a {
   color: inherit;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.content a:hover {
+  text-decoration-thickness: 2px;
 }
 
 .err {

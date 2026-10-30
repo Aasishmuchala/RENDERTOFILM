@@ -20,6 +20,20 @@
   gap: 8px;
 }
 
+/* Cards with a second line (stills told apart by model, size and time) get
+   wider columns, two across the inspector, so that line can be read. */
+.grid:has(.detail) {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+/* The tooltip wrapper adds no box: the card's flex column sees its children. */
+.titled {
+  display: contents;
+}
+
+/* A card (DESIGN 4): solid surface, hairline, continuous corners. Hover
+   lifts it 2 px and zooms the picture inside its own frame; selected is a
+   2 px accent ring. */
 .card {
   position: relative;
   display: flex;
@@ -27,41 +41,61 @@
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-md);
-  background: transparent;
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
   cursor: pointer;
   transition:
-    border-color var(--bay-dur) var(--bay-ease),
-    background var(--bay-dur) var(--bay-ease);
+    transform var(--dur-2) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+@supports (corner-shape: squircle) {
+  .card,
+  .thumb {
+    corner-shape: squircle;
+  }
 }
 
 .card[data-hovered] {
   border-color: var(--bay-border-strong);
+  transform: translateY(-2px);
 }
 
 .card[data-selected] {
   border-color: var(--bay-accent);
-  background: var(--bay-accent-soft);
-  box-shadow: none;
+  box-shadow: 0 0 0 1px var(--bay-accent);
 }
 
 .card[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 .card[data-disabled] {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
 }
 
+/* The picture zooms 3% while its clip shrinks by the same share, so the
+   frame stays put and only the picture moves inside it. */
 .thumb {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  border-radius: var(--bay-r-sm);
-  background: var(--bay-bg-sunken);
+  border-radius: var(--r-control);
+  background-color: var(--bay-bg-sunken);
+  clip-path: inset(0 round var(--r-control));
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    clip-path var(--dur-2) var(--ease-out);
+}
+
+.card[data-hovered]:not([data-disabled]) img.thumb {
+  transform: scale(1.03);
+  clip-path: inset(1.456% round var(--r-control));
 }
 
 .missing {
@@ -72,10 +106,51 @@
 
 .caption {
   padding: 0 2px 2px;
-  font-size: 12px;
-  line-height: 1.3;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.card[data-selected] .caption {
+  color: var(--bay-text);
+}
+
+/* Line 2 (model, resolution, time): a step quieter than the name above it,
+   which steps up to ink 2 when there is a second line to tell apart from.
+   It may wrap once, so the time is not the part that gets cut. */
+.detail {
+  display: -webkit-box;
+  padding: 0 2px 2px;
+  margin-top: -4px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-3);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.caption:has(+ .detail) {
+  color: var(--bay-text-2);
+  padding-bottom: 0;
+}
+
+.card[data-selected] .caption:has(+ .detail) {
+  color: var(--bay-text);
+}
+
+/* Reduced motion: the border and the ring carry the state; nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .card[data-hovered] {
+    transform: none;
+  }
+
+  .card[data-hovered]:not([data-disabled]) img.thumb {
+    transform: none;
+    clip-path: inset(0 round var(--r-control));
+  }
 }

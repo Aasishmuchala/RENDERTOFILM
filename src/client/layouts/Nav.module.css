@@ -1,0 +1,800 @@
+/* The shell's navigation (DESIGN.md 2.7, 3.1, 3.2). Glass over the ambient:
+   the top bar is `.glass`, the dock, the phone tab bar and the Shoot sheet
+   `.glass-thick`. Text on glass is ink or ink 2 only (DESIGN 2.3). One
+   indicator per list glides to the current item; items fill on hover. */
+
+/* ---------------------------------------------------------------- top bar */
+
+/* Across the top at every width, above the workspace. Three columns, so the
+   page name stays centred whatever sits at either end. */
+.topBar {
+  composes: glass from global;
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 8px 0 12px;
+  border-radius: 0;
+  box-shadow:
+    inset 0 -1px 0 var(--bay-border-hair),
+    0 8px 24px -16px color-mix(in srgb, var(--bay-stage-frame) 60%, transparent);
+}
+
+.topStart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brandName {
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (width < 480px) {
+  .brandName {
+    display: none;
+  }
+}
+
+/* The page showing: a label, not a heading (the page's h1 is in its inspector). */
+.topTitle {
+  max-width: 40vw;
+  overflow: hidden;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topEnd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.live:not(:empty) {
+  margin-right: 6px;
+}
+
+/* The app's mark: a glass tile with the aperture in accent (DESIGN 2.2).
+   It sits on the glass bar, so it is a fill and an edge, not more blur. */
+.mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-brand);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-brand-fg);
+}
+
+/* Settings: a 36 px ghost icon button; the current page wears the selected
+   fill and the accent icon, like a dock item. */
+.settings {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-control);
+  color: var(--bay-text-2);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.settings[aria-current='page'] {
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-accent-fg);
+}
+
+@media (hover: hover) {
+  .settings:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+
+  .settings[aria-current='page']:hover {
+    color: var(--bay-accent-fg);
+  }
+}
+
+.settings:focus-visible {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.settings:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+.topUser {
+  flex: none;
+}
+
+/* Phones and narrow windows: the account chip as its avatar only. The chip
+   is UserMenu's; its name is the avatar's sibling. */
+@media (width < 600px) {
+  .topUser :is(button, span) > span > :not(:first-child) {
+    display: none;
+  }
+
+  .topUser button {
+    padding: 4px;
+  }
+
+  /* The count and its sweep; "rendering" stays for screen readers. */
+  .pillText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* "{n} rendering", with a 3 px sweep along its foot while anything renders. */
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--glass-btn);
+  color: var(--bay-text);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .pill:hover {
+    background: var(--glass-btn-hover);
+  }
+}
+
+.pill:focus-visible {
+  background: var(--glass-btn-hover);
+}
+
+.pill:active {
+  background: var(--glass-btn-pressed);
+}
+
+.pillCount {
+  color: var(--bay-accent-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.pillSweep {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  overflow: hidden;
+}
+
+.pillBand {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 60%;
+  background: linear-gradient(90deg, transparent, var(--bay-accent) 50%, transparent);
+  animation: sweep 2.4s var(--ease-out) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(170%);
+  }
+}
+
+/* ---------------------------------------------------------------- dock */
+
+/* The tabs, floating at the foot of the window like the macOS dock: a thick
+   glass pill, 56 px tall, holding 44 px items. Corners are concentric: the
+   items and the indicator take the dock's radius less its 6 px padding. */
+.dock {
+  composes: glass-thick from global;
+  --dock-pad: 6px;
+  --dock-item-r: calc(var(--r-bar) - var(--dock-pad));
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 30;
+  height: 56px;
+  max-width: calc(100vw - 24px);
+  padding: var(--dock-pad);
+  border-radius: var(--r-bar);
+  translate: -50% 0;
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .dock {
+    display: none;
+  }
+}
+
+/* A short window: the dock floats 8 px up (AppShell's `--app-dock` agrees). */
+@media (height < 640px) and (width >= 900px), (height < 640px) and (width >= 480px) and (orientation: landscape) {
+  .dock {
+    bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}
+
+.dockList {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dockList > li {
+  display: flex;
+  flex: none;
+}
+
+.dockItem {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--dock-item-r);
+  color: var(--bay-text-2);
+  font: var(--text-footnote);
+  font-weight: 500;
+  letter-spacing: var(--track-footnote);
+  text-decoration: none;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.dockIcon {
+  flex: none;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+.dockItem[aria-current='page'] {
+  color: var(--bay-text);
+}
+
+.dockItem[aria-current='page'] .dockIcon {
+  color: var(--bay-accent-fg);
+}
+
+@media (hover: hover) {
+  .dockItem:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+
+  /* The dock's one flourish: the icon rises a pixel under the pointer. */
+  .dockItem:hover .dockIcon {
+    transform: translateY(-1px);
+  }
+}
+
+.dockItem:focus-visible {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.dockItem:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+.dockItem:active .dockIcon {
+  transform: none;
+}
+
+/* The group rule: a 1 x 24 px hairline with 6 px of air either side. */
+.dockGap {
+  align-items: center;
+  padding: 0 6px;
+}
+
+.dockRule {
+  display: block;
+  width: 1px;
+  height: 24px;
+  background: var(--bay-border);
+}
+
+/* The shared selection: one glass pill, moved by `translate` to the current
+   item (Nav.tsx measures it). Hidden until first placed. */
+.dockIndicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--dock-item-r);
+  background: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dockIndicator[data-ready] {
+  opacity: 1;
+  transition: translate var(--dur-3) var(--ease-spring);
+}
+
+.dock:has(.dockItem[aria-current='page']:active) .dockIndicator {
+  background: var(--glass-btn-pressed);
+}
+
+/* 900 to 1199 px, and a landscape window from 480: icons only, 44 x 44; the
+   label stays for screen readers and the item's `title` names it on hover. */
+@media (900px <= width < 1200px), (480px <= width < 900px) and (orientation: landscape) {
+  .dockItem {
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+  }
+
+  .dockLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* ---------------------------------------------------------------- Shoot modes */
+
+/* Phones, on a Shoot page: the five modes as a segmented row of 44 px links
+   under the top bar, on the same glass. It scrolls sideways when it runs out
+   of room; the current mode is accent. From 900 px the dock lists them. */
+.modes {
+  composes: glass from global;
+  display: none;
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .modes {
+    position: fixed;
+    inset: var(--app-header, 48px) 0 auto;
+    z-index: 19;
+    display: block;
+    height: var(--app-subnav, 52px);
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--bay-border-hair);
+  }
+}
+
+.modeList {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  margin: 0;
+  padding: 0 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  list-style: none;
+  scroll-padding-inline: 8px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.modeList > li {
+  display: flex;
+  flex: 1 0 auto;
+  scroll-snap-align: start;
+}
+
+.mode {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--bay-text-2);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  text-decoration: none;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.mode[aria-current='page'] {
+  background-color: var(--bay-accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-accent) 45%, transparent);
+  color: var(--bay-accent-fg);
+}
+
+@media (hover: hover) {
+  .mode:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+
+  .mode[aria-current='page']:hover {
+    background-color: var(--bay-accent-soft);
+    color: var(--bay-accent-fg);
+  }
+}
+
+.mode:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.mode:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+/* ---------------------------------------------------------------- phone */
+
+/* The floating tab bar (DESIGN 3.1): five 44 px tabs over the page. */
+.tabBar {
+  composes: glass-thick from global;
+  display: none;
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .tabBar {
+    position: fixed;
+    inset: auto 12px calc(10px + env(safe-area-inset-bottom)) 12px;
+    z-index: 30;
+    display: block;
+    height: 64px;
+    padding: 6px;
+    border-radius: var(--r-bar);
+  }
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tabs > li {
+  display: flex;
+  min-width: 0;
+}
+
+.tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--bay-text-2);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.tabIcon {
+  flex: none;
+}
+
+.tabLabel {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab[aria-current='page'] {
+  color: var(--bay-text);
+}
+
+.tab[aria-current='page'] .tabIcon {
+  color: var(--bay-accent-fg);
+}
+
+@media (hover: hover) {
+  .tab:hover {
+    background-color: var(--glass-btn);
+    color: var(--bay-text);
+  }
+}
+
+.tab:focus-visible {
+  background-color: var(--glass-btn);
+  color: var(--bay-text);
+}
+
+.tab:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+.tabIndicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 22px;
+  background: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tabIndicator[data-ready] {
+  opacity: 1;
+  transition: translate var(--dur-3) var(--ease-spring);
+}
+
+/* Something is rendering: a dot on the Library tab. */
+.dot {
+  position: absolute;
+  top: 7px;
+  left: calc(50% + 9px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bay-accent);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- Shoot sheet */
+
+.sheetOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--scrim);
+}
+
+.sheetOverlay[data-entering] {
+  animation: fadeIn var(--dur-3) var(--ease-out);
+}
+
+.sheetOverlay[data-exiting] {
+  animation: fadeOut 160ms var(--ease-out) forwards;
+}
+
+.sheet {
+  composes: glass-thick from global;
+  position: fixed;
+  inset: auto 12px calc(10px + env(safe-area-inset-bottom)) 12px;
+  max-height: calc(100dvh - 24px);
+  padding: 8px;
+  overflow-y: auto;
+  border-radius: var(--r-panel);
+  outline: none;
+}
+
+.sheet[data-entering] {
+  animation: sheetIn var(--dur-4) var(--ease-spring);
+}
+
+.sheet[data-exiting] {
+  animation: sheetOut 160ms var(--ease-out) forwards;
+}
+
+.sheetDialog {
+  outline: none;
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 8px 12px;
+}
+
+.sheetTitle {
+  margin: 0;
+  font: var(--text-title-3);
+  letter-spacing: var(--track-title-3);
+  color: var(--bay-text);
+}
+
+.sheetClose {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--glass-btn);
+  color: var(--bay-text-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.sheetClose[data-hovered],
+.sheetClose[data-focus-visible] {
+  background: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.sheetClose[data-pressed] {
+  background: var(--glass-btn-pressed);
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheetItem {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-radius: var(--r-card);
+  color: var(--bay-text);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.sheetIcon {
+  flex: none;
+  color: var(--bay-text-2);
+}
+
+.sheetText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sheetLabel {
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+}
+
+.sheetPurpose {
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+.sheetItem[aria-current='page'] {
+  background: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+}
+
+.sheetItem[aria-current='page'] .sheetIcon {
+  color: var(--bay-accent-fg);
+}
+
+@media (hover: hover) {
+  .sheetItem:hover {
+    background-color: var(--glass-btn);
+  }
+}
+
+.sheetItem:focus-visible {
+  background-color: var(--glass-btn);
+}
+
+.sheetItem:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes sheetOut {
+  to {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: the indicators jump (global.css zeroes the durations), the
+   dock icons stay put, the sheet only fades, and the activity sweep stops
+   (the count remains). */
+@media (prefers-reduced-motion: reduce) {
+  .dockItem:hover .dockIcon {
+    transform: none;
+  }
+
+  .sheet[data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .sheet[data-exiting] {
+    animation-name: fadeOut;
+  }
+
+  .pillBand {
+    display: none;
+    animation: none;
+  }
+}

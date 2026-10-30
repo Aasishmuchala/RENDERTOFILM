@@ -34,7 +34,7 @@ export type UserMenuProps = {
 };
 
 /**
- * A navbar identity chip — avatar + name — with a menu carrying an optional
+ * A navbar identity chip (avatar + name) with a menu carrying an optional
  * "Back to home" launcher link (see {@link UserMenuProps.homeUrl}) and an
  * optional sign-out.
  */

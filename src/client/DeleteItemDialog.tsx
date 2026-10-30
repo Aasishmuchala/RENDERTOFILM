@@ -1,3 +1,4 @@
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { ConfirmDialog } from './ui/ConfirmDialog.tsx';
 
@@ -30,8 +31,10 @@ export function DeleteItemDialog({ target, onClose, onDeleted }: DeleteItemDialo
     remove.reset();
     onClose();
   };
+  // A double-click's second press lands before `isPending` disables the button.
+  const guard = useInFlight();
   const confirm = async () => {
-    if (!target) return;
+    if (!target || !guard.start()) return;
     try {
       await remove.mutateAsync({ kind: target.kind, id: target.id });
       await utils.library.invalidate();
@@ -39,6 +42,8 @@ export function DeleteItemDialog({ target, onClose, onDeleted }: DeleteItemDialo
       close();
     } catch {
       // Shown in the dialog; it stays open so the visitor can retry.
+    } finally {
+      guard.end();
     }
   };
 

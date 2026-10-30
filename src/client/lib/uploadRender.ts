@@ -1,5 +1,10 @@
 /** Longest edge sent to the model — plenty for a 2K result, and small to upload. */
 const MAX_EDGE = 2560;
+/** Largest image `POST /api/upload` takes. */
+const IMAGE_LIMIT = 25 * 1024 * 1024;
+/** Largest clip `POST /api/upload-clip` takes. */
+const CLIP_LIMIT = 100 * 1024 * 1024;
+const CLIP_TYPES = new Set(['video/mp4', 'video/quicktime']);
 
 export type UploadFailure = { status: number; body: unknown; message: string };
 
@@ -10,7 +15,34 @@ export type UploadFailure = { status: number; body: unknown; message: string };
  * so `signInRequiredFrom` / `consentRequiredFrom` can recognise it.
  */
 export async function uploadRender(source: Blob): Promise<string> {
-  return postImage('/api/upload', await toJpeg(source), 'url');
+  return postFile('/api/upload', 'image/jpeg', await toJpeg(source), 'url', 'image');
+}
+
+/**
+ * Upload an image at its full size (Recreate in 4K's source still): the
+ * original bytes when they fit the 25 MB limit, else a JPEG at the same pixel
+ * size. Never downsized, unlike {@link uploadRender}. Throws an
+ * {@link UploadFailure} like it.
+ */
+export async function uploadImageFull(file: File): Promise<string> {
+  if (file.size <= IMAGE_LIMIT && file.type.startsWith('image/')) {
+    return postFile('/api/upload', file.type, file, 'url', 'image');
+  }
+  return postFile('/api/upload', 'image/jpeg', await toJpeg(file, Infinity), 'url', 'image');
+}
+
+/**
+ * Upload a reference clip (MP4 or MOV, as is) through `POST /api/upload-clip`
+ * as a hosted URL the model can read. Throws an {@link UploadFailure}.
+ */
+export async function uploadClip(file: File): Promise<string> {
+  if (!CLIP_TYPES.has(file.type)) {
+    throw { status: 415, body: null, message: 'Upload an MP4 or MOV clip.' } satisfies UploadFailure;
+  }
+  if (file.size > CLIP_LIMIT) {
+    throw { status: 413, body: null, message: 'That clip is over 100 MB.' } satisfies UploadFailure;
+  }
+  return postFile('/api/upload-clip', file.type, file, 'url', 'clip');
 }
 
 /**
@@ -19,7 +51,7 @@ export async function uploadRender(source: Blob): Promise<string> {
  * so the two line up pixel for pixel. Returns the storage key.
  */
 export async function storeRenderCopy(source: Blob): Promise<string> {
-  return postImage('/api/render-copy', await toJpeg(source), 'key');
+  return postFile('/api/render-copy', 'image/jpeg', await toJpeg(source), 'key', 'image');
 }
 
 /** A server that is waking up or briefly overloaded answers one of these. */
@@ -61,8 +93,14 @@ function failureText(status: number, what: string): string {
   return `The ${what} could not be uploaded (${status}). Try again.`;
 }
 
-async function postImage(route: string, jpeg: Blob, field: 'url' | 'key'): Promise<string> {
-  const res = await postWithRetry(route, 'image/jpeg', jpeg);
+async function postFile(
+  route: string,
+  contentType: string,
+  bytes: Blob,
+  field: 'url' | 'key',
+  what: string
+): Promise<string> {
+  const res = await postWithRetry(route, contentType, bytes);
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const message =
@@ -74,19 +112,25 @@ async function postImage(route: string, jpeg: Blob, field: 'url' | 'key'): Promi
       message:
         typeof message === 'string' && message !== 'sign_in_required'
           ? message
-          : failureText(res.status, 'image'),
+          : failureText(res.status, what),
     } satisfies UploadFailure;
   }
   return (body as Record<string, string>)[field]!;
 }
 
-async function toJpeg(source: Blob): Promise<Blob> {
+/** A JPEG of the image, no larger than `maxEdge` on its long side (`Infinity` keeps its size). */
+async function toJpeg(source: Blob, maxEdge = MAX_EDGE): Promise<Blob> {
   const bitmap = await createImageBitmap(source);
-  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d')!;
+  // A JPEG has no alpha: left unpainted, the transparent part of a PNG is
+  // black. White, as a render on paper.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
   return new Promise((resolve, reject) =>
     canvas.toBlob(

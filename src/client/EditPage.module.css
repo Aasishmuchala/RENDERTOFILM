@@ -1,35 +1,110 @@
-/* Step 1: the clips on offer, a compact list with a thumbnail. */
+/* The Edit tab's own pieces inside the Workspace (layouts/Workspace.tsx):
+   the player fills the canvas, the timeline overview is the strip, and the
+   inspector holds the clips, the cut list with its trim and grade, the
+   transitions, the AI editor and its memory. */
+
+/* Step 1: the clips on offer, two cards a row, each a poster with a play
+   button over it, then its name, length and Add. */
 .clipGrid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 260px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 360px;
   margin: 0;
   padding: 0 4px 0 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   list-style: none;
 }
 
 .clipCard {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-control);
+  background-color: var(--bay-bg-surface);
 }
 
-.clipThumb {
-  width: 56px;
-  height: 34px;
-  border-radius: var(--bay-r-xs);
+.clipMedia {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  background: var(--bay-bg-sunken);
+}
+
+.clipMedia > * {
+  grid-area: 1 / 1;
+}
+
+.clipThumb,
+.clipVideo {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   background: var(--bay-bg-sunken);
 }
 
+.clipVideo {
+  object-fit: contain;
+  background: var(--bay-stage-frame);
+}
+
+/* One centred 44 px play glyph on the poster; the video loads on press. */
+.clipPlay {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0 0 0 2px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background-color: var(--scrim-chip);
+  color: var(--bay-text);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .clipPlay:hover {
+    background-color: var(--bay-accent);
+    color: var(--bay-text-on-accent);
+  }
+}
+
+.clipPlay:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.clipPlay:active {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clipPlay:active {
+    transform: none;
+  }
+}
+
+.clipFoot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+}
+
 .clipMeta {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
 }
@@ -40,84 +115,30 @@
   white-space: nowrap;
 }
 
-/* Step 2: the strip is the film at a glance, each block as long as its cut. */
+.showMore {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+/* Step 2: the cut list. Each cut is a card; open, it holds the trim, the
+   grade, the AI edit and the versions. */
 .timelineBox {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  border-radius: var(--r-card);
 }
 
 .timelineBox:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 4px;
-  border-radius: var(--bay-r-xs);
 }
 
 .lockNote,
 .shortcutHint {
   margin: 0;
-}
-
-.showMore {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-
-.versionRow {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.strip {
-  display: flex;
-  gap: 2px;
-  height: 22px;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.segmentItem {
-  display: flex;
-  flex-basis: 0;
-  min-width: 18px;
-}
-
-.segment {
-  display: grid;
-  place-items: center;
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-xs);
-  background: var(--bay-bg-subtle);
-  font: inherit;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--bay-text-3);
-  cursor: pointer;
-}
-
-.segment[data-selected] {
-  border-color: var(--bay-accent);
-  background: var(--bay-accent-soft);
-  color: var(--bay-accent-fg);
-}
-
-.segment[data-pending] {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--bay-bg-subtle) 0 6px,
-    var(--bay-bg-sunken) 6px 12px
-  );
-}
-
-.segment:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: 1px;
 }
 
 .cuts {
@@ -131,64 +152,114 @@
 
 .cut {
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
-  background: transparent;
+  border-radius: var(--r-card);
+  background-color: transparent;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background-color var(--dur-1) var(--ease-out);
 }
 
 .cut[data-open] {
   border-color: var(--bay-border-strong);
+  background-color: color-mix(in srgb, var(--bay-bg-subtle) 55%, transparent);
+}
+
+.cut[data-pending] {
+  border-color: rgba(var(--bay-accent-rgb), 0.35);
+}
+
+.cut[data-failed] {
+  border-color: color-mix(in srgb, var(--bay-err-fg) 45%, transparent);
+}
+
+@supports (corner-shape: squircle) {
+  .cut,
+  .cutMain,
+  .gradeBlock,
+  .segment,
+  .chat,
+  .message {
+    corner-shape: squircle;
+  }
 }
 
 .cutHead {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
+/* The row itself opens the cut. Hover and keyboard focus fill it; press
+   fills it a little more. */
 .cutMain {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   padding: 8px 10px;
   border: 0;
-  border-radius: var(--bay-r-lg);
-  background: transparent;
+  border-radius: calc(var(--r-card) - 1px);
+  background-color: transparent;
   font: inherit;
   text-align: left;
   color: inherit;
   cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .cutMain:hover {
+    background-color: var(--glass-btn);
+  }
 }
 
 .cutMain:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+  background-color: var(--glass-btn);
 }
 
+.cutMain:active {
+  background-color: var(--glass-btn-hover);
+}
+
+/* The cut's number: the step marker's disc; the open cut takes the accent. */
 .cutNumber {
   display: grid;
   flex: none;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-pill);
-  font-size: 11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--bay-bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--bay-border-hair);
+  font: var(--text-footnote);
+  font-weight: 600;
+  letter-spacing: var(--track-footnote);
   font-variant-numeric: tabular-nums;
-  color: var(--bay-text-3);
+  color: var(--bay-text-2);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
 }
 
 .cut[data-open] .cutNumber {
-  border-color: var(--bay-accent);
+  background-color: var(--bay-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--bay-accent);
   color: var(--bay-accent-fg);
+}
+
+.cut[data-failed] .cutNumber {
+  background-color: var(--bay-err-bg);
+  color: var(--bay-err-fg);
 }
 
 .cutThumb {
   flex: none;
-  width: 48px;
-  height: 30px;
+  width: 56px;
+  aspect-ratio: 16 / 9;
   border-radius: var(--bay-r-xs);
   object-fit: cover;
   background: var(--bay-bg-sunken);
@@ -197,6 +268,7 @@
 .cutText {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -208,12 +280,15 @@
 }
 
 .cutLabel {
-  font-size: 13px;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text);
 }
 
 .cutSub {
-  font-size: 12px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   font-variant-numeric: tabular-nums;
   color: var(--bay-text-3);
 }
@@ -221,21 +296,39 @@
 .cutTools {
   display: flex;
   flex: none;
+  gap: 2px;
 }
 
+/* Re-rendering: the pulse, the sentence beside it, and "Use the original"
+   under the sentence, its label lined up with the text. */
 .cutStatus {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  row-gap: 4px;
   margin: 0;
-  padding: 0 10px 8px;
+  padding: 0 12px 10px;
+}
+
+.cutStatus > .pulse {
+  margin-top: 5px;
+}
+
+.cutStatus > button {
+  grid-column: 2;
+  justify-self: start;
+  margin-left: -12px;
+}
+
+.cutAlert {
+  margin: 0 10px 10px;
 }
 
 .cutBody {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 12px 14px;
+  gap: 16px;
+  padding: 16px 14px;
   border-top: 1px solid var(--bay-border-hair);
 }
 
@@ -243,18 +336,24 @@
   display: grid;
   grid-template-columns: 1fr 1fr auto;
   align-items: end;
-  gap: 8px;
+  gap: 10px;
 }
 
 .trimNote {
-  padding-bottom: 7px;
+  padding-bottom: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
+/* A field and its button on one line; the button matches the 40 px field. */
 .editRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
+}
+
+.editRow > button {
+  height: 40px;
 }
 
 .cutFoot {
@@ -264,25 +363,59 @@
   gap: 8px;
 }
 
+.versionRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* "Cut removed. Undo": a quiet bar under the list. */
 .undo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--r-control);
+  background-color: var(--bay-bg-subtle);
 }
 
 .fadeRow {
-  max-width: 140px;
+  max-width: 160px;
 }
 
+/* "Try again" inside the save note: a text link (DESIGN 2.7). */
 .inlineLink {
-  padding: 0;
+  display: inline;
+  margin-block: -2px;
+  padding: 2px 0;
   border: 0;
+  border-radius: var(--bay-r-xs);
   background: none;
   font: inherit;
-  color: var(--bay-accent);
+  color: var(--bay-accent-fg);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
   cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .inlineLink:hover {
+    text-decoration-thickness: 2px;
+  }
+}
+
+.inlineLink:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  text-decoration-thickness: 2px;
+}
+
+.inlineLink:active {
+  color: var(--bay-accent-hover);
 }
 
 .pulse {
@@ -291,9 +424,9 @@
   width: 8px;
   height: 8px;
   margin-right: 8px;
-  border-radius: var(--bay-r-pill);
-  background: var(--bay-accent);
-  animation: pulse 1.2s var(--bay-ease) infinite alternate;
+  border-radius: var(--r-pill);
+  background-color: var(--bay-accent);
+  animation: pulse 1.2s var(--ease-out) infinite alternate;
 }
 
 @keyframes pulse {
@@ -311,143 +444,32 @@
   }
 }
 
-/* The stage: export status, chat and memory. */
-.exportStatus {
-  margin-top: 14px;
-}
-
-.chat {
+/* The grade's own controls inside an open cut: a sunken well. */
+.gradeBlock {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.messages {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: min(52vh, 560px);
-  margin: 0;
-  padding: 2px 4px 2px 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.message {
-  max-width: 92%;
-  padding: 10px 14px 12px;
-  border-radius: var(--bay-r-xl);
-  background: var(--bay-bg-subtle);
-}
-
-.message[data-role='user'] {
-  align-self: flex-end;
-  background: var(--bay-accent-soft);
-}
-
-.message[data-error] {
-  background: var(--bay-err-bg);
-}
-
-.who {
-  display: block;
-  margin-bottom: 2px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--bay-text-3);
-}
-
-.messageText {
-  display: flex;
-  align-items: center;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  color: var(--bay-text);
-}
-
-.actions {
-  margin: 6px 0 0;
-  padding: 6px 0 0 16px;
-  border-top: 1px solid var(--bay-border-hair);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--bay-text-2);
-}
-
-.suggestions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.suggestions > p {
-  margin: 0 0 2px;
-}
-
-.suggestion {
-  padding: 7px 12px;
+  gap: 16px;
+  padding: 14px;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  color: var(--bay-text-2);
-  cursor: pointer;
+  border-radius: var(--r-control);
+  background-color: var(--bay-bg-sunken);
 }
 
-.suggestion:hover,
-.suggestion:focus-visible {
-  border-color: var(--bay-accent);
-  color: var(--bay-text);
+.gradePanel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+  align-items: end;
 }
 
-.suggestion:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: 1px;
+.gradeWide {
+  grid-column: 1 / -1;
 }
 
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.composerBar {
+.gradeActions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
   gap: 8px;
-}
-
-.composerButtons {
-  display: flex;
-  gap: 6px;
-}
-
-.memory {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.memoryItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 4px 4px 14px;
-  border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-md);
-  font-size: 13px;
-  color: var(--bay-text);
 }
 
 @media (max-width: 520px) {
@@ -458,6 +480,311 @@
   .trimNote {
     display: none;
   }
+
+  .gradePanel {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The player fills the free canvas: the picture contain-fits at 16:9 in
+   what its transport, caption, buttons and the export's status leave (`--below`),
+   and the group sits centred, inside the same guides as a framed canvas
+   (`frameGuidesClass` from the Workspace: an outline 8 px out, a bracket per
+   corner). */
+.player {
+  --below: 148px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 18px;
+  container-type: size;
+}
+
+.player[data-status] {
+  --below: 256px;
+}
+
+.fit {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
+.screen {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: max(160px, min(100cqw, calc((100cqh - var(--below)) * 16 / 9)));
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-card);
+  background: var(--bay-stage-frame);
+  box-shadow: var(--bay-shadow-stage);
+}
+
+/* The picture clips to the frame's corners; the guides stay outside. */
+.screen > :not(.graded) {
+  grid-area: 1 / 1;
+}
+
+.screen > .graded {
+  overflow: hidden;
+  border-radius: var(--r-card);
+}
+
+@supports (corner-shape: squircle) {
+  .screen,
+  .screen > .graded {
+    corner-shape: squircle;
+  }
+}
+
+.screen video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bay-stage-frame);
+}
+
+/* The player's own controls: a thin glass pill as wide as the picture, under
+   its guides. Play or pause, the scrub bar (an accent playhead over a lit
+   track), the time in tabular figures, full screen. */
+.transport {
+  composes: glass-thin from global;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  width: max(160px, min(100cqw, calc((100cqh - var(--below)) * 16 / 9)));
+  max-width: 100%;
+  height: 44px;
+  margin-top: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-bar);
+}
+
+.transportButton {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background-color: transparent;
+  color: var(--bay-text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .transportButton:hover:not(:disabled) {
+    background-color: var(--glass-btn-hover);
+    transform: translateY(-1px);
+  }
+}
+
+.transportButton:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+  background-color: var(--glass-btn-hover);
+}
+
+.transportButton:active:not(:disabled) {
+  background-color: var(--glass-btn-pressed);
+  transform: none;
+}
+
+.transportButton:disabled {
+  color: var(--bay-text-3);
+  cursor: default;
+}
+
+/* The scrub bar: a 4 px track lit up to the playhead (`--p`), and the
+   playhead itself, an accent bar like an editor's. */
+.scrub {
+  --p: 0%;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right, var(--bay-accent) var(--p), var(--bay-border-strong) var(--p));
+}
+
+.scrub::-moz-range-track {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right, var(--bay-accent) var(--p), var(--bay-border-strong) var(--p));
+}
+
+.scrub::-webkit-slider-thumb {
+  width: 6px;
+  height: 18px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--bay-accent-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bay-accent) 28%, transparent);
+  appearance: none;
+}
+
+.scrub::-moz-range-thumb {
+  width: 6px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--bay-accent-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bay-accent) 28%, transparent);
+}
+
+.scrub:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--r-pill);
+}
+
+.scrub:disabled {
+  cursor: default;
+}
+
+.time {
+  flex: none;
+  padding-right: 4px;
+  font: var(--text-footnote);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--bay-text-2);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transportButton:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* One line under the picture, on the room (not on glass). */
+.caption {
+  flex: none;
+  max-width: min(100%, 80ch);
+  margin: 14px 0 0;
+  padding: 0 8px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* An export older than the timeline says so in the warning ink. */
+.caption[data-stale] {
+  color: var(--bay-warn-fg);
+  font-weight: 500;
+}
+
+/* The picture's buttons: a thin glass pill under the caption; one row that
+   slides sideways when the canvas is narrow. */
+.playerActions {
+  composes: glass-thin from global;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: var(--r-bar);
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 6px;
+  scrollbar-width: none;
+}
+
+.playerActions > * {
+  flex: none;
+  scroll-snap-align: start;
+}
+
+/* A phone: every action fits, each an icon over its label in equal columns,
+   instead of a row that hides the last one past the edge. */
+@media (width <= 430px) {
+  .player {
+    --below: 164px;
+  }
+
+  .player[data-status] {
+    --below: 272px;
+  }
+
+  .playerActions {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .playerActions > button {
+    flex-direction: column;
+    gap: 4px;
+    height: auto;
+    min-height: 52px;
+    padding: 6px 4px;
+    font: var(--text-caption);
+    letter-spacing: var(--track-caption);
+    text-align: center;
+    text-wrap: balance;
+    white-space: normal;
+  }
+}
+
+/* The export's status under the buttons. */
+.exportStatus {
+  flex: none;
+  width: min(100%, 560px);
+  margin-top: 12px;
+}
+
+p.exportStatus {
+  margin-bottom: 0;
+  text-align: center;
+}
+
+.exportBand {
+  display: grid;
+  flex: none;
+  width: min(100%, 560px);
+  height: 88px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--bay-stage-frame);
+  box-shadow: var(--bay-shadow-stage);
+}
+
+.alertActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 /* The stage's players share one cell; the next cut waits, loaded, underneath.
@@ -486,42 +813,468 @@
   mix-blend-mode: multiply;
 }
 
-/* The grade's own controls inside an open cut. */
-.gradeBlock {
+/* The timeline strip: the film at a glance, a card per cut as wide as its
+   length (`--seconds`), with the transition between cuts. The Workspace's
+   strip scrolls it; the padding keeps the lift, the ring and the focus
+   outline inside the shelf. */
+.reel {
   display: flex;
+  align-items: center;
+  height: 100%;
+  border-radius: var(--r-control);
+}
+
+.reel:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 6px;
+  list-style: none;
+}
+
+.segmentItem {
+  display: flex;
+  flex: none;
+  scroll-snap-align: start;
+}
+
+/* Between two cuts: a splice line for a hard cut, the fade and its length
+   for a fade. */
+.join {
+  display: flex;
+  flex: none;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-canvas);
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 10px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
 }
 
-.gradePanel {
+.join:not([data-fade])::before {
+  content: '';
+  width: 1px;
+  height: 48px;
+  background-color: var(--bay-border-strong);
+}
+
+.join[data-fade] {
+  width: 44px;
+}
+
+.segment {
+  position: relative;
+  display: block;
+  flex: none;
+  width: clamp(132px, calc(96px + var(--seconds, 5) * 24px), 400px);
+  height: 120px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-control);
+  overflow: hidden;
+  background-color: var(--bay-bg-subtle);
+  color: var(--bay-text);
+  cursor: pointer;
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.segmentThumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: var(--bay-bg-subtle);
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+/* The number and the length sit on the picture as small dark chips. */
+.segmentNumber,
+.segmentTime {
+  position: absolute;
+  z-index: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px 16px;
-  align-items: end;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--scrim-chip);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
 }
 
-.gradeWide {
-  grid-column: 1 / -1;
+.segmentNumber {
+  top: 6px;
+  left: 6px;
 }
 
-.gradeActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.segmentTime {
+  right: 6px;
+  bottom: 6px;
 }
 
-@media (max-width: 520px) {
-  .gradePanel {
-    grid-template-columns: 1fr;
+/* Re-rendering: the picture under diagonal shade until the new copy lands. */
+.segment[data-pending]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--scrim) 0 6px,
+    transparent 6px 12px
+  );
+}
+
+.segment[data-failed] {
+  box-shadow: 0 0 0 1px var(--bay-err-fg);
+}
+
+.segment[data-failed] .segmentNumber {
+  background-color: var(--bay-err-bg);
+  color: var(--bay-err-fg);
+}
+
+.segment[data-selected] {
+  box-shadow: 0 0 0 2px var(--bay-accent);
+}
+
+.segment[data-selected] .segmentNumber {
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+/* Hover and keyboard focus: the card lifts 2 px, the picture zooms inside
+   its frame, a hairline ring shows the edge. Press settles it. */
+@media (hover: hover) {
+  .segment:hover {
+    transform: translateY(-2px);
+  }
+
+  .segment:hover:not([data-selected], [data-failed]) {
+    box-shadow: 0 0 0 1px var(--bay-border-strong);
+  }
+
+  .segment:hover .segmentThumb {
+    transform: scale(1.03);
   }
 }
 
-.alertActions {
+.segment:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 3px;
+  transform: translateY(-2px);
+}
+
+.segment:focus-visible .segmentThumb {
+  transform: scale(1.03);
+}
+
+.segment:active {
+  transform: scale(0.98);
+}
+
+/* Reduced motion: the ring carries the state; nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .segment,
+  .segment:hover,
+  .segment:focus-visible,
+  .segment:active,
+  .segment .segmentThumb {
+    transform: none;
+  }
+}
+
+/* The transcript on a solid card; the composer is its foot. */
+.chat {
   display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+  /* clip, not hidden: hidden would make a scroller and stop the composer
+     sticking to the inspector's foot. */
+  overflow: clip;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(44vh, 420px);
+  margin: 0;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  list-style: none;
+}
+
+/* The transcript takes focus (it scrolls from the keyboard); the ring sits
+   inside the card, following its top corners. */
+.messages:focus-visible {
+  border-radius: calc(var(--r-card) - 1px) calc(var(--r-card) - 1px) 0 0;
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.message {
+  max-width: 88%;
+  padding: 10px 14px 12px;
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-subtle);
+}
+
+.message[data-role='user'] {
+  align-self: flex-end;
+  background-color: var(--bay-accent-soft);
+}
+
+.message[data-error] {
+  background-color: var(--bay-err-bg);
+}
+
+.who {
+  display: block;
+  margin-bottom: 2px;
+  font: var(--text-footnote);
+  font-weight: 600;
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.messageText {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--bay-text);
+}
+
+.actions {
+  margin: 8px 0 0;
+  padding: 8px 0 0 16px;
+  border-top: 1px solid var(--bay-border-hair);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  margin-top: 10px;
+  padding: 16px;
+}
+
+.suggestions > p {
+  margin: 0 0 4px;
+}
+
+.suggestion {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--r-control);
+  background-color: var(--glass-btn);
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  text-align: left;
+  color: var(--bay-text-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .suggestion:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+}
+
+.suggestion:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.suggestion:active {
+  background-color: var(--glass-btn-pressed);
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion:active {
+    transform: none;
+  }
+}
+
+/* A failed send shows just above the composer. */
+.chatNotice {
+  padding: 0 16px 12px;
+}
+
+.chatNotice:empty {
+  display: none;
+}
+
+/* The composer: solid on the glass (it holds a text field), a sunken bar
+   under a hairline, sticky at the foot of the card while the inspector
+   scrolls past it. */
+.composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--bay-border-hair);
+  background-color: var(--bay-bg-sunken);
+}
+
+.composerBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.composerButtons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Memory: a plain list between hairlines, then the field to add one. */
+.memory {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--bay-border-hair);
+  list-style: none;
+}
+
+.memoryItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 0 6px 2px;
+  border-bottom: 1px solid var(--bay-border-hair);
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+}
+
+.memoryItem > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.memoryAdd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.memoryAdd > :first-child {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.memoryAdd > button {
+  height: 40px;
+}
+
+/* A short window outside the phone layout (the Workspace's strip is 128 px):
+   the picture keeps the height. The buttons move up to the canvas's top left
+   (clear of the Show pill), the caption goes except an out-of-date export's
+   warning, on one line, and the cards are a little shorter. */
+@media (height < 640px) and (width >= 900px), (height < 640px) and (width >= 480px) and (orientation: landscape) {
+  .player {
+    --below: 60px;
+    position: relative;
+    justify-content: safe center;
+    padding: 60px 12px 12px;
+  }
+
+  .player:has(.caption[data-stale]) {
+    --below: 84px;
+  }
+
+  .player[data-status] {
+    --below: 168px;
+  }
+
+  .caption {
+    display: none;
+  }
+
+  .caption[data-stale] {
+    display: block;
+    max-width: 100%;
+    margin-top: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .playerActions {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: calc(100% - 152px);
+    margin: 0;
+  }
+
+  [data-open] .playerActions {
+    max-width: 100%;
+  }
+
+  .segment {
+    height: 104px;
+  }
+}
+
+/* Phone: the strip is 148 px, so the cards are a little shorter, and the
+   player's padding gives way to the picture. */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .segment {
+    width: clamp(112px, calc(80px + var(--seconds, 5) * 20px), 320px);
+    height: 104px;
+  }
+
+  .player {
+    padding: 12px;
+  }
+
+  .caption {
+    margin-top: 14px;
+  }
 }

@@ -28,22 +28,28 @@
     transparent
   );
   will-change: transform;
-  animation: sweep 2.4s var(--bay-ease) infinite;
+  animation: sweep 2.4s var(--ease-out) infinite;
 }
 
+/* It sits on the black stage frame: ink for the label, ink 3 for the clock. */
 .text {
   position: relative;
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
   padding: 16px 18px;
-  color: #f6f1e9;
-  font-size: 13px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
 }
 
 .elapsed {
-  color: #b8aea0;
+  flex: none;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -56,9 +62,9 @@
   }
 }
 
+/* Reduced motion: no band at all; the label and the clock remain. */
 @media (prefers-reduced-motion: reduce) {
   .band {
-    animation: none;
-    transform: translateX(35%);
+    display: none;
   }
 }

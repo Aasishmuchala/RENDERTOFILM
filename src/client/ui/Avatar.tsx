@@ -30,7 +30,7 @@ export function paletteForName(name: string): PaletteKey {
 }
 
 export type AvatarProps = {
-  /** Person's display name — used for the fallback initials, color, and `alt`/`title` text. */
+  /** Person's display name, used for the fallback initials, color, and `alt`/`title` text. */
   name: string;
   /** Profile picture URL. Falls back to colored initials when absent. */
   src?: string | null | undefined;
@@ -39,7 +39,7 @@ export type AvatarProps = {
 };
 
 /**
- * A round person avatar — profile picture when `src` is set, otherwise
+ * A round person avatar: profile picture when `src` is set, otherwise
  * colored initials derived from `name`.
  */
 export function Avatar({ name, src, size = 28 }: AvatarProps): ReactNode {

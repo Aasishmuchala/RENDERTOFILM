@@ -10,6 +10,7 @@ import {
 } from '../models.ts';
 import { libraryUrl, stillThumbUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
@@ -49,6 +50,8 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
   const [factor, setFactor] = useState<UpscaleFactor>(2);
 
   const upscale = trpc.upscaleStill.useMutation();
+  // A double-click's second press arrives before upscale.isPending shows.
+  const guard = useInFlight();
   const status = trpc.shotStatus.useQuery(
     { id: job?.id ?? '' },
     {
@@ -82,11 +85,14 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
   const { planBlocked, unavailable } = classifyRunwayError(shownError);
 
   async function run() {
+    if (!guard.start()) return;
     try {
       const { id } = await upscale.mutateAsync({ stillId, upscaler, factor });
       onJob({ id, upscaler, factor, aspectRatio, name });
     } catch {
       // Shown by RunwayErrorNotice from upscale.error.
+    } finally {
+      guard.end();
     }
   }
 
@@ -175,8 +181,9 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
             )}
           </div>
           {url && job && (
-            <div className={styles.resultActions}>
+            <div className={styles.markRow}>
               <Button
+                variant="ghost"
                 icon={<Download size={16} />}
                 loading={saver.pending}
                 onPress={() => saver.start(libraryUrl('still', job.id), `${name}-${job.factor}x.png`)}
@@ -195,10 +202,12 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
                   Dismiss
                 </Button>
               )}
-              <Text tone="muted" size="sm" className={styles.resultNote}>
-                {upscalerName(job.upscaler)}, {job.factor}×
-              </Text>
             </div>
+          )}
+          {url && job && (
+            <Text tone="muted" size="sm" as="p" className={styles.meta}>
+              {upscalerName(job.upscaler)}, {job.factor}×
+            </Text>
           )}
           {saver.error && (
             <Alert tone="error" title="Download failed">

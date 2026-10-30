@@ -2,9 +2,11 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .stack p {
   margin: 0;
+  max-width: 62ch;
+  text-wrap: pretty;
 }

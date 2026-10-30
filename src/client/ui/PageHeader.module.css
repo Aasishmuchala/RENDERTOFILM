@@ -1,9 +1,14 @@
+/* The page title block (DESIGN 3.3 and 2.6): title-1 in the 400 px inspector
+   and on a phone; once the header itself is wide (Library and Settings fill
+   the content area) the title steps up to the large-title role. The container
+   query reads the header's own width, so no page has to ask for it. */
 .header {
+  container-type: inline-size;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 40px;
+  margin-bottom: 32px;
 }
 
 .text {
@@ -12,19 +17,19 @@
 
 .title {
   margin: 0;
-  font-size: 34px;
-  font-weight: 400;
-  line-height: 1.08;
-  letter-spacing: -0.03em;
+  font: var(--text-title-1);
+  letter-spacing: var(--track-title-1);
   color: var(--bay-text);
+  text-wrap: balance;
 }
 
 .description {
-  margin: 12px 0 0;
-  max-width: 52ch;
-  font-size: 14px;
-  line-height: 1.55;
+  margin: 8px 0 0;
+  max-width: 62ch;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
   color: var(--bay-text-3);
+  text-wrap: pretty;
 }
 
 .actions {
@@ -33,17 +38,15 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 680px) {
-  .header {
-    margin-bottom: 28px;
-  }
-
+@container (min-width: 720px) {
   .title {
-    font-size: 26px;
+    font: var(--text-large-title);
+    letter-spacing: var(--track-large-title);
   }
+}
 
-  .description {
-    margin-top: 8px;
-    font-size: 14px;
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .header {
+    margin-bottom: 24px;
   }
 }

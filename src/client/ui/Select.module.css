@@ -9,11 +9,13 @@
 }
 
 .label {
-  font-size: 13px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
 }
 
+/* The trigger is a field (DESIGN 4): 40 px, sunken fill, a 1 px line. */
 .trigger {
   display: flex;
   align-items: center;
@@ -22,25 +24,41 @@
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-surface);
+  border-radius: var(--r-control);
+  background: var(--bay-bg-sunken);
   color: var(--bay-text);
-  font: inherit;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
   text-align: left;
   cursor: pointer;
   transition:
-    border-color var(--bay-dur) var(--bay-ease),
-    box-shadow var(--bay-dur) var(--bay-ease);
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
+/* Hover answers as the dock does: the ghost buttons' hover token laid over
+   the solid sunken fill (so the trigger never turns see-through), ink 1 and
+   a 1 px lift with a soft shadow under it. */
 .trigger[data-hovered] {
+  border-color: var(--bay-border-strong);
+  background-image: linear-gradient(var(--glass-btn-hover), var(--glass-btn-hover));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--bay-stage-frame) 50%, transparent);
+  color: var(--bay-text);
+  transform: translateY(-1px);
+}
+
+.trigger[data-pressed],
+.trigger[aria-expanded='true'] {
+  background: var(--bay-bg-subtle);
   border-color: var(--bay-border-strong);
 }
 
 .trigger[data-focus-visible] {
-  outline: none;
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
   border-color: var(--bay-accent);
-  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.18);
 }
 
 .trigger[data-disabled] {
@@ -58,15 +76,23 @@
   white-space: nowrap;
 }
 
+/* On a narrow trigger the secondary text gives way first: the name keeps its
+   width (and only ellipsizes when it alone is too long), the group shrinks
+   to an ellipsis and then to nothing. */
 .valueName {
-  font-size: 14px;
-  font-weight: 500;
+  flex: none;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .valueGroup {
-  font-size: 12px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }
 
@@ -77,24 +103,30 @@
 
 .hint {
   margin: 0;
-  font-size: 12px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }
 
+/* The popover is glass (DESIGN 2.4): thick, because it is text-heavy. The
+   edge and shadow come from the material, so none are set here. */
 .popover {
+  composes: glass-thick from global;
   width: var(--trigger-width);
   min-width: 260px;
   max-height: min(440px, 70vh);
   overflow: auto;
   padding: 6px;
-  border-radius: var(--bay-r-lg);
-  border: 1px solid var(--bay-border-hair);
-  background: var(--bay-bg-surface);
-  box-shadow: var(--bay-shadow-pop);
+  border-radius: var(--r-card);
+  transform-origin: var(--trigger-anchor-point, 50% 0);
 }
 
 .popover[data-entering] {
-  animation: fade var(--bay-dur-fast) var(--bay-ease);
+  animation: pop-in var(--dur-3) var(--ease-spring);
+}
+
+.popover[data-exiting] {
+  animation: pop-out 160ms var(--ease-out) forwards;
 }
 
 .list {
@@ -107,34 +139,45 @@
   border-top: 1px solid var(--bay-border-hair);
 }
 
+/* Group heading: the caption role, which stays at ink 2 or stronger. */
 .header {
   padding: 8px 10px 4px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--bay-text-3);
+  font: var(--text-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bay-text-2);
 }
 
 .item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  min-height: 32px;
+  padding: 6px 10px;
   border-radius: var(--bay-r-sm);
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   cursor: pointer;
   outline: none;
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
+.item[data-hovered],
 .item[data-focused] {
-  background: var(--bay-bg-sunken);
+  background: var(--glass-btn);
 }
 
-.item[data-selected] {
-  background: var(--bay-accent-soft);
+.item[data-pressed] {
+  background: var(--glass-btn-hover);
 }
 
 .item[data-focus-visible] {
   box-shadow: inset 0 0 0 2px var(--bay-border-focus);
+}
+
+.item[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .itemText {
@@ -146,19 +189,43 @@
 }
 
 .itemName {
-  font-size: 13px;
-  font-weight: 500;
   color: var(--bay-text);
 }
 
 .itemHint {
-  font-size: 12px;
-  color: var(--bay-text-3);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.item[data-selected] .itemName,
+.item[data-selected] .check {
+  color: var(--bay-accent-fg);
 }
 
 .check {
   flex: none;
-  color: var(--bay-accent);
+  color: var(--bay-accent-fg);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes fade {
@@ -167,5 +234,16 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* Reduced motion: opacity only. */
+@media (prefers-reduced-motion: reduce) {
+  .popover[data-entering] {
+    animation: fade var(--dur-1) var(--ease-out);
+  }
+
+  .trigger[data-hovered] {
+    transform: none;
   }
 }

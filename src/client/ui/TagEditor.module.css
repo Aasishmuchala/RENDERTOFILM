@@ -1,12 +1,16 @@
+/* Tag chips (DESIGN 4): 28 px pills in the subhead role. An applied tag is a
+   selected chip (accent soft fill, accent text); the add field is a dashed
+   pill that becomes a field when focused; the picker chips sit on the glass
+   button fill and turn accent when selected. */
 .editor {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .editor[data-disabled] {
-  opacity: 0.6;
+  opacity: 0.45;
 }
 
 .group,
@@ -18,55 +22,85 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 1px 4px 1px 8px;
-  border-radius: var(--bay-r-pill);
+  height: 28px;
+  padding: 0 4px 0 12px;
+  border-radius: var(--r-pill);
   background: var(--bay-accent-soft);
   color: var(--bay-accent-fg);
-  font-size: 12px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   outline: none;
 }
 
 .tag[data-focus-visible] {
-  box-shadow: 0 0 0 2px var(--bay-border-focus);
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
 }
 
 .remove {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: var(--bay-r-pill);
+  border-radius: var(--r-pill);
   background: transparent;
   color: inherit;
   cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
 .remove[data-hovered] {
-  background: rgba(var(--bay-accent-rgb), 0.16);
+  background: rgba(var(--bay-accent-rgb), 0.24);
+}
+
+.remove[data-pressed] {
+  background: rgba(var(--bay-accent-rgb), 0.32);
+  transform: scale(0.94);
 }
 
 .remove[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
+  outline-offset: 0;
+}
+
+.remove[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .field {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  min-width: 90px;
+  gap: 4px;
+  min-width: 96px;
+  height: 28px;
   flex: 1;
-  padding: 1px 6px;
-  border: 1px dashed var(--bay-border);
-  border-radius: var(--bay-r-pill);
+  padding: 0 10px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--r-pill);
   color: var(--bay-text-3);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .field:hover {
+    background: var(--glass-btn);
+  }
 }
 
 .field:focus-within {
   border-style: solid;
-  border-color: var(--bay-border-focus);
+  border-color: var(--bay-accent);
+  background: var(--bay-bg-sunken);
+  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.25);
 }
 
 .at {
@@ -76,17 +110,28 @@
 .input {
   flex: 1;
   min-width: 0;
-  padding: 1px 0;
+  align-self: stretch;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--bay-text);
-  font: inherit;
-  font-size: 12px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  outline: none;
+}
+
+.input:focus,
+.input:focus-visible,
+.input[data-focus-visible] {
   outline: none;
 }
 
 .input::placeholder {
-  color: var(--bay-text-4);
+  color: var(--bay-text-3);
+}
+
+.input:disabled {
+  cursor: not-allowed;
 }
 
 .srOnly {
@@ -96,6 +141,10 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+.picker {
+  min-width: 0;
 }
 
 .pickerList {
@@ -108,27 +157,45 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 12px;
-  border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-pill);
-  background: transparent;
-  font-size: 12px;
-  color: var(--bay-text-2);
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--glass-btn);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
   cursor: pointer;
   outline: none;
   transition:
-    border-color var(--bay-dur) var(--bay-ease),
-    background var(--bay-dur) var(--bay-ease);
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
 .pick[data-hovered] {
-  border-color: var(--bay-border-strong);
+  background: var(--glass-btn-hover);
+}
+
+.pick[data-pressed] {
+  background: var(--glass-btn-pressed);
+  transform: scale(0.98);
 }
 
 .pick[data-selected] {
-  border-color: var(--bay-accent);
-  background: transparent;
+  border-color: rgba(var(--bay-accent-rgb), 0.4);
+  background: var(--bay-accent-soft);
   color: var(--bay-accent-fg);
+}
+
+.pick[data-selected][data-hovered] {
+  background: rgba(var(--bay-accent-rgb), 0.24);
+}
+
+.pick[data-selected][data-pressed] {
+  background: rgba(var(--bay-accent-rgb), 0.3);
 }
 
 .pick[data-focus-visible] {
@@ -136,11 +203,25 @@
   outline-offset: 2px;
 }
 
+.pick[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .count {
-  font-size: 11px;
-  color: var(--bay-text-4);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
 }
 
 .pick[data-selected] .count {
   color: var(--bay-accent-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remove[data-pressed],
+  .pick[data-pressed] {
+    transform: none;
+  }
 }

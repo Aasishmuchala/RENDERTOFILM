@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { AiTextProvider, PublicServer } from '../connections.ts';
 import { Section } from './layouts/Section.tsx';
 import { errorMessage } from './lib/runwayErrors.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { useOnRunwaySignedIn } from './lib/useOnRunwaySignedIn.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
@@ -25,7 +26,7 @@ const OAUTH_MESSAGE = 'render-to-film:mcp-oauth';
  * Accounts and connections: the Runway sign-in that pays for generations,
  * Higgsfield (built-in MCP server, OAuth), any other MCP server, and API keys
  * for other providers (Seevio, Anthropic, OmegaPlus). Credentials never come back to the browser;
- * the page only learns whether each one is connected.
+ * the page only learns whether each one is connected. No Workspace: one glass sheet over the ambient.
  */
 export function SettingsPage({ active }: { active: boolean }) {
   const profile = trpc.profile.useQuery();
@@ -57,7 +58,7 @@ export function SettingsPage({ active }: { active: boolean }) {
   const custom = servers.filter((s) => s.preset === null);
 
   return (
-    <div className={styles.screen}>
+    <div className={styles.sheet}>
       <div className={styles.page}>
         <PageHeader
           title="Settings"
@@ -160,20 +161,21 @@ function ServerCard({ server }: { server: PublicServer }) {
   const setToken = trpc.settings.setToken.useMutation({ onSuccess: () => setToken_(''), onSettled: refresh });
   const [token, setToken_] = useState('');
   const [showToken, setShowToken] = useState(false);
+  // One request per press: a double-click's second press lands before `isPending` shows.
+  const guard = useInFlight();
+  const once = (send: () => Promise<unknown>) => void guard.wrap(() => send().catch(() => undefined))();
+  const saveToken = () => {
+    if (token) once(() => setToken.mutateAsync({ id: server.id, token }));
+  };
   const isPreset = server.preset !== null;
   const error = test.error ?? disconnect.error ?? remove.error ?? setToken.error;
 
   return (
     <div className={styles.card}>
-      <div className={styles.cardHead}>
+      <div className={styles.serverHead}>
         <span className={server.connected ? styles.dotOn : styles.dotOff} aria-hidden />
-        <div className={styles.cardTitle}>
-          <Text>{server.name}</Text>
-          <Text tone="muted" size="sm">
-            {server.url}
-          </Text>
-        </div>
-        <Text tone="secondary" size="sm">
+        <Text className={styles.serverName}>{server.name}</Text>
+        <Text tone="secondary" size="sm" className={styles.status}>
           {server.connected
             ? server.authKind === 'bearer'
               ? 'Connected with token'
@@ -182,6 +184,10 @@ function ServerCard({ server }: { server: PublicServer }) {
                 : 'Connected'
             : 'Not connected'}
         </Text>
+        {/* One line, cut with an ellipsis; the full address is the title. */}
+        <span className={styles.url} title={server.url}>
+          {server.url}
+        </span>
       </div>
 
       {!isPreset && (
@@ -193,34 +199,40 @@ function ServerCard({ server }: { server: PublicServer }) {
         />
       )}
 
-      <div className={styles.row}>
+      <div className={styles.actions}>
         {!server.connected || server.authKind === 'oauth' ? (
-          <Button variant={server.connected ? 'default' : 'primary'} icon={<LogIn size={16} aria-hidden />} onPress={() => openSignIn(server.id)}>
+          <Button
+            size="sm"
+            variant={server.connected ? 'default' : 'primary'}
+            icon={<LogIn size={14} aria-hidden />}
+            onPress={() => openSignIn(server.id)}
+          >
             {server.connected ? 'Sign in again' : `Sign in${isPreset ? ` with ${server.name}` : ''}`}
           </Button>
         ) : null}
         {server.connected && (
-          <Button icon={<RefreshCw size={16} aria-hidden />} loading={test.isPending} onPress={() => test.mutate({ id: server.id })}>
+          <Button size="sm" icon={<RefreshCw size={14} aria-hidden />} loading={test.isPending} onPress={() => once(() => test.mutateAsync({ id: server.id }))}>
             Test connection
           </Button>
         )}
         {!server.connected && (
-          <Button variant="ghost" icon={<KeyRound size={16} aria-hidden />} onPress={() => setShowToken((v) => !v)}>
+          <Button size="sm" variant="ghost" icon={<KeyRound size={14} aria-hidden />} onPress={() => setShowToken((v) => !v)}>
             Use an access token
           </Button>
         )}
         {server.connected && (
-          <Button variant="ghost" icon={<LogOut size={16} aria-hidden />} loading={disconnect.isPending} onPress={() => disconnect.mutate({ id: server.id })}>
+          <Button size="sm" variant="ghost" icon={<LogOut size={14} aria-hidden />} loading={disconnect.isPending} onPress={() => once(() => disconnect.mutateAsync({ id: server.id }))}>
             Sign out
           </Button>
         )}
         {!isPreset && (
           <Button
+            size="sm"
             variant="danger"
-            icon={<Trash2 size={16} aria-hidden />}
+            icon={<Trash2 size={14} aria-hidden />}
             aria-label={`Remove ${server.name}`}
             loading={remove.isPending}
-            onPress={() => remove.mutate({ id: server.id })}
+            onPress={() => once(() => remove.mutateAsync({ id: server.id }))}
           />
         )}
       </div>
@@ -234,9 +246,15 @@ function ServerCard({ server }: { server: PublicServer }) {
             value={token}
             onChange={setToken_}
             placeholder="Paste a bearer token"
-            onPressEnter={() => token && setToken.mutate({ id: server.id, token })}
+            onPressEnter={saveToken}
           />
-          <Button variant="primary" disabled={!token} loading={setToken.isPending} onPress={() => setToken.mutate({ id: server.id, token })}>
+          <Button
+            className={styles.fieldButton}
+            variant="primary"
+            disabled={!token}
+            loading={setToken.isPending}
+            onPress={saveToken}
+          >
             Save token
           </Button>
         </div>
@@ -262,6 +280,8 @@ function ToolRunner({ server }: { server: PublicServer }) {
   const [args, setArgs] = useState('{}');
   const [parseError, setParseError] = useState<string | null>(null);
   const call = trpc.settings.callTool.useMutation();
+  // A tool can spend credits (Runway MCP makes images): one call per press.
+  const guard = useInFlight();
   const schema = trpc.settings.toolSchema.useQuery({ id: server.id, name: tool }, { enabled: !!tool, staleTime: 5 * 60_000 });
 
   const run = () => {
@@ -277,7 +297,8 @@ function ToolRunner({ server }: { server: PublicServer }) {
       return;
     }
     setParseError(null);
-    call.mutate({ id: server.id, name: tool, args: parsed as Record<string, unknown> });
+    const input = { id: server.id, name: tool, args: parsed as Record<string, unknown> };
+    void guard.wrap(() => call.mutateAsync(input).catch(() => undefined))();
   };
 
   return (
@@ -302,7 +323,7 @@ function ToolRunner({ server }: { server: PublicServer }) {
           </pre>
         )}
         <TextArea label="Arguments (JSON)" rows={4} value={args} onChange={setArgs} />
-        <div className={styles.row}>
+        <div className={styles.actions}>
           <Button variant="primary" icon={<Play size={16} aria-hidden />} loading={call.isPending} disabled={!server.enabled} onPress={run}>
             Run {tool}
           </Button>
@@ -337,7 +358,9 @@ function AddServer() {
     },
     onSettled: () => utils.settings.connections.invalidate(),
   });
-  const submit = () => add.mutate({ name, url, token: token || undefined });
+  // One server per press: a double-click's second press lands before `isPending` shows.
+  const guard = useInFlight();
+  const submit = () => void guard.wrap(() => add.mutateAsync({ name, url, token: token || undefined }).catch(() => undefined))();
 
   return (
     <div className={styles.card}>
@@ -351,10 +374,10 @@ function AddServer() {
         label="Access token (optional)"
         value={token}
         onChange={setToken}
-        placeholder="Leave empty to sign in with OAuth after adding"
+        placeholder="Optional. Leave empty for OAuth"
         onPressEnter={submit}
       />
-      <div className={styles.row}>
+      <div className={styles.actions}>
         <Button variant="primary" icon={<Plug size={16} aria-hidden />} loading={add.isPending} disabled={!name || !url} onPress={submit}>
           Add server
         </Button>
@@ -363,6 +386,10 @@ function AddServer() {
     </div>
   );
 }
+
+/** The server's bounds for an API key, after trimming (`settings.setSeevioKey`, `settings.setAiTextKey`). */
+const API_KEY_MIN = 8;
+const API_KEY_MAX = 512;
 
 function SeevioKey({
   saved,
@@ -376,6 +403,15 @@ function SeevioKey({
   const refresh = () => utils.settings.connections.invalidate();
   const save = trpc.settings.setSeevioKey.useMutation({ onSuccess: () => setKey(''), onSettled: refresh });
   const clear = trpc.settings.clearSeevioKey.useMutation({ onSettled: refresh });
+  // Spaces around a pasted key are dropped, as the server does, so a key of
+  // only spaces never counts as one.
+  const trimmed = key.trim();
+  const plausible = trimmed.length >= API_KEY_MIN && trimmed.length <= API_KEY_MAX;
+  // One save (one check with Seevio) per press, however fast the second click comes.
+  const guard = useInFlight();
+  const submit = () => {
+    if (plausible) void guard.wrap(() => save.mutateAsync({ key: trimmed }).catch(() => undefined))();
+  };
 
   return (
     <div className={styles.card}>
@@ -392,7 +428,7 @@ function SeevioKey({
           </Text>
         </div>
         {saved && (
-          <Button variant="ghost" icon={<Trash2 size={16} aria-hidden />} loading={clear.isPending} onPress={() => clear.mutate()}>
+          <Button size="sm" variant="ghost" icon={<Trash2 size={14} aria-hidden />} loading={clear.isPending} onPress={() => void guard.wrap(() => clear.mutateAsync().catch(() => undefined))()}>
             Remove key
           </Button>
         )}
@@ -405,12 +441,19 @@ function SeevioKey({
           value={key}
           onChange={setKey}
           placeholder="Paste your Seevio API key"
-          onPressEnter={() => key && save.mutate({ key })}
+          onPressEnter={submit}
         />
-        <Button variant="primary" icon={<KeyRound size={16} aria-hidden />} disabled={!key} loading={save.isPending} onPress={() => save.mutate({ key })}>
+        <Button className={styles.fieldButton} variant="primary" icon={<KeyRound size={16} aria-hidden />} disabled={!plausible} loading={save.isPending} onPress={submit}>
           Save key
         </Button>
       </div>
+      {key.length > 0 && !plausible && (
+        <Text tone="muted" size="sm" as="p">
+          {trimmed.length > API_KEY_MAX
+            ? `That is too long for a Seevio key (${API_KEY_MAX} characters at most).`
+            : `A Seevio key is at least ${API_KEY_MIN} characters, not counting spaces around it.`}
+        </Text>
+      )}
       <Text tone="muted" size="sm" as="p">
         Create one in your{' '}
         <TextLink external href="https://seevio.ai/docs">
@@ -472,8 +515,8 @@ function AiTextCard({ active }: { active: boolean }) {
 
   const providers = [
     { id: 'runway', name: 'Runway (default)' },
-    { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ' — add a key below'}` },
-    { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ' — add a key below'}` },
+    { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ': add a key below'}` },
+    { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ': add a key below'}` },
   ];
   const models =
     provider === 'anthropic'
@@ -587,6 +630,14 @@ function KeyCard({
   const refresh = () => utils.settings.aiText.invalidate();
   const save = trpc.settings.setAiTextKey.useMutation({ onSuccess: () => setKey(''), onSettled: refresh });
   const clear = trpc.settings.clearAiTextKey.useMutation({ onSuccess: () => save.reset(), onSettled: refresh });
+  // Same rule as the Seevio card: a key of only spaces is not a key.
+  const trimmed = key.trim();
+  const plausible = trimmed.length >= API_KEY_MIN && trimmed.length <= API_KEY_MAX;
+  // One save (one check with the provider) per press, however fast the second click comes.
+  const guard = useInFlight();
+  const submit = () => {
+    if (plausible) void guard.wrap(() => save.mutateAsync({ provider, key: trimmed }).catch(() => undefined))();
+  };
   const inUse = save.data;
   const savedNote = !inUse
     ? null
@@ -614,7 +665,7 @@ function KeyCard({
           )}
         </div>
         {saved && (
-          <Button variant="ghost" icon={<Trash2 size={16} aria-hidden />} loading={clear.isPending} onPress={() => clear.mutate({ provider })}>
+          <Button size="sm" variant="ghost" icon={<Trash2 size={14} aria-hidden />} loading={clear.isPending} onPress={() => void guard.wrap(() => clear.mutateAsync({ provider }).catch(() => undefined))()}>
             Remove key
           </Button>
         )}
@@ -627,12 +678,19 @@ function KeyCard({
           value={key}
           onChange={setKey}
           placeholder={placeholder}
-          onPressEnter={() => key && save.mutate({ provider, key })}
+          onPressEnter={submit}
         />
-        <Button variant="primary" icon={<KeyRound size={16} aria-hidden />} disabled={!key} loading={save.isPending} onPress={() => save.mutate({ provider, key })}>
+        <Button className={styles.fieldButton} variant="primary" icon={<KeyRound size={16} aria-hidden />} disabled={!plausible} loading={save.isPending} onPress={submit}>
           Save key
         </Button>
       </div>
+      {key.length > 0 && !plausible && (
+        <Text tone="muted" size="sm" as="p">
+          {trimmed.length > API_KEY_MAX
+            ? `That is too long for an API key (${API_KEY_MAX} characters at most).`
+            : `An API key is at least ${API_KEY_MIN} characters, not counting spaces around it.`}
+        </Text>
+      )}
       <Text tone="muted" size="sm" as="p">
         Create one in your{' '}
         <TextLink external href={docsHref}>

@@ -96,5 +96,6 @@ export function clipAutoTags(c: Clip, still: Still | undefined): string[] {
     still && still.crowd !== 'none' ? 'people' : '',
     model ? slug(model.name) : '',
     c.upscaleOf ? 'upscaled' : '',
+    c.recreate ? 'recreate-4k' : '',
   ]);
 }

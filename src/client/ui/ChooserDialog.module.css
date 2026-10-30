@@ -1,28 +1,48 @@
+/* The scrim fades its colour, not its opacity: an ancestor with opacity < 1
+   would cut the modal's backdrop blur off while it fades in. */
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 110;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(20, 17, 14, 0.42);
+  padding: clamp(12px, 3vw, 24px);
+  background: var(--scrim);
 }
 
+.overlay[data-entering] {
+  animation: scrimIn var(--dur-3) var(--ease-out);
+}
+
+.overlay[data-exiting] {
+  animation: scrimOut 160ms var(--ease-out) forwards;
+}
+
+/* The glass panel (DESIGN 2.3, 4). The cards inside it stay solid. */
 .modal {
+  composes: glass-thick from global;
+  display: flex;
+  flex-direction: column;
   width: min(640px, 100%);
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  border-radius: var(--r-panel);
   outline: none;
+}
+
+.modal[data-entering] {
+  animation: dialogIn var(--dur-3) var(--ease-spring);
+}
+
+.modal[data-exiting] {
+  animation: dialogOut 160ms var(--ease-out) forwards;
 }
 
 .dialog {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: calc(100vh - 48px);
-  padding: 28px;
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-bg-surface);
-  box-shadow: var(--bay-shadow-pop);
+  gap: 16px;
+  min-height: 0;
+  padding: 24px;
   outline: none;
 }
 
@@ -33,18 +53,81 @@
   gap: 12px;
 }
 
-.title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  color: var(--bay-text);
+/* Close: a 36 px round ghost button, the same in every overlay. */
+.head button {
+  width: 36px;
+  height: 36px;
+  margin: -6px -6px -6px 0;
+  padding: 0;
+  border-radius: var(--r-pill);
+  flex: none;
 }
 
+.title {
+  margin: 0;
+  min-width: 0;
+  font: var(--text-title-2);
+  letter-spacing: var(--track-title-2);
+  color: var(--bay-text);
+  text-wrap: balance;
+}
+
+/* Room around the cards so a lifted card and its focus ring aren't clipped. */
 .body {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  margin: -6px;
+  padding: 6px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal[data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .modal[data-exiting] {
+    animation-name: fadeOut;
+  }
+}
+
+@keyframes scrimIn {
+  from {
+    background-color: transparent;
+  }
+}
+
+@keyframes scrimOut {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes dialogOut {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
+    opacity: 0;
+  }
 }

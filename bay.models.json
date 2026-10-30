@@ -92,6 +92,11 @@
       "alias": "kling_o3_pro"
     },
     {
+      "id": "video-kling-4-0",
+      "purpose": "Recreate a reference clip in 4K from a 4K still (Kling 4.0 reference-to-video preset; Recreate in 4K tab)",
+      "alias": "kling_4_0"
+    },
+    {
       "id": "video-veo-3-1",
       "purpose": "Animate a film still or a chosen Director frame into a video (Veo 3.1 preset)",
       "alias": "veo3_1"

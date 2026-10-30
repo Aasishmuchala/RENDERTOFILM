@@ -1,5 +1,4 @@
-import { Aperture, Clapperboard, Focus, Image, Library, MapPinned, Projector, Scissors, Settings, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import styles from './App.module.css';
 import { CloseupsPage } from './CloseupsPage.tsx';
@@ -7,22 +6,31 @@ import { AppShell } from './layouts/AppShell.tsx';
 import { DirectorPage } from './DirectorPage.tsx';
 import { EditPage } from './EditPage.tsx';
 import { LibraryPage } from './LibraryPage.tsx';
+import { AmbientProvider, PageActiveContext } from './lib/ambient.tsx';
+import { useDocumentTitle } from './lib/useDocumentTitle.ts';
 import { LifestylePage } from './LifestylePage.tsx';
 import { LocationPage } from './LocationPage.tsx';
+import { type PageId, pageById, tabFromHash } from './nav.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { StillsPage } from './StillsPage.tsx';
 import { trpc } from './trpc.ts';
-import { Tab, TabList, TabPanel, Tabs } from './ui/Tabs.tsx';
 import { VideoPage, type VideoPreset } from './VideoPage.tsx';
 
-const TABS = ['director', 'stills', 'lifestyle', 'video', 'closeups', 'location', 'edit', 'library', 'settings'];
 const PICKED_KEY = 'render-to-film:picked-still';
 
-/** The tab named in the address (`#video`), so a reload stays on it. */
-function tabFromHash(): string {
-  const raw = window.location.hash.slice(1);
-  const id = raw === 'surroundings' ? 'location' : raw;
-  return TABS.includes(id) ? id : 'director';
+/**
+ * One page, always mounted so a running take survives a page switch; only
+ * the active one shows. Hidden pages are `hidden` and `inert`, so nothing in
+ * them takes focus, and `useAmbient` inside them is ignored.
+ */
+function Panel({ id, active, children }: { id: PageId; active: boolean; children: ReactNode }) {
+  return (
+    <PageActiveContext.Provider value={active}>
+      <div id={`page-${id}`} hidden={!active} inert={!active} className={active ? styles.panelActive : undefined}>
+        {children}
+      </div>
+    </PageActiveContext.Provider>
+  );
 }
 
 function readPicked(): string | null {
@@ -35,7 +43,8 @@ function readPicked(): string | null {
 
 export function App() {
   const profile = trpc.profile.useQuery();
-  const [tab, setTab] = useState(tabFromHash);
+  /** The page named in the address (`#video`), so a reload stays on it. */
+  const [tab, setTab] = useState<PageId>(() => tabFromHash(window.location.hash));
   const [pickedStillId, setPickedStillId] = useState<string | null>(readPicked);
   /** Settings that came with the pick (the Lifestyle tab's Animate); the Video tab applies each new one once. */
   const [videoPreset, setVideoPreset] = useState<VideoPreset | null>(null);
@@ -46,10 +55,42 @@ export function App() {
     }
   }, [tab]);
 
+  useDocumentTitle(pageById(tab)?.label, 'Render to Film');
+
+  // After a page switch (not the first render), focus moves to the page and a
+  // scrolled phone page starts at its top.
+  const shownTab = useRef(tab);
   useEffect(() => {
-    const onHash = () => setTab(tabFromHash());
+    if (shownTab.current === tab) return;
+    shownTab.current = tab;
+    document.getElementById('main')?.focus({ preventScroll: true });
+    if (window.scrollY > 0) window.scrollTo({ top: 0 });
+  }, [tab]);
+
+  useEffect(() => {
+    const onHash = () => {
+      const next = tabFromHash(window.location.hash);
+      setTab(next);
+      // An alias or unknown hash on the page already showing: the effect above won't run, so name it here.
+      if (window.location.hash.slice(1) !== next) {
+        history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${next}`);
+      }
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  // A file dropped outside a drop zone must not make the browser open it and leave the app.
+  useEffect(() => {
+    const keep = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', keep);
+    window.addEventListener('drop', keep);
+    return () => {
+      window.removeEventListener('dragover', keep);
+      window.removeEventListener('drop', keep);
+    };
   }, []);
 
   useEffect(() => {
@@ -62,49 +103,9 @@ export function App() {
   }, [pickedStillId]);
 
   return (
-    <Tabs selectedKey={tab} onSelectionChange={setTab}>
-      <AppShell
-        title="Render to Film"
-        brand={
-          <span className={styles.mark} aria-hidden>
-            <Aperture size={16} />
-          </span>
-        }
-        nav={
-          <TabList aria-label="Studio">
-            <Tab id="director" icon={<Projector size={16} aria-hidden />}>
-              Director
-            </Tab>
-            <Tab id="stills" icon={<Image size={16} aria-hidden />}>
-              Stills
-            </Tab>
-            <Tab id="lifestyle" icon={<Users size={16} aria-hidden />}>
-              Lifestyle
-            </Tab>
-            <Tab id="video" icon={<Clapperboard size={16} aria-hidden />}>
-              Video
-            </Tab>
-            <Tab id="closeups" icon={<Focus size={16} aria-hidden />}>
-              Close-ups
-            </Tab>
-            <Tab id="location" icon={<MapPinned size={16} aria-hidden />}>
-              Location
-            </Tab>
-            <Tab id="edit" icon={<Scissors size={16} aria-hidden />}>
-              Edit
-            </Tab>
-            <Tab id="library" icon={<Library size={16} aria-hidden />}>
-              Library
-            </Tab>
-            <Tab id="settings" icon={<Settings size={16} aria-hidden />}>
-              Settings
-            </Tab>
-          </TabList>
-        }
-        user={profile.data ?? undefined}
-        maxWidth="none"
-      >
-        <TabPanel id="director">
+    <AmbientProvider>
+      <AppShell current={tab} user={profile.data ?? undefined}>
+        <Panel id="director" active={tab === 'director'}>
           <DirectorPage
             active={tab === 'director'}
             onAnimate={(id) => {
@@ -113,16 +114,16 @@ export function App() {
             }}
             onGoToEdit={() => setTab('edit')}
           />
-        </TabPanel>
-        <TabPanel id="stills">
+        </Panel>
+        <Panel id="stills" active={tab === 'stills'}>
           <StillsPage
             onAnimate={(id) => {
               setPickedStillId(id);
               setTab('video');
             }}
           />
-        </TabPanel>
-        <TabPanel id="lifestyle">
+        </Panel>
+        <Panel id="lifestyle" active={tab === 'lifestyle'}>
           <LifestylePage
             active={tab === 'lifestyle'}
             onAnimate={(id, preset) => {
@@ -131,8 +132,8 @@ export function App() {
               setTab('video');
             }}
           />
-        </TabPanel>
-        <TabPanel id="video">
+        </Panel>
+        <Panel id="video" active={tab === 'video'}>
           <VideoPage
             active={tab === 'video'}
             pickedStillId={pickedStillId}
@@ -140,8 +141,8 @@ export function App() {
             onPick={setPickedStillId}
             onGoToStills={() => setTab('stills')}
           />
-        </TabPanel>
-        <TabPanel id="closeups">
+        </Panel>
+        <Panel id="closeups" active={tab === 'closeups'}>
           <CloseupsPage
             active={tab === 'closeups'}
             onGoToStills={() => setTab('stills')}
@@ -150,8 +151,8 @@ export function App() {
               setTab('video');
             }}
           />
-        </TabPanel>
-        <TabPanel id="location">
+        </Panel>
+        <Panel id="location" active={tab === 'location'}>
           <LocationPage
             active={tab === 'location'}
             onAnimate={(id) => {
@@ -159,17 +160,17 @@ export function App() {
               setTab('video');
             }}
           />
-        </TabPanel>
-        <TabPanel id="edit">
+        </Panel>
+        <Panel id="edit" active={tab === 'edit'}>
           <EditPage active={tab === 'edit'} onGoToVideo={() => setTab('video')} />
-        </TabPanel>
-        <TabPanel id="library">
+        </Panel>
+        <Panel id="library" active={tab === 'library'}>
           <LibraryPage active={tab === 'library'} onGoToStills={() => setTab('stills')} />
-        </TabPanel>
-        <TabPanel id="settings">
+        </Panel>
+        <Panel id="settings" active={tab === 'settings'}>
           <SettingsPage active={tab === 'settings'} />
-        </TabPanel>
+        </Panel>
       </AppShell>
-    </Tabs>
+    </AmbientProvider>
   );
 }

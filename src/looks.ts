@@ -1,3 +1,5 @@
+import { type LightPhysicsOptions, realismCues, realismLayers, realismText } from './realism.ts';
+
 /**
  * The cinematic looks a render can be re-shot in, shared by the server
  * (prompt building in src/api.ts) and the client picker (src/client/App.tsx).
@@ -571,6 +573,25 @@ function reframeSentence(ratio: string): string {
   return `Compose the photograph in a ${ratio} frame around the same subject and viewpoint. Where the new frame reaches past the edges of the render, only continue what is already there at those edges (the same paving, wall, water, planting and sky), adding no new buildings, objects or features; where it shows less, crop in. Never squeeze, stretch or distort anything to fit.`;
 }
 
+/** Looks lit by one direct sun: one shadow family. */
+const ONE_SOURCE_LOOKS: readonly LookId[] = ['golden-hour', 'lodha-light', 'early-morning', 'midday', 'god-rays'];
+
+/** Looks whose light includes the scene's own lamps, lit: their light falls off with distance. */
+const LAMP_LOOKS: readonly LookId[] = ['evening', 'blue-hour', 'night-lit', 'interior-lit', 'interior-luxury', 'moonlit'];
+
+/**
+ * A look's light physics for the realism option (src/realism.ts): none when
+ * the render's own light or a reference sets the light; the warm/cool split
+ * everywhere but Lodha light, whose colour stays neutral.
+ */
+function lookLightPhysics(look: LookId, practicals: boolean): LightPhysicsOptions {
+  return {
+    practicals: practicals || LAMP_LOOKS.includes(look),
+    split: look !== 'lodha-light',
+    oneShadow: ONE_SOURCE_LOOKS.includes(look),
+  };
+}
+
 /** The Stills tab's "Only what's in the image" switch, in words. */
 function strictStillSentence(withPeople: boolean, moves: boolean): string {
   const allowed = withPeople ? ', apart from the people asked for' : '';
@@ -611,6 +632,13 @@ export function buildCinematicPrompt(
     lightReference?: boolean | 'series' | undefined;
     /** "Only what's in the image": nothing new may appear but the people asked for. */
     strict?: boolean | undefined;
+    /**
+     * The Director's frames only: the physical realism (src/realism.ts) the
+     * people and the frame's own words (`cues`: title, beat, people, note)
+     * switch on, with the look's light physics. Absent, the prompt is byte
+     * for byte what Stills sends.
+     */
+    realism?: { interior: boolean; cues: string } | undefined;
   } = {}
 ): string {
   const camera = ANGLES.find((a) => a.id === angle)?.camera ?? '';
@@ -635,7 +663,12 @@ export function buildCinematicPrompt(
     return compact ? peoplePromptCompact(brief) : peoplePrompt(brief);
   };
   const masked = extras.masked;
-  const assemble = (peopleText: string, tight = false) =>
+  // The realism layers, never on a marked edit (its light and surfaces stay as rendered outside the mark).
+  const real = masked ? undefined : extras.realism;
+  const cues = real && realismCues({ people: withPeople, interior: real.interior, scene: real.cues });
+  const layers = cues ? realismLayers(cues, 'frame', keepLight || lightRef ? undefined : lookLightPhysics(chosen.id, cues.practicals)) : [];
+  const physical = (compact: boolean) => (layers.length ? `Physical realism: ${realismText(layers, compact)}` : '');
+  const assemble = (peopleText: string, tight = false, realismPassage = '') =>
     [
     masked
       ? `Edit only one area of the reference image: ${masked}. Keep everything outside that area exactly as it is in the reference, with the same composition, camera position, framing, light, colour and grade. Inside the area, make the scene a real, photorealistic photograph${withPeople ? ', with people as the only addition and placed inside that area only' : ''}, blending seamlessly into the untouched image around it in perspective, scale, light direction, colour, sharpness and grain.`
@@ -667,6 +700,7 @@ export function buildCinematicPrompt(
         : 'Shoot it like a high-end cinema camera with an anamorphic lens: natural depth of field, subtle lens falloff and vignetting, fine organic film grain, true dynamic range with rich shadows and controlled highlights, and a refined cinematic color grade.',
     extras.strict ? strictStillSentence(withPeople, !masked && (!!camera || !!extras.reframe)) : '',
     peopleText,
+    realismPassage,
     extra ? (extras.strict ? `Also, using only what is already in the image: ${extra}.` : `Also: ${extra}.`) : '',
     fixes.trim()
       ? `A check of an earlier take of this shot found these problems; make sure this take gets each of them right: ${fixes.trim()}`
@@ -675,9 +709,23 @@ export function buildCinematicPrompt(
   ]
     .filter(Boolean)
     .join(' ');
-  const full = assemble(build(false));
+  const full = assemble(build(false), false, physical(false));
   const max = extras.maxLength;
   if (max === undefined || full.length <= max) return full;
+  // With realism, over the cap: its short form, then the short people text
+  // with it whole, then both short, then the design sentence's first clause
+  // too; past that the realism goes and the ladder below is unchanged.
+  if (layers.length) {
+    for (const [shortPeople, shortRealism, tight] of [
+      [false, true, false],
+      [true, false, false],
+      [true, true, false],
+      [true, true, true],
+    ] as const) {
+      const p = assemble(build(shortPeople), tight, physical(shortRealism));
+      if (p.length <= max) return p;
+    }
+  }
   // Over the model's cap: shorten the people text first, since it is the
   // longest part; only if that is still too long, keep the design sentence
   // to its first clause. The look and the avoid clause always arrive whole.

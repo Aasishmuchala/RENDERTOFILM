@@ -3,7 +3,7 @@ import { Image } from 'lucide-react';
 import styles from './ImagePlaceholder.module.css';
 
 export type ImagePlaceholderProps = {
-  /** What the image will show — the accessible name, and the visible caption. */
+  /** What the image will show: the accessible name, and the visible caption. */
   label: string;
   /** CSS `aspect-ratio` of the final image, e.g. `'1 / 1'`. */
   aspectRatio?: string | undefined;

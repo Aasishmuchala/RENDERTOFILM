@@ -16,6 +16,9 @@ export type TakeImageProps = {
   onOpen?: (() => void) | undefined;
   openLabel?: string | undefined;
   openClassName?: string | undefined;
+  /** A thumbnail inside a card that is itself a button: a load that never
+   * works shows a quiet icon, with no retry button to nest. */
+  quiet?: boolean | undefined;
 };
 
 /**
@@ -23,11 +26,27 @@ export type TakeImageProps = {
  * then as the large stored copy, then as the original file, and only then
  * says so, with a retry: a frame is never silently blank.
  */
-export function TakeImage({ stillId, alt, className, full = false, onOpen, openLabel, openClassName }: TakeImageProps) {
+export function TakeImage({
+  stillId,
+  alt,
+  className,
+  full = false,
+  onOpen,
+  openLabel,
+  openClassName,
+  quiet = false,
+}: TakeImageProps) {
   const [attempt, setAttempt] = useState(0);
   const [round, setRound] = useState(0);
   // Each attempt's source, small copy first unless the big one is wanted.
   const steps = full ? ['view', 'view', 'original'] : ['thumb', 'thumb', 'view', 'original'];
+  if (attempt >= steps.length && quiet) {
+    return (
+      <span className={styles.quiet} role="img" aria-label={alt ? `${alt}: this take didn't load` : "This take didn't load"}>
+        <ImageOff size={16} aria-hidden />
+      </span>
+    );
+  }
   if (attempt >= steps.length) {
     return (
       <div className={styles.broken} role="status">

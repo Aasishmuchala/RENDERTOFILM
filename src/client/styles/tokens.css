@@ -1,135 +1,182 @@
 /**
- * App design tokens. This file owns every colour the app uses (text, canvas,
- * surfaces, borders, accent, status, shadows); `@runway/bay-react/tokens.css`
- * (imported first in main.tsx) only adds radii, motion and the avatar palette.
- * Re-skin here, in both blocks, and note the palette in design.md.
- *
- * Light-only (default): `index.html` pins `<html data-theme="light">`, so a
- * dark OS never switches the app. The dark block applies only once a toggle
- * picks dark (`bay add agent` brings one).
- *
- * Always dark: set `data-theme="dark"` in `index.html` and put the palette in
- * the dark block, text included. Never put dark surfaces in the light block.
- *
- * Follow the OS: delete `data-theme="light"` from `index.html`, add
- * `import '@runway/bay-react/theme';` to `main.tsx` (the store that sets the
- * attribute), and give every colour token a dark value here.
+ * App design tokens. Dark only: `index.html` pins `<html data-theme="dark">`
+ * and there is no light block and no OS-following. This file owns every
+ * colour, radius, duration, easing and font the app uses; the values and the
+ * reasons are in DESIGN.md section 2 (palette 2.2, glass 2.3, type 2.6,
+ * motion 2.7). Re-skin here and in DESIGN.md in the same change.
+ * `@runway/bay-react/tokens.css` (imported first in main.tsx) only supplies
+ * the avatar palette and the first values of the `--bay-r-*` / `--bay-dur*`
+ * names, which this file re-points. The `--bay-*` names stay because the
+ * component modules read them; the `--glass-*`, `--text-*`, `--track-*`,
+ * `--r-*`, `--ease-*` and `--dur-*` families sit beside them.
  */
 
 :root {
-  color-scheme: light;
-  /* The brand face global.css loads via @font-face, ahead of bay-react's own
-     stack — every component reads this one var, so body and controls match. */
-  --bay-font-sans:
-    'ABC Normal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica,
-    sans-serif;
-  --bay-text: #1e1b18;
-  --bay-text-2: #4a443d;
-  --bay-text-3: #7a7266;
-  --bay-text-4: #a89f93;
-  --bay-text-5: #d6cec2;
-  --bay-text-on-accent: #ffffff;
-  --bay-bg-canvas: #f6f1e9;
-  --bay-border-hair: #e9e2d6;
-  --bay-bg-surface: #fffdf9;
-  --bay-bg-subtle: #f1ebe0;
-  --bay-bg-sunken: #ebe4d7;
-  --bay-border: #e2dacd;
-  --bay-border-strong: #d3c9b9;
-  --bay-border-focus: #c9703f;
-  --bay-accent: #b5562b;
-  --bay-accent-hover: #9a4723;
-  --bay-accent-soft: #f6e6db;
-  --bay-accent-fg: #7e3a1c;
-  --bay-accent-rgb: 181, 86, 43;
-  --bay-ok-bg: #e2ebe3;
-  --bay-ok-fg: #2f4b3a;
-  --bay-warn-bg: #fbeed0;
-  --bay-warn-fg: #946800;
-  --bay-err-bg: #fde7e6;
-  --bay-err-fg: #c1281c;
-  --bay-info-bg: #e2ebe3;
-  --bay-info-fg: #2f4b3a;
-  --bay-shadow-1: none;
-  --bay-shadow-pop:
-    0 18px 48px -12px rgba(30, 27, 24, 0.18), 0 0 0 1px var(--bay-border-hair);
-  /* The stage's one deep, soft shadow. */
-  --bay-shadow-stage: 0 40px 80px -40px rgba(30, 27, 24, 0.55);
-  /* Radii: controls stay tight, containers and overlays are softer. */
-  --bay-r-lg: 12px;
-  --bay-r-xl: 16px;
-  /* The result stage: the one dark, cinematic surface in the app. */
-  --bay-stage-bg: #1e1b18;
-  --bay-stage-frame: #000000;
-  --bay-stage-raised: #2b2723;
-  --bay-stage-line: #3a352f;
-  --bay-stage-text: #f6f1e9;
-  --bay-stage-text-2: #d9d0c3;
-  --bay-stage-text-3: #a59c90;
-  /* The garden green: the app mark and calm confirmations. */
-  --bay-brand: #2f4b3a;
-  --bay-brand-fg: #f6f1e9;
-  --bay-font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* Inside the result stage every block re-themes to the dark palette, so
-   buttons, text, alerts and panels there need no stage-specific styles. */
-[data-stage] {
   color-scheme: dark;
-  color: var(--bay-stage-text);
-  --bay-text: var(--bay-stage-text);
-  --bay-text-2: var(--bay-stage-text-2);
-  --bay-text-3: var(--bay-stage-text-3);
-  --bay-text-4: #7d756b;
-  --bay-bg-surface: var(--bay-stage-raised);
-  --bay-bg-subtle: #34302b;
-  --bay-bg-sunken: #2b2723;
-  --bay-border-hair: var(--bay-stage-line);
-  --bay-border: #48423b;
-  --bay-border-strong: #5a5249;
-  --bay-border-focus: #e08a5c;
-  --bay-accent-soft: #3d2a1f;
-  --bay-accent-fg: #f0b48f;
-  --bay-ok-bg: #1f2e25;
-  --bay-ok-fg: #9fd0ae;
-  --bay-warn-bg: #352b14;
-  --bay-warn-fg: #e9c06a;
-  --bay-err-bg: #3a1d1a;
-  --bay-err-fg: #f2948b;
-  --bay-info-bg: #1f2e25;
-  --bay-info-fg: #9fd0ae;
-  --bay-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
 
-:root[data-theme='dark'] {
-  color-scheme: dark;
+  /* Ground, surfaces, ink and lines (DESIGN 2.2). */
+  --bay-bg-canvas: #0c0c0e;
+  --bay-bg-surface: #16161a;
+  --bay-bg-subtle: #1e1e24;
+  --bay-bg-sunken: #0f0f12;
   --bay-text: #f5f5f7;
-  --bay-text-2: #c8c9cf;
-  --bay-text-3: #8c8e96;
-  --bay-text-4: #6b6d75;
-  --bay-text-5: #43454c;
-  --bay-text-on-accent: #ffffff;
-  --bay-bg-canvas: #0e1014;
-  --bay-border-hair: #23262d;
-  --bay-bg-surface: #16181d;
-  --bay-bg-subtle: #1c1f25;
-  --bay-bg-sunken: #23262d;
-  --bay-border: #2e323a;
-  --bay-border-strong: #3b3f48;
-  --bay-border-focus: #5fb6db;
-  --bay-accent: #3d9bc1;
-  --bay-accent-hover: #5fb6db;
-  --bay-accent-soft: #1d3a48;
-  --bay-accent-fg: #cfe4ec;
-  --bay-accent-rgb: 61, 155, 193;
+  --bay-text-2: #b9b9c1;
+  --bay-text-3: #8f8f98;
+  --bay-text-4: #6c6c75;
+  --bay-text-5: #3a3a42;
+  --bay-border-hair: rgba(255, 255, 255, 0.06);
+  --bay-border: rgba(255, 255, 255, 0.1);
+  --bay-border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Accent: tungsten, for action and selection only. */
+  --bay-accent: #e07b4a;
+  --bay-accent-hover: #ea8f62;
+  --bay-accent-soft: rgba(224, 123, 74, 0.16);
+  --bay-accent-fg: #f0a070;
+  --bay-accent-rgb: 224, 123, 74;
+  --bay-text-on-accent: #140c07;
+  --bay-border-focus: #f0a070;
+
+  /* Status. Info is the accent family, not blue. */
   --bay-ok-bg: #14271e;
   --bay-ok-fg: #5fd39c;
   --bay-warn-bg: #2a2410;
   --bay-warn-fg: #e6b34a;
   --bay-err-bg: #2a1716;
   --bay-err-fg: #ef7a72;
-  --bay-info-bg: #1d3a48;
-  --bay-info-fg: #5fb6db;
-  --bay-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --bay-shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--bay-border);
+  --bay-info-bg: #2b1f17;
+  --bay-info-fg: #f0a070;
+
+  /* The app mark: a glass tile with the aperture glyph in accent. */
+  --bay-brand: rgba(255, 255, 255, 0.1);
+  --bay-brand-fg: #f0a070;
+
+  /* The result stage: a scrim over the ambient backdrop, a black frame. */
+  --bay-stage-bg: rgba(0, 0, 0, 0.5);
+  --bay-stage-frame: #000000;
+  --bay-stage-raised: #101014;
+  --bay-stage-line: rgba(255, 255, 255, 0.08);
+  --bay-stage-text: var(--bay-text);
+  --bay-stage-text-2: var(--bay-text-2);
+  --bay-stage-text-3: var(--bay-text-3);
+
+  /* Scrims: black veils, by job. `--scrim` sits behind dialogs and sheets
+     (DESIGN 4: overlay 0.6) and under small marks over a picture (a
+     re-rendering stripe, a brush halo, an upload's veil); `--scrim-deep` is
+     the lightbox, where the picture is all that shows; `--scrim-chip` is a
+     label or button chip set on a picture, a step darker on hover and press. */
+  --scrim: rgba(0, 0, 0, 0.6);
+  --scrim-deep: rgba(0, 0, 0, 0.92);
+  --scrim-chip: rgba(0, 0, 0, 0.72);
+  --scrim-chip-hover: rgba(0, 0, 0, 0.82);
+  --scrim-chip-pressed: rgba(0, 0, 0, 0.9);
+
+  /* The phone's inspector sheet at its lowest detent: the grabber and the
+     footer's primary action (the Workspace measures the real height). */
+  --sheet-peek: 120px;
+
+  /* Placeholders while data loads: a white veil, so it reads on the
+     inspector's surface and, a step stronger, on the stage's scrim. */
+  --bay-skeleton: rgba(255, 255, 255, 0.07);
+
+  /* Shadows. Glass carries its own; the stage frame has the one deep shadow. */
+  --bay-shadow-1: none;
+  --bay-shadow-pop: var(--glass-shadow);
+  --bay-shadow-stage: 0 40px 100px -40px rgba(0, 0, 0, 0.9);
+
+  /* Glass material (DESIGN 2.3); glass.css is the recipe that reads these. */
+  --glass-fill: rgba(22, 22, 27, 0.62);
+  --glass-fill-thick: rgba(22, 22, 27, 0.84);
+  --glass-fill-thin: rgba(22, 22, 27, 0.42);
+  --glass-blur: 24px;
+  --glass-saturate: 1.6;
+  --glass-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --glass-solid: #16161a;
+  --glass-btn: rgba(255, 255, 255, 0.08);
+  --glass-btn-hover: rgba(255, 255, 255, 0.12);
+  --glass-btn-pressed: rgba(255, 255, 255, 0.16);
+  --glass-btn-selected: rgba(255, 255, 255, 0.14);
+
+  /* Radii: continuous corners come from glass.css and the cards themselves. */
+  --r-control: 10px;
+  --r-card: 14px;
+  --r-panel: 20px;
+  --r-bar: 28px;
+  --r-pill: 999px;
+  --bay-r-xs: 6px;
+  --bay-r-sm: 8px;
+  --bay-r-md: 10px;
+  --bay-r-lg: 14px;
+  --bay-r-xl: 20px;
+  --bay-r-pill: 999px;
+
+  /* Motion (DESIGN 2.7). The spring is a damped spring, zeta 0.78, sampled. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: linear(
+    0,
+    0.131 5%,
+    0.38 10%,
+    0.618 15%,
+    0.798 20%,
+    0.915 25%,
+    0.98 30%,
+    1.01 35%,
+    1.019 40%,
+    1.019 45%,
+    1.014 50%,
+    1.009 55%,
+    1.005 60%,
+    1.002 65%,
+    1.001 70%,
+    1
+  );
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 480ms;
+  --bay-dur-fast: var(--dur-1);
+  --bay-dur: var(--dur-2);
+  --bay-dur-slow: var(--dur-3);
+  --bay-ease: var(--ease-out);
+
+  /* Type (DESIGN 2.6): the system face; a role is a `font` shorthand plus a
+     tracking value, used together. No web fonts. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+    system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --bay-font-sans: var(--font-sans);
+  --bay-font-mono: var(--font-mono);
+  --text-large-title: 700 34px/40px var(--font-sans);
+  --text-title-1: 700 26px/32px var(--font-sans);
+  --text-title-2: 600 22px/28px var(--font-sans);
+  --text-title-3: 600 19px/24px var(--font-sans);
+  --text-headline: 600 15px/20px var(--font-sans);
+  --text-body: 400 15px/22px var(--font-sans);
+  --text-callout: 400 14px/20px var(--font-sans);
+  --text-subhead: 400 13px/18px var(--font-sans);
+  --text-footnote: 400 12px/16px var(--font-sans);
+  --text-caption: 500 11px/14px var(--font-sans);
+  --track-large-title: -0.012em;
+  --track-title-1: -0.012em;
+  --track-title-2: -0.008em;
+  --track-title-3: -0.006em;
+  --track-headline: -0.012em;
+  --track-body: -0.012em;
+  --track-callout: -0.006em;
+  --track-subhead: -0.003em;
+  --track-footnote: 0em;
+  --track-caption: 0.004em;
+}
+
+/* Pages set `data-stage` on the result column. It only deepens the surfaces:
+   the ink, accent and status tokens are already dark. */
+[data-stage] {
+  --bay-bg-surface: var(--bay-stage-raised);
+  --bay-bg-sunken: #000;
+  --bay-border-hair: var(--bay-stage-line);
+  --bay-skeleton: rgba(255, 255, 255, 0.12);
 }

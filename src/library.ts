@@ -26,6 +26,7 @@ import type {
 } from './models.ts';
 import { documentStore } from './storage.ts';
 import type { LocationLightId, LocationViewId } from './location.ts';
+import type { RecreateRouteId } from './recreate.ts';
 import type { ScopeId, SettingId } from './surroundings.ts';
 import { UserSymbol } from './trpc.ts';
 
@@ -127,10 +128,41 @@ export type Still = {
     | undefined;
 };
 
+/** Where the 4K upscale of a Kling-route step 1 is: a poll or a retry claims it (`starting`), then it is `started` with its clip id, or `failed`. */
+export type RecreateUpscale =
+  | { state: 'starting'; at: string; by: string }
+  | { state: 'started'; id: string }
+  | { state: 'failed'; at: string; error: string };
+
+/** Made on the Video tab's Recreate in 4K (src/recreate-api.ts). */
+export type ClipRecreate = {
+  route: RecreateRouteId;
+  /** 1 = the shot that follows the reference; 2 = its 4K upscale (kling-upscale only). */
+  step: 1 | 2;
+  note?: string | undefined;
+  /** The motion reference: a library clip, or an ephemeral upload (seconds as the browser read them). */
+  reference: { clipId: string } | { url: string; seconds?: number | undefined };
+  /** The 4K source: a library still, or an ephemeral upload with its pixel size. */
+  source: { stillId: string } | { url: string; width: number; height: number };
+  upscale?: RecreateUpscale | undefined;
+};
+
 /** One generated clip. `id` is its Runway task id. */
 export type Clip = {
   id: string;
+  /**
+   * The library still it was made from; '' when it started on an uploaded
+   * image instead. That still may since have been deleted.
+   */
   stillId: string;
+  /** The uploaded image it started on — an ephemeral Runway upload (1–2 days), like a still's `sourceUrl`. */
+  firstFrameUrl?: string | undefined;
+  /**
+   * Its own poster, kept in the app's storage (src/thumbs.ts): a copy of the
+   * uploaded image it started on, or of its still's thumbnail once that still
+   * was deleted. Unset when the poster is its library still's thumbnail.
+   */
+  posterKey?: string | undefined;
   createdAt: string;
   status: TaskState;
   error?: string | undefined;
@@ -156,6 +188,8 @@ export type Clip = {
   scale?: number | undefined;
   /** The visitor's own @tags, stored without the `@` (src/tags.ts). */
   tags?: string[] | undefined;
+  /** Made on the Video tab's Recreate in 4K: the route, the reference and the source. */
+  recreate?: ClipRecreate | undefined;
 };
 
 export type Library = { stills: Still[]; clips: Clip[] };
@@ -250,4 +284,34 @@ export function patchClip(
     ...lib,
     clips: lib.clips.map((c) => (c.id === id ? { ...c, ...patch(c) } : c)),
   }));
+}
+
+/**
+ * Save a new clip's record. A clip with no record would 404 on every poll and
+ * never show in Your clips, so one failure is retried and a second is said
+ * out loud instead of returning an id the app can't follow.
+ */
+export async function recordClip(owner: string, clip: Clip): Promise<void> {
+  const save = () =>
+    updateLibrary(owner, (lib) => ({
+      ...lib,
+      clips: [clip, ...lib.clips.filter((c) => c.id !== clip.id)],
+    }));
+  try {
+    await save();
+    return;
+  } catch (first) {
+    console.warn('[library] could not record clip, retrying', clip.id, first);
+  }
+  try {
+    await save();
+  } catch (err) {
+    console.warn('[library] could not record clip', clip.id, err);
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message:
+        'Your video started on Runway, but saving it to your library failed, so this page cannot follow it. Look for it in your Runway account, and try again in a moment.',
+      cause: err,
+    });
+  }
 }

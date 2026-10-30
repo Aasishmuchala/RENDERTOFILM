@@ -1,3 +1,5 @@
+/* Number field (DESIGN 4): the TextInput box, drawn by the group so the unit
+   sits inside it; the group takes the hover and focus states. */
 .field {
   display: flex;
   flex-direction: column;
@@ -5,44 +7,65 @@
 }
 
 .label {
-  margin-bottom: 6px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
 }
 
 .group {
   display: flex;
   align-items: center;
-  height: 36px;
-  padding: 0 10px;
+  height: 40px;
+  padding: 0 12px;
   border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-surface);
+  border-radius: var(--r-control);
+  background: var(--bay-bg-sunken);
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
 }
 
-.group[data-focus-within] {
+.group[data-hovered] {
+  border-color: var(--bay-border-strong);
+}
+
+.group[data-focus-within],
+.group[data-focused],
+.group[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
   border-color: var(--bay-accent);
-  box-shadow: 0 0 0 3px rgba(var(--bay-accent-rgb), 0.18);
 }
 
 .group[data-disabled] {
-  opacity: 0.6;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .input {
   width: 100%;
   min-width: 0;
+  height: 100%;
+  padding: 0;
   border: 0;
-  outline: none;
   background: transparent;
-  font: inherit;
-  font-size: 13px;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
   font-variant-numeric: tabular-nums;
   color: var(--bay-text);
 }
 
+/* The group draws the ring. */
+.input,
+.input:focus,
+.input:focus-visible {
+  outline: none;
+}
+
 .unit {
-  font-size: 12px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
 }

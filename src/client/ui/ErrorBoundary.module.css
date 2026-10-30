@@ -1,17 +1,19 @@
+/* The fallback when a region throws (DESIGN 4): a quiet card with the cause a
+   click away and one way to try again. */
 .error {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 32px 24px;
   text-align: center;
-  border: 1px dashed var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: var(--r-card);
 }
 
 .title {
-  font-size: 14px;
-  font-weight: 500;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
   color: var(--bay-text-2);
 }
 
@@ -21,18 +23,43 @@
 }
 
 .summary {
-  cursor: pointer;
-  font-size: 12px;
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: var(--bay-r-sm);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-3);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.summary:hover {
+  background: var(--glass-btn);
+  color: var(--bay-text);
+}
+
+.summary:active {
+  background: var(--glass-btn-hover);
+}
+
+.summary:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
 }
 
 .pre {
   margin: 8px 0 0;
   max-height: 180px;
   overflow: auto;
-  font-size: 12px;
-  line-height: 1.5;
+  padding: 10px 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--bay-r-sm);
+  background: var(--bay-bg-sunken);
+  font: var(--text-footnote);
+  font-family: var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--bay-text-3);
+  color: var(--bay-text-2);
 }

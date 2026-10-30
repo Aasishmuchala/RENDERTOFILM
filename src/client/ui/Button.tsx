@@ -6,7 +6,7 @@ import styles from './Button.module.css';
 
 export type ButtonProps = {
   variant?: 'primary' | 'default' | 'ghost' | 'danger' | undefined;
-  size?: 'sm' | 'md' | undefined;
+  size?: 'sm' | 'md' | 'lg' | undefined;
   icon?: ReactNode | undefined;
   loading?: boolean | undefined;
   disabled?: boolean | undefined;
@@ -31,7 +31,7 @@ export function Button({
   className,
   children,
 }: ButtonProps) {
-  const spinnerSize = size === 'sm' ? 14 : 16;
+  const spinnerSize = size === 'sm' ? 14 : size === 'lg' ? 18 : 16;
   return (
     <AriaButton
       type={type}

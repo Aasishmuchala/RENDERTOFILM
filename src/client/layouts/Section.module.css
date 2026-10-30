@@ -1,3 +1,5 @@
+/* A block of the workspace (DESIGN 3.3): in the inspector, a numbered step
+   or an unnumbered group (Workspace.module.css spaces them). */
 .section {
   margin-bottom: 32px;
 }
@@ -7,32 +9,41 @@
   align-items: center;
   gap: 10px;
   margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.012em;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
   color: var(--bay-text);
 }
 
-/* A workflow step: a small tabular numeral in a hairline ring, kept quiet so
-   the accent stays for action and selection. */
+/* No description under the title: the content gets the air instead. */
+.title:not(:has(+ .description)) {
+  margin-bottom: 12px;
+}
+
+/* A workflow step: a quiet filled disc with a tabular numeral, so the accent
+   stays for action and selection. */
 .step {
   flex: none;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--bay-border);
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  font-size: 11px;
-  font-weight: 400;
+  background: var(--bay-bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--bay-border-hair);
+  font: var(--text-footnote);
+  font-weight: 600;
+  letter-spacing: var(--track-footnote);
   font-variant-numeric: tabular-nums;
-  color: var(--bay-text-3);
+  color: var(--bay-text-2);
 }
 
 .srOnly {
   position: absolute;
   width: 1px;
   height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
@@ -41,12 +52,14 @@
 .description {
   margin: 0 0 16px;
   max-width: 62ch;
-  font-size: 13px;
-  line-height: 1.55;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
   color: var(--bay-text-3);
+  text-wrap: pretty;
 }
 
-/* Under a numbered title, the description lines up with the title text. */
+/* Under a numbered title, the description lines up with the title text
+   (the 22 px marker plus the 10 px gap). */
 .stepped {
-  padding-left: 30px;
+  padding-left: 32px;
 }

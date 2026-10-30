@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  SelectionIndicator,
   Tab as AriaTab,
   TabList as AriaTabList,
   TabPanel as AriaTabPanel,
@@ -15,7 +16,8 @@ export type TabsProps = {
   children?: ReactNode | undefined;
 };
 
-/** Page-level tabs. Arrow keys move between tabs; panels keep their state. */
+/** A segmented control (the Video page's modes). Arrow keys move between
+ * tabs; panels keep their state. */
 export function Tabs({ selectedKey, onSelectionChange, children }: TabsProps) {
   return (
     <AriaTabs
@@ -53,6 +55,8 @@ export function Tab({
 }) {
   return (
     <AriaTab id={id} className={styles.tab}>
+      {/* The selected segment's fill; it slides here from the last one. */}
+      <SelectionIndicator className={styles.indicator} data-indicator aria-hidden />
       {icon}
       {children}
     </AriaTab>

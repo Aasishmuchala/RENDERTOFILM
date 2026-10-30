@@ -1,36 +1,77 @@
+/* The zone wraps whatever the page shows (the current image, or the page's
+   own dashed empty box) and adds the drop feedback on top of it: an accent
+   border and an accent wash while a file is dragged over. */
 .zone {
   position: relative;
-  border-radius: var(--bay-r-md);
-  outline: 2px dashed transparent;
-  outline-offset: 3px;
-  transition: outline-color var(--bay-dur) var(--bay-ease);
+  /* Its own stacking context: the wash and the pill never paint over a
+     sticky action bar when the inspector scrolls. */
+  isolation: isolate;
+  border-radius: var(--r-card);
 }
 
-.zone[data-drop-target] {
-  outline-color: var(--bay-accent);
+.zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 2px dashed var(--bay-accent);
+  border-radius: inherit;
+  background-color: var(--bay-accent-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
 }
 
+.zone[data-drop-target]::before {
+  opacity: 1;
+}
+
+/* The pick-a-file pill over the picture: a dark glass-button chip (glass
+   fill, edge and the glass-btn steps), dense enough that its label keeps its
+   contrast over any image. No blur of its own, so a page stays within the
+   glass budget. */
 .trigger {
   position: absolute;
   right: 8px;
   bottom: 8px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px 0 10px;
   border: 0;
-  border-radius: var(--bay-r-pill);
-  background: rgba(30, 27, 24, 0.78);
-  color: #f6f1e9;
-  font-family: var(--bay-font-sans);
-  font-size: 12px;
+  border-radius: var(--r-pill);
+  background-color: color-mix(in srgb, var(--glass-fill-thick), var(--bay-text) 8%);
+  box-shadow: var(--glass-edge);
+  color: var(--bay-text);
+  font: var(--text-footnote);
   font-weight: 500;
+  letter-spacing: var(--track-footnote);
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
+.trigger[data-hovered],
+.trigger[data-focus-visible] {
+  background-color: color-mix(in srgb, var(--glass-fill-thick), var(--bay-text) 20%);
+}
+
+/* The pointer lifts it a pixel, as the dock's items rise. */
 .trigger[data-hovered] {
-  background: rgba(30, 27, 24, 0.88);
+  box-shadow:
+    var(--glass-edge),
+    0 4px 12px color-mix(in srgb, var(--bay-stage-frame) 50%, transparent);
+  transform: translateY(-1px);
+}
+
+.trigger[data-pressed] {
+  background-color: color-mix(in srgb, var(--glass-fill-thick), var(--bay-text) 24%);
+  transform: scale(0.98);
 }
 
 .trigger[data-focus-visible] {
@@ -39,6 +80,28 @@
 }
 
 .trigger[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger[data-hovered],
+  .trigger[data-pressed] {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .trigger {
+    background-color: var(--glass-solid);
+  }
+
+  .trigger[data-hovered],
+  .trigger[data-focus-visible] {
+    background-color: color-mix(in srgb, var(--glass-solid), var(--bay-text) 20%);
+  }
+
+  .trigger[data-pressed] {
+    background-color: color-mix(in srgb, var(--glass-solid), var(--bay-text) 24%);
+  }
 }

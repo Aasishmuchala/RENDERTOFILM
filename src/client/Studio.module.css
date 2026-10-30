@@ -1,94 +1,12 @@
-/* The workspace: a control rail on the left and the screening room filling
-   the rest of the window, each scrolling on its own, edge to edge. */
-.layout {
-  display: grid;
-  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
-  height: calc(100vh - var(--app-header, 60px));
-  min-height: 560px;
-}
-
-@media (min-width: 1680px) {
-  .layout {
-    grid-template-columns: 480px minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
-  }
-}
-
-/* The rail: the page title, the numbered steps between hairlines, and the
-   action pinned to its foot. */
-/* `position: relative` keeps react-aria's visually hidden inputs inside the
-   rail, so focusing one on click doesn't scroll the panel back to the top. */
-.controls {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  padding: 0 36px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-right: 1px solid var(--bay-border-hair);
-  background: var(--bay-bg-surface);
-  scrollbar-width: thin;
-  scrollbar-color: var(--bay-border) transparent;
-}
-
-.controls > [data-bay-block='page-header'] {
-  margin: 0;
-  padding: 40px 0 28px;
-}
-
-.controls > [data-bay-block='section'] {
-  margin: 0;
-  padding: 26px 0 30px;
-  border-top: 1px solid var(--bay-border-hair);
-}
-
-.actionBar {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: auto -36px 0;
-  padding: 18px 36px 24px;
-  border-top: 1px solid var(--bay-border-hair);
-  background: var(--bay-bg-surface);
-}
-
-.actionBar .meta {
-  margin: 0;
-}
-
-@media (max-width: 900px) {
-  .controls {
-    padding: 0 20px;
-    overflow: visible;
-    border-right: 0;
-    border-bottom: 1px solid var(--bay-border-hair);
-  }
-
-  .controls > [data-bay-block='page-header'] {
-    padding: 28px 0 20px;
-  }
-
-  .actionBar {
-    margin: 0 -20px;
-    padding: 14px 20px 18px;
-  }
-}
+/* The pieces the studio pages share inside the Workspace's inspector and
+   canvas (DESIGN 3.3, Phase 9): image frames, stacks, upscale and cast
+   panels, frame lists, clip cards and the in-frame alert. The layout itself
+   (canvas, inspector, strip) is `layouts/Workspace.module.css`. */
 
 .frame {
   position: relative;
   margin: 0;
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   overflow: hidden;
   background: var(--bay-bg-sunken);
 }
@@ -112,71 +30,27 @@
 
 .generate {
   width: 100%;
-  height: 48px;
-  font-size: 15px;
-  border-radius: var(--bay-r-lg);
-}
-
-/* The screening room: the one dark surface, filling the window beside the
-   rail. `data-stage` re-themes every block inside it (tokens.css). */
-.result {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-  padding: 36px clamp(24px, 4vw, 72px) 64px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--bay-stage-bg);
-  scrollbar-width: thin;
-  scrollbar-color: var(--bay-stage-line) transparent;
-}
-
-/* Everything on the stage shares one measure, centred under the frame. */
-.result > * {
-  max-width: 1680px;
-  margin-inline: auto;
-}
-
-.result > [data-bay-block='section'] {
-  margin-bottom: 0;
-}
-
-.result > [data-bay-block='section'] + [data-bay-block='section'] {
-  margin-top: 48px;
-}
-
-/* The stage's own section titles read as quiet captions, not headings. */
-.result h2 {
-  font-size: 13px;
+  height: 44px;
+  font: var(--text-callout);
   font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--bay-stage-text-3);
-}
-
-@media (max-width: 900px) {
-  .result {
-    overflow: visible;
-    padding: 24px 16px 40px;
-  }
+  letter-spacing: var(--track-callout);
 }
 
 /* The projected frame: as wide as the stage allows while the whole picture
-   (plus the actions under it) stays inside the window. `--ar` is the
-   frame's aspect ratio, set inline beside `aspect-ratio`. */
+   (plus the toolbar under it) stays inside the window. `--ar` is the frame's
+   aspect ratio, set inline beside `aspect-ratio`. */
 .resultFrame {
   display: grid;
   place-items: center;
-  width: min(100%, calc((100vh - var(--app-header, 60px) - 200px) * (var(--ar, 16 / 9))));
+  width: min(100%, calc((100dvh - var(--app-header, 0px) - var(--app-bottom, 0px) - 200px) * (var(--ar, 16 / 9))));
   margin-inline: auto;
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-stage-frame);
-  box-shadow:
-    0 0 0 1px rgba(246, 241, 233, 0.06),
-    0 50px 120px -40px rgba(0, 0, 0, 0.8);
+  box-shadow: var(--bay-shadow-stage);
   overflow: hidden;
 }
 
-@media (max-width: 900px) {
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
   .resultFrame {
     width: 100%;
   }
@@ -184,7 +58,7 @@
 
 .resultFrame > img {
   object-fit: contain;
-  animation: stageIn 600ms var(--bay-ease) both;
+  animation: stageIn 600ms var(--ease-out) both;
 }
 
 @keyframes stageIn {
@@ -197,44 +71,135 @@
   width: min(440px, 90%);
 }
 
+/* The stage toolbar under a result: a thin glass pill of buttons, holding
+   buttons only (the caption goes under it, `.resultNote`). The bar radius is
+   a full pill on one row and stays clear of the buttons when a narrow stage
+   wraps them onto a second. */
 .resultActions {
+  composes: glass-thin from global;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  margin-top: 20px;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 16px auto 0;
+  padding: 6px;
+  border-radius: var(--r-bar);
 }
 
+/* Phone: the pill stays one row, as wide as the stage, and slides sideways
+   (snapping to a button) when its buttons need more room; wrapping instead
+   stacked one button per row into a tall card. The edge with more buttons
+   past it fades out, so the row reads as one that scrolls: the fades follow
+   the scroll position (a scroll timeline), and a pill that fits has no
+   timeline, so no fade. Without scroll timelines the clipped button is the hint. */
+@property --pill-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --pill-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes pillFade {
+  from {
+    --pill-fade-start: 0px;
+    --pill-fade-end: 36px;
+  }
+  10% {
+    --pill-fade-start: 36px;
+  }
+  90% {
+    --pill-fade-end: 36px;
+  }
+  to {
+    --pill-fade-start: 36px;
+    --pill-fade-end: 0px;
+  }
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .resultActions {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 6px;
+    scrollbar-width: none;
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--pill-fade-start),
+      black calc(100% - var(--pill-fade-end)),
+      transparent
+    );
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .resultActions {
+      animation: pillFade linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
+
+  .resultActions > * {
+    flex: none;
+    scroll-snap-align: start;
+  }
+}
+
+/* Inside an alert, or in the frame beside one, the buttons are a plain row:
+   no glass on a solid surface. */
+.frameAlert .resultActions,
+[role='alert'] .resultActions,
+[role='status'] .resultActions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  width: auto;
+  margin: 12px 0 0;
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  mask-image: none;
+  animation: none;
+}
+
+/* The caption of a result: a footnote under the toolbar on every page,
+   on the stage scrim (not on the glass). */
 .resultNote {
-  flex-basis: 100%;
-  margin-top: 2px;
+  margin: 10px 0 0;
   text-align: center;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
 }
 
-/* Video's clip shelf, on the stage under the current shot. */
-.below {
-  margin-top: 64px;
-  padding-top: 36px;
-  border-top: 1px solid var(--bay-stage-line);
-}
-
-.panelHeader {
-  margin-bottom: 4px;
+.resultNote:empty {
+  display: none;
 }
 
 .resultFrame video {
   display: block;
   width: 100%;
   height: 100%;
-  background: #000;
+  background: var(--bay-stage-frame);
 }
 
 .clipFrame {
   display: block;
   width: 100%;
-  border-radius: var(--bay-r-lg);
-  background: #000;
+  border-radius: var(--r-card);
+  background: var(--bay-stage-frame);
 }
 
 .pickerTools {
@@ -250,12 +215,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-}
-
-.clips {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 32px 24px;
 }
 
 .clipCard {
@@ -285,7 +244,7 @@
   place-items: center;
   aspect-ratio: 16 / 9;
   padding: 12px;
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-card);
   background: var(--bay-bg-sunken);
   text-align: center;
 }
@@ -310,9 +269,9 @@
 
 .upscaleTitle {
   margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
 }
 
 .upscaleRow {
@@ -328,7 +287,7 @@
 }
 
 .upscaleRow > button {
-  height: 38px;
+  height: 40px;
 }
 
 .upscaleResult {
@@ -373,8 +332,9 @@
 }
 
 .castTitle {
+  font: var(--text-subhead);
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-2);
 }
 
@@ -401,11 +361,19 @@
   white-space: nowrap;
 }
 
+/* The drop zone around a cast sheet or a light reference; the zone styles
+   itself, this only lets it fill the column. */
+.castZone {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
 .castThumb {
   position: relative;
   margin: 0;
   aspect-ratio: 4 / 3;
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
   overflow: hidden;
   background: var(--bay-bg-sunken);
 }
@@ -414,6 +382,8 @@
   opacity: 0.45;
 }
 
+/* The empty sheet: the bottom 40 px is left to the drop zone's "Choose" pill,
+   so the label centres above it instead of running under it. */
 .castEmpty {
   display: flex;
   flex-direction: column;
@@ -421,12 +391,13 @@
   justify-content: center;
   gap: 6px;
   aspect-ratio: 4 / 3;
-  padding: 8px;
+  padding: 8px 8px 40px;
   border: 1px dashed var(--bay-border);
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
   background: var(--bay-bg-subtle);
   color: var(--bay-text-3);
-  font-size: 12px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   text-align: center;
 }
 
@@ -438,8 +409,9 @@
   justify-content: center;
   gap: 6px;
   color: var(--bay-text);
-  font-size: 12px;
+  font: var(--text-footnote);
   font-weight: 500;
+  letter-spacing: var(--track-footnote);
 }
 
 .castSpin {
@@ -517,7 +489,7 @@
   align-items: center;
   padding: 8px;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
   background: transparent;
 }
 
@@ -538,16 +510,6 @@
   border-radius: var(--bay-r-sm);
   overflow: hidden;
   background: var(--bay-bg-sunken);
-}
-
-.frameEmpty {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 16 / 10;
-  border: 1px dashed var(--bay-border-strong);
-  border-radius: var(--bay-r-sm);
-  background: var(--bay-bg-sunken);
-  color: var(--bay-text-3);
 }
 
 .frameBody {
@@ -602,7 +564,7 @@
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-md);
+  border-radius: var(--r-control);
   background: transparent;
 }
 
@@ -617,32 +579,54 @@
   gap: 4px;
 }
 
+/* The `@imgN` chip on a reference: a plain <button>, so it takes the native
+   states as well as react-aria's attributes. */
 .handleChip {
-  padding: 2px 8px;
+  min-height: 24px;
+  padding: 0 8px;
   border: 0;
-  border-radius: var(--bay-r-pill);
-  background: var(--bay-accent-soft);
-  color: var(--bay-accent);
-  font-family: var(--bay-font-sans);
-  font-size: 12px;
+  border-radius: var(--r-pill);
+  background-color: var(--bay-accent-soft);
+  color: var(--bay-accent-fg);
+  font: var(--text-footnote);
   font-weight: 500;
+  letter-spacing: var(--track-footnote);
   cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
-.handleChip[data-hovered] {
-  filter: brightness(0.96);
+@media (hover: hover) {
+  .handleChip:hover:not(:disabled) {
+    background-color: rgba(var(--bay-accent-rgb), 0.26);
+  }
 }
 
+.handleChip[data-hovered],
+.handleChip:focus-visible,
+.handleChip[data-focus-visible] {
+  background-color: rgba(var(--bay-accent-rgb), 0.26);
+}
+
+.handleChip:focus-visible,
 .handleChip[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
 }
 
+.handleChip:active:not(:disabled) {
+  background-color: rgba(var(--bay-accent-rgb), 0.32);
+  transform: scale(0.98);
+}
+
+.handleChip:disabled,
 .handleChip[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* An upload in flight over its thumbnail: a dark veil, so the label reads. */
 .frameBusy {
   position: absolute;
   inset: 0;
@@ -650,10 +634,11 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: rgba(246, 241, 233, 0.6);
+  background: var(--scrim);
   color: var(--bay-text);
-  font-size: 12px;
+  font: var(--text-footnote);
   font-weight: 500;
+  letter-spacing: var(--track-footnote);
 }
 
 .chooserUpload {
@@ -663,10 +648,11 @@
   min-height: 72px;
   padding: 14px 14px 40px;
   border: 1px dashed var(--bay-border);
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
   background: var(--bay-bg-subtle);
   color: var(--bay-text-3);
-  font-size: 12px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   text-align: center;
 }
 
@@ -687,16 +673,16 @@
 
 .frameDuplicate {
   margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-err-fg);
 }
 
 /* Video: the line under the action button while takes render. */
 .queueNote {
   margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-accent-fg);
 }
 
@@ -704,11 +690,38 @@
   display: none;
 }
 
-/* Video: the takes strip's caption with its "Clear finished" action. */
-.takesHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
+/* Phone: strips of cards scroll sideways, one card and a peek of the next,
+   bleeding to the screen edge (the 20 px column padding). */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .refGrid {
+    display: flex;
+    gap: 12px;
+    margin-inline: -20px;
+    padding-inline: 20px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 20px;
+  }
+
+  .refGrid > * {
+    flex: 0 0 72%;
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+}
+
+/* Continuous corners on the frames and cards (DESIGN 2.3). */
+@supports (corner-shape: squircle) {
+  .frame,
+  .resultFrame,
+  .clipFrame,
+  .clipFailed,
+  .castThumb,
+  .castEmpty,
+  .frameRow,
+  .refCard,
+  .chooserUpload {
+    corner-shape: squircle;
+  }
 }

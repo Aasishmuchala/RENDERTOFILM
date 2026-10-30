@@ -6,14 +6,36 @@ import {
 
 const RUNWAY_UNAVAILABLE_PREFIX = 'runway_unavailable: ';
 
+/**
+ * An input check that reached the browser as its issues in JSON (`[ { "code":
+ * "too_small", …, "message": "…" } ]`, what tRPC says when nothing formats it):
+ * the first issue's message, or `text` itself when it isn't that.
+ */
+function readableIssues(text: string): string {
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith('[')) return text;
+  try {
+    const issues: unknown = JSON.parse(trimmed);
+    if (Array.isArray(issues)) {
+      for (const issue of issues) {
+        const m = (issue as { message?: unknown } | null)?.message;
+        if (typeof m === 'string' && m.trim()) return m.trim();
+      }
+    }
+  } catch {
+    // Not JSON after all: a message that happens to start with a bracket.
+  }
+  return text;
+}
+
 /** The readable message of a tRPC error or raw-route body. */
 export function errorMessage(e: unknown): string | undefined {
   if (!e) return undefined;
   if (typeof e === 'object' && e !== null) {
     const m = (e as { message?: unknown }).message;
-    if (typeof m === 'string' && m) return m;
+    if (typeof m === 'string' && m) return readableIssues(m);
     const err = (e as { error?: unknown }).error;
-    if (typeof err === 'string' && err) return err;
+    if (typeof err === 'string' && err) return readableIssues(err);
   }
   return 'Something blocked this request. Try again in a moment.';
 }

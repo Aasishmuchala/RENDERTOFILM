@@ -1,27 +1,31 @@
+/* Buttons (DESIGN 4, 2.7). Four variants, three sizes. Hover comes from
+   react-aria's [data-hovered] (it ignores touch), press from [data-pressed].
+   The edge on the filled variants is the glass edge: a lit top line. The
+   glass and ghost buttons answer the pointer as the dock does: the hover
+   fill, ink 1 and a 1 px lift. */
 .button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-family: var(--bay-font-sans);
+  border: 0;
+  border-radius: var(--r-control);
+  font: var(--text-callout);
   font-weight: 500;
-  letter-spacing: 0.005em;
-  border-radius: var(--bay-r-md);
-  border: 1px solid transparent;
+  letter-spacing: var(--track-callout);
   cursor: pointer;
   transition:
-    background var(--bay-dur) var(--bay-ease),
-    border-color var(--bay-dur) var(--bay-ease),
-    color var(--bay-dur) var(--bay-ease);
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out),
+    opacity var(--dur-1) var(--ease-out);
 }
 
 .button[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
-}
-
-.button[data-pressed] {
-  filter: brightness(0.97);
 }
 
 .button[data-focus-visible] {
@@ -29,60 +33,110 @@
   outline-offset: 2px;
 }
 
-.md {
-  height: 32px;
-  padding: 0 14px;
-  font-size: 13px;
-}
-
 .sm {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
+  height: 28px;
+  padding: 0 12px;
+  gap: 4px;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
 }
 
+.md {
+  height: 36px;
+  padding: 0 14px;
+}
+
+.lg {
+  height: 44px;
+  padding: 0 20px;
+  gap: 8px;
+}
+
+/* Primary: the tungsten fill. Hover lifts 1 px and glows; press settles. */
 .primary {
-  background: var(--bay-accent);
+  background-color: var(--bay-accent);
   color: var(--bay-text-on-accent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
 }
 
 .primary[data-hovered] {
-  background: var(--bay-accent-hover);
+  background-color: var(--bay-accent-hover);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bay-text) 40%, transparent),
+    0 6px 16px rgba(var(--bay-accent-rgb), 0.25);
+  transform: translateY(-1px);
 }
 
+.primary[data-pressed] {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
+  transform: scale(0.98);
+}
+
+/* Primary, disabled: a neutral outline with ink 2, so it reads as waiting
+   for something rather than broken. A busy primary keeps its fill. */
+.primary[data-disabled]:not([aria-busy]) {
+  background-color: transparent;
+  color: var(--bay-text-2);
+  box-shadow: inset 0 0 0 1px var(--bay-border-strong);
+  opacity: 1;
+}
+
+.primary[aria-busy] {
+  opacity: 0.7;
+}
+
+/* Default: a glass button, lit by the edge. */
 .default {
-  background: var(--bay-bg-surface);
-  border-color: var(--bay-border);
+  background-color: var(--glass-btn);
   color: var(--bay-text);
+  box-shadow: var(--glass-edge);
 }
 
 .default[data-hovered] {
-  border-color: var(--bay-border-strong);
-  background: var(--bay-bg-subtle);
+  background-color: var(--glass-btn-hover);
+  box-shadow:
+    var(--glass-edge),
+    0 4px 12px color-mix(in srgb, var(--bay-stage-frame) 50%, transparent);
+  transform: translateY(-1px);
 }
 
 .default[data-pressed] {
-  background: var(--bay-bg-sunken);
-  filter: none;
+  background-color: var(--glass-btn-pressed);
+  transform: scale(0.98);
 }
 
+/* Danger: the error colour as a fill, dark text. Hover mixes in a little ink
+   (about brightness 1.08) so the change animates with the other colours. */
 .danger {
-  background: var(--bay-err-fg);
+  background-color: var(--bay-err-fg);
   color: var(--bay-text-on-accent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
 }
 
 .danger[data-hovered] {
-  filter: brightness(0.92);
+  background-color: color-mix(in srgb, var(--bay-err-fg) 90%, var(--bay-text));
+}
+
+.danger[data-pressed] {
+  transform: scale(0.98);
 }
 
 .ghost {
-  background: transparent;
+  background-color: transparent;
   color: var(--bay-text-2);
 }
 
 .ghost[data-hovered] {
-  background: var(--bay-bg-subtle);
+  background-color: var(--glass-btn-hover);
   color: var(--bay-text);
+  transform: translateY(-1px);
+}
+
+.ghost[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+  color: var(--bay-text);
+  transform: scale(0.98);
 }
 
 .spinner {
@@ -95,5 +149,14 @@
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion: no lift, no scale; colour changes stay. */
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .button[data-hovered],
+  .button[data-pressed] {
+    transform: none;
   }
 }

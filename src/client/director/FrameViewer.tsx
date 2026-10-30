@@ -39,7 +39,7 @@ export type FrameViewerProps = {
 };
 
 /** Whether an image URL loads, without showing it: the uploads expire after a day or so. */
-function useImageLoads(url: string | undefined): boolean | null {
+export function useImageLoads(url: string | undefined): boolean | null {
   const [state, setState] = useState<{ url: string | undefined; ok: boolean | null }>({ url, ok: null });
   useEffect(() => {
     if (!url) return;
@@ -163,7 +163,7 @@ export function FrameViewer({
 
           {others.length > 1 && (
             <div className={own.viewerTakes}>
-              <Text size="sm" as="p">
+              <Text size="sm" as="p" className={own.viewerLabel}>
                 Takes
               </Text>
               <ImagePicker
@@ -187,6 +187,7 @@ export function FrameViewer({
           <div className={own.viewerShoot}>
             <Button
               variant="primary"
+              size="lg"
               icon={<Clapperboard size={16} />}
               loading={rendering}
               onPress={() => void onShoot(frame.image)}

@@ -120,6 +120,7 @@ export function LightReferenceField({
             onFile={onFile}
             disabled={locked}
             actionLabel={image ? 'Replace' : 'Choose photo'}
+            label="Drop or choose a lighting reference"
           >
             {image ? (
               <figure className={styles.castThumb}>

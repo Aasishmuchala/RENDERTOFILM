@@ -23,7 +23,7 @@ export type PeopleCheckProps = {
 /**
  * The automatic review of a still with people in it: height against the
  * scene, grounding and physics, light, faces, blend, and that nothing else
- * changed — with a re-take that carries the reviewer's fixes.
+ * changed, with a re-take that carries the reviewer's fixes.
  */
 export function PeopleCheck({ stillId, autoRun, onFix, fixing = false }: PeopleCheckProps) {
   const utils = trpc.useUtils();

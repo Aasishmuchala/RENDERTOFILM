@@ -1,3 +1,5 @@
+/* Stands in for an image that is not there yet: the sunken fill and a dashed
+   line, the same size the image will be. */
 .placeholder {
   display: flex;
   flex-direction: column;
@@ -6,13 +8,15 @@
   gap: 8px;
   width: 100%;
   border: 1px dashed var(--bay-border);
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
   background: var(--bay-bg-sunken);
   color: var(--bay-text-3);
 }
 
 .label {
   padding: 0 16px;
-  font-size: 13px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   text-align: center;
+  text-wrap: balance;
 }

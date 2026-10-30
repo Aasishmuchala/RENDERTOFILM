@@ -6,11 +6,11 @@ export function formatDocumentTitle(
   brandName?: string
 ): string {
   if (!brandName) return title ?? '';
-  return title ? `${title} — ${brandName}` : brandName;
+  return title ? [title, brandName].join(' · ') : brandName;
 }
 
 /**
- * Set `document.title` whenever `title` changes: `"<title> — <brandName>"`
+ * Set `document.title` whenever `title` changes: `"<title> · <brandName>"`
  * when `brandName` is given, otherwise just `title`.
  */
 export function useDocumentTitle(

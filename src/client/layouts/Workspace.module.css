@@ -1,0 +1,954 @@
+/* The Workspace (DESIGN 3.3, Phase 9): a viewport-tall room under the top
+   bar where the picture fills the space the floating panels leave free. Every
+   panel is `absolute` inside this root, never `fixed` (a page panel can be
+   transformed, which would re-parent fixed children). The shell sets
+   `--app-header`, `--app-dock` and, on phones, `--app-bottom` and (on a
+   Shoot page) `--app-subnav`.
+
+   Glass here: the inspector and the Show pill are `.glass-thick`; the strip,
+   the canvas toolbar and the actions pill are `.glass-thin`. Thin glass never
+   sits on the picture: the toolbar gets a band of its own at the canvas's
+   top, and the strip and the dock sit below it. The Show pill can land on a
+   bright corner of the picture, so it is thick (ink 1 stays above 10:1 over
+   white). */
+
+.workspace {
+  --inspector-w: 380px;
+  --gap: 12px;
+  --strip-h: 0px;
+  /* The strip's height plus its gap, when there is a strip. */
+  --strip-space: 0px;
+  /* The toolbar band: a 44 px pill plus 8 px of air, when there is one. */
+  --band: 0px;
+  /* Air around the picture inside its fit box, for the guide line and ticks. */
+  --fit-pad: 18px;
+  --tick-off: 8px;
+  /* Height kept under the picture for the caption and the actions. */
+  --below: 0px;
+  --tick-len: 14px;
+  --tick-w: 2px;
+  /* Ink 3 as the page set it, kept for the fields inside the inspector. */
+  --ws-ink-3: var(--bay-text-3);
+  position: relative;
+  height: calc(100dvh - var(--app-header, 0px) - var(--app-subnav, 0px) - var(--app-bottom, 0px));
+  overflow: hidden;
+  /* The screening room: the ambient, dimmed under everything here. */
+  background: var(--bay-stage-bg);
+}
+
+.workspace[data-strip='strip'] {
+  --strip-h: 112px;
+  --strip-space: calc(var(--strip-h) + var(--gap));
+}
+
+.workspace[data-strip='timeline'] {
+  --strip-h: 164px;
+  --strip-space: calc(var(--strip-h) + var(--gap));
+}
+
+.workspace[data-band] {
+  --band: 52px;
+}
+
+/* 18 px of air under the picture (10 under its guide line), then a 16 px
+   caption line and/or the 48 px actions pill. */
+.workspace[data-caption] {
+  --below: 34px;
+}
+
+.workspace[data-actions] {
+  --below: 66px;
+}
+
+.workspace[data-caption][data-actions] {
+  --below: 92px;
+}
+
+@media (min-width: 1680px) {
+  .workspace {
+    --inspector-w: 420px;
+  }
+}
+
+/* ---------------------------------------------------------------- inspector */
+
+/* One glass panel: a head (the Hide button, and Video's segmented control),
+   a body that scrolls inside the glass (the blur never scrolls), and the
+   footer with the primary action. Fields keep their own solid fills; text set
+   straight on the glass is ink 1 or 2 (decision 3), so ink 3 reads as ink 2
+   here, except inside a field. */
+.inspector {
+  composes: glass-thick from global;
+  --bay-text-3: var(--bay-text-2);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-panel);
+}
+
+.inspector :is(input, textarea, button[aria-haspopup='listbox']) {
+  --bay-text-3: var(--ws-ink-3);
+}
+
+.head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 8px 0 24px;
+}
+
+.headMain {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Hide: a 28 px ghost icon button in the head's corner. */
+.hide {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--bay-r-sm);
+  background-color: transparent;
+  color: var(--bay-text-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .hide:hover {
+    background-color: var(--glass-btn-hover);
+    color: var(--bay-text);
+  }
+}
+
+.hide:focus-visible {
+  background-color: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.hide:active {
+  background-color: var(--glass-btn-pressed);
+}
+
+/* `position: relative` keeps react-aria's visually hidden inputs inside the
+   scroller, so focusing one on click doesn't scroll the panel to the top.
+   Its last 32 px fade out while there is more below, so nothing reads as
+   sliced by the footer; 32 px of room at the end lets the last step clear
+   it when scrolled down (the fade then lies over that room only). */
+@property --ws-body-fade {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes bodyFade {
+  from,
+  90% {
+    --ws-body-fade: 32px;
+  }
+  to {
+    --ws-body-fade: 0px;
+  }
+}
+
+.body {
+  --ws-body-fade: 32px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--ws-body-fade)), transparent);
+}
+
+@supports (animation-timeline: scroll()) {
+  .body {
+    animation: bodyFade linear both;
+    animation-timeline: scroll(self block);
+  }
+}
+
+.body > [data-bay-block='page-header'] {
+  margin: 0;
+  padding: 4px 0 24px;
+}
+
+.body > [data-bay-block='section'] {
+  margin: 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+
+/* The one primary action at the panel's foot: a solid band over the glass,
+   so the button and its cost line never read through to the room. */
+.footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 24px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--bay-border-hair);
+  background: color-mix(in srgb, var(--bay-bg-surface) 70%, transparent);
+}
+
+/* ---------------------------------------------------------------- canvas */
+
+/* The canvas area: whatever the panels leave free. Not a box of its own: the
+   room's scrim is the root's, so the picture floats in it. */
+.canvas {
+  z-index: 1;
+  min-width: 0;
+}
+
+/* A file dragged over the canvas: an accent ring and wash, never in the way
+   of a click. */
+.canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: var(--r-panel);
+  background-color: var(--bay-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--bay-accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.canvas[data-drop-target]::after {
+  opacity: 1;
+}
+
+.canvas[data-focus-visible] {
+  outline-offset: -2px;
+  border-radius: var(--r-panel);
+}
+
+/* The page's view controls: a thin glass pill in the band's left corner. */
+.toolbar {
+  composes: glass-thin from global;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 152px);
+  padding: 4px;
+  overflow-x: auto;
+  border-radius: var(--r-bar);
+  scrollbar-width: none;
+}
+
+.toolbar > * {
+  flex: none;
+}
+
+/* With the inspector open there is no Show pill to keep clear of. */
+.workspace[data-open] .toolbar {
+  max-width: 100%;
+}
+
+/* The hidden inspector's one control, at the canvas's top right. A lit
+   overlay (an inset shadow) answers the pointer, so the glass fill itself is
+   never overridden and turns solid under reduced transparency. */
+.show {
+  composes: glass-thick from global;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px 0 14px;
+  border: 0;
+  border-radius: var(--r-bar);
+  color: var(--bay-text);
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  cursor: pointer;
+  animation: showIn var(--dur-3) var(--ease-out) both;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .show:hover {
+    box-shadow:
+      var(--glass-edge),
+      var(--glass-shadow),
+      inset 0 0 0 100px var(--glass-btn);
+  }
+}
+
+.show:focus-visible {
+  box-shadow:
+    var(--glass-edge),
+    var(--glass-shadow),
+    inset 0 0 0 100px var(--glass-btn);
+}
+
+.show:active {
+  box-shadow:
+    var(--glass-edge),
+    var(--glass-shadow),
+    inset 0 0 0 100px var(--glass-btn-pressed);
+}
+
+@keyframes showIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The framed states: the picture, its caption and its actions are one group,
+   centred in the canvas. The picture contain-fits at `--ar` in the space the
+   caption and the actions leave (`--below`), so the caption always sits just
+   under it. */
+.stage {
+  position: absolute;
+  inset: var(--band) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: var(--fit-pad);
+  container-type: size;
+}
+
+/* The frame holds the size and the guides: a hairline 8 px outside the
+   picture (its outline) and a viewfinder bracket at each corner, drawn here
+   because the picture clips its own children. */
+.frame {
+  position: relative;
+  flex: none;
+  width: min(100cqw, calc((100cqh - var(--below)) * var(--ar, 16 / 9)));
+  aspect-ratio: var(--ar, 16 / 9);
+}
+
+.frame::before,
+.frameGuides::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--tick-off, 8px));
+  pointer-events: none;
+  background:
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) left top / var(--tick-len, 14px) var(--tick-w, 2px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) left top / var(--tick-w, 2px) var(--tick-len, 14px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) right top / var(--tick-len, 14px) var(--tick-w, 2px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) right top / var(--tick-w, 2px) var(--tick-len, 14px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) left bottom / var(--tick-len, 14px) var(--tick-w, 2px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) left bottom / var(--tick-w, 2px) var(--tick-len, 14px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) right bottom / var(--tick-len, 14px) var(--tick-w, 2px),
+    linear-gradient(var(--bay-border-strong), var(--bay-border-strong)) right bottom / var(--tick-w, 2px) var(--tick-len, 14px);
+  background-repeat: no-repeat;
+}
+
+/* The same guides for a free-canvas player (`frameGuidesClass`): a hairline
+   outline 8 px out and a bracket per corner, drawn around the element that
+   wears it. `position: relative` is `:where`, so a page's own position wins. */
+:where(.frameGuides) {
+  position: relative;
+}
+
+.frameGuides {
+  outline: 1px solid var(--bay-stage-line);
+  outline-offset: var(--tick-off, 8px);
+}
+
+/* The projected frame. Whatever the page puts in it stacks in one cell and
+   fills it; a CompareSlider sizes itself against the window
+   (`--app-header`, `--app-bottom`), so inside the frame that budget is lifted
+   and the frame decides. */
+.picture {
+  --app-header: 0px;
+  --app-bottom: -100dvh;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--bay-stage-frame);
+  box-shadow: var(--bay-shadow-stage);
+  outline: 1px solid var(--bay-stage-line);
+  outline-offset: var(--tick-off);
+}
+
+@supports (corner-shape: squircle) {
+  .picture {
+    corner-shape: squircle;
+  }
+}
+
+.picture > * {
+  grid-area: 1 / 1;
+}
+
+.picture > :is(img, video) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.picture > img {
+  animation: pictureIn 600ms var(--ease-out) both;
+}
+
+@keyframes pictureIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Preview: the source, dimmed, with one line saying what will appear. */
+.picture[data-state='preview'] > img {
+  opacity: 0.55;
+}
+
+.note {
+  z-index: 1;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  background: var(--scrim-chip);
+  color: var(--bay-text);
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Empty: the frame itself is the drop target, a step up from black so it
+   reads as a place to drop, not a void. */
+.picture[data-state='empty'] {
+  background: var(--bay-stage-raised);
+}
+
+.empty {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+}
+
+/* The ImageDropZone (a react-aria DropZone): a dashed inner frame that
+   lifts a little under the pointer. */
+.empty > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  border: 1px dashed var(--bay-border-strong);
+  border-radius: calc(var(--r-card) - 6px);
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.empty > div[data-hovered] {
+  background-color: var(--bay-bg-subtle);
+}
+
+.emptyBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.emptyIcon {
+  margin-bottom: 6px;
+  color: var(--bay-text-2);
+}
+
+.emptyTitle {
+  margin: 0;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+  text-wrap: balance;
+}
+
+.emptyHint {
+  max-width: 44ch;
+  margin: 0;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text-2);
+  text-wrap: pretty;
+}
+
+/* The zone's pick-a-file pill, under the hint instead of in a corner. */
+.empty button {
+  position: static;
+  height: 36px;
+  padding: 0 16px 0 14px;
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+}
+
+/* A short frame (a phone, a wide picture) keeps the title and the button. */
+@container (height < 240px) {
+  .emptyIcon,
+  .emptyHint {
+    display: none;
+  }
+
+  .empty > div {
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
+/* One line under the picture, on the room (not on glass), set as a camera
+   slate: small uppercase with open tracking and tabular figures, the parts
+   (look, model, resolution) split by thin rules. */
+.caption {
+  flex: none;
+  max-width: min(100%, 88ch);
+  margin: 18px 0 0;
+  padding: 0 8px;
+  overflow: hidden;
+  font: var(--text-caption);
+  line-height: 16px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  color: var(--bay-text-2);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slatePart + .slatePart::before {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  margin: 0 10px;
+  vertical-align: -1px;
+  background: var(--bay-border-strong);
+}
+
+/* The picture's own buttons: a thin glass pill under the caption. It stays
+   one row and slides sideways (snapping to a button) when the buttons need
+   more room than the canvas has; the edge with more past it fades. */
+@property --ws-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --ws-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes actionsFade {
+  from {
+    --ws-fade-start: 0px;
+    --ws-fade-end: 36px;
+  }
+  10% {
+    --ws-fade-start: 36px;
+  }
+  90% {
+    --ws-fade-end: 36px;
+  }
+  to {
+    --ws-fade-start: 36px;
+    --ws-fade-end: 0px;
+  }
+}
+
+.actions {
+  composes: glass-thin from global;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 18px;
+  padding: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: var(--r-bar);
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 6px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--ws-fade-start),
+    black calc(100% - var(--ws-fade-end)),
+    transparent
+  );
+}
+
+@supports (animation-timeline: scroll()) {
+  .actions {
+    animation: actionsFade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+
+.caption + .actions {
+  margin-top: 10px;
+}
+
+.actions > * {
+  flex: none;
+  scroll-snap-align: start;
+}
+
+/* Free: a grid or a player fills the canvas and scrolls on its own. */
+.free {
+  position: absolute;
+  inset: var(--band) 0 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* ---------------------------------------------------------------- strip */
+
+/* The filmstrip: a thin glass shelf above the dock. Its cards scroll inside
+   it, snapping; the inner padding keeps their focus rings in view. */
+.strip {
+  composes: glass-thin from global;
+  z-index: 2;
+  height: var(--strip-h);
+  padding: 4px;
+  border-radius: var(--r-panel);
+}
+
+.stripScroll {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  height: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 4px;
+  scrollbar-width: none;
+}
+
+.stripScroll > * {
+  flex: none;
+  scroll-snap-align: start;
+}
+
+.spacer {
+  display: none;
+}
+
+/* The phone sheet's grabber; desktop and tablet have none. */
+.grabberRow {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.grabber {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--bay-r-sm);
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.grabberPill {
+  width: 36px;
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--ws-ink-3);
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .grabber:hover .grabberPill {
+    background: var(--bay-text-2);
+  }
+}
+
+.grabber:focus-visible .grabberPill {
+  background: var(--bay-text-2);
+}
+
+/* ---------------------------------------------------------------- 900 px and up */
+
+@media (width >= 900px), (width >= 480px) and (orientation: landscape) {
+  /* The inspector floats on the right, above the dock; hidden, it slides
+     24 px out and fades, then leaves the tab order (inert, hidden). */
+  .inspector {
+    position: absolute;
+    top: var(--gap);
+    right: var(--gap);
+    bottom: calc(var(--app-dock, 0px) + var(--gap));
+    width: var(--inspector-w);
+    transition:
+      opacity var(--dur-3) var(--ease-spring),
+      translate var(--dur-3) var(--ease-spring),
+      visibility 0s linear 0s;
+  }
+
+  .workspace:not([data-open]) .inspector {
+    visibility: hidden;
+    opacity: 0;
+    translate: 24px 0;
+    pointer-events: none;
+    transition:
+      opacity var(--dur-2) var(--ease-out),
+      translate var(--dur-2) var(--ease-out),
+      visibility 0s linear var(--dur-2);
+  }
+
+  .canvas {
+    position: absolute;
+    top: var(--gap);
+    right: var(--gap);
+    bottom: calc(var(--app-dock, 0px) + var(--strip-space) + var(--gap));
+    left: var(--gap);
+  }
+
+  /* The strip's foot lines up with the inspector's, a gap above the dock. */
+  .strip {
+    position: absolute;
+    right: var(--gap);
+    bottom: calc(var(--app-dock, 0px) + var(--gap));
+    left: var(--gap);
+  }
+
+  .workspace[data-open] :is(.canvas, .strip) {
+    right: calc(var(--inspector-w) + 2 * var(--gap));
+  }
+}
+
+/* Tablet: a narrower inspector. The canvas keeps clear of it as on a desktop
+   (so the caption and the actions pill never sit under the glass); the strip
+   runs the full width under it, the inspector ending above the strip. */
+@media (900px <= width < 1200px) {
+  .workspace {
+    --inspector-w: 360px;
+  }
+
+  .workspace[data-open] .strip {
+    right: var(--gap);
+  }
+
+  .inspector {
+    bottom: calc(var(--app-dock, 0px) + var(--strip-space) + var(--gap));
+  }
+}
+
+/* A landscape window under 900 px (a small window, a phone on its side): the
+   desktop arrangement, the inspector full height beside the canvas and the
+   strip, only narrower. */
+@media (480px <= width < 900px) and (orientation: landscape) {
+  .workspace {
+    --inspector-w: clamp(256px, 42vw, 340px);
+  }
+}
+
+/* A short window outside the phone layout: the picture keeps the height.
+   Tighter gaps and strip, no caption, and the picture's actions move up into
+   the toolbar band, at its right (left of the Show pill when the inspector is
+   hidden), so nothing sits under the picture. */
+@media (height < 640px) and (width >= 900px), (height < 640px) and (width >= 480px) and (orientation: landscape) {
+  .workspace {
+    --gap: 8px;
+    --fit-pad: 12px;
+  }
+
+  .workspace[data-strip='strip'] {
+    --strip-h: 84px;
+  }
+
+  .workspace[data-strip='timeline'] {
+    --strip-h: 128px;
+  }
+
+  .workspace[data-actions] {
+    --band: 52px;
+  }
+
+  .workspace[data-caption],
+  .workspace[data-actions],
+  .workspace[data-caption][data-actions] {
+    --below: 0px;
+  }
+
+  .caption {
+    display: none;
+  }
+
+  .actions,
+  .caption + .actions {
+    position: absolute;
+    top: calc(-1 * var(--band));
+    right: 0;
+    z-index: 2;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .workspace[data-band][data-actions] :is(.toolbar, .actions) {
+    max-width: calc(50% - 4px);
+  }
+
+  .workspace:not([data-open]) .actions {
+    right: 152px;
+    max-width: calc(100% - 152px);
+  }
+
+  .workspace[data-band][data-actions]:not([data-open]) :is(.toolbar, .actions) {
+    max-width: calc(50% - 80px);
+  }
+}
+
+/* ---------------------------------------------------------------- phone */
+
+/* A phone (portrait under 900 px, or anything under 480 px): the canvas on
+   top, the strip under it, room for the sheet at its lowest detent; the
+   inspector is a bottom sheet over all of it with three heights: peek (the
+   grabber and the footer), half and full (to the top bar). */
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .workspace {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .workspace[data-strip='strip'] {
+    --strip-h: 96px;
+  }
+
+  .workspace[data-strip='timeline'] {
+    --strip-h: 148px;
+  }
+
+  .canvas {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    margin: var(--gap);
+  }
+
+  /* The picture sits at the top, its guides about 16 px under the header,
+     instead of floating in the middle of the space left over. */
+  .stage {
+    justify-content: flex-start;
+    padding-top: 12px;
+  }
+
+  .strip {
+    position: relative;
+    flex: none;
+    margin: 0 var(--gap) var(--gap);
+  }
+
+  .spacer {
+    display: block;
+    flex: none;
+    height: var(--sheet-peek, 120px);
+  }
+
+  .inspector {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: var(--sheet-peek, 120px);
+    border-radius: var(--r-panel) var(--r-panel) 0 0;
+    box-shadow:
+      var(--glass-edge),
+      0 -12px 40px color-mix(in srgb, var(--bay-stage-frame) 45%, transparent);
+    transition: height var(--dur-3) var(--ease-out);
+  }
+
+  .workspace[data-detent='half'] .inspector {
+    height: 50%;
+  }
+
+  .workspace[data-detent='full'] .inspector {
+    height: 100%;
+  }
+
+  /* Peek shows the grabber, the head if the page has one, and the footer;
+     the body is still painted under the sheet's clip (a sliver of the h1),
+     so it is hidden. It hides after the sheet has shrunk and shows at once. */
+  .workspace[data-detent='peek'] .body {
+    visibility: hidden;
+    transition: visibility 0s linear var(--dur-3);
+  }
+
+  .head {
+    min-height: 0;
+    padding: 0 20px 8px;
+  }
+
+  .body {
+    padding: 0 20px;
+  }
+
+  .body > [data-bay-block='page-header'] {
+    padding: 4px 0 20px;
+  }
+
+  /* The sheet rests on the tab bar, which already clears the home indicator. */
+  .footer {
+    padding: 12px 20px 14px;
+  }
+
+  .workspace[data-detent='peek'] .footer {
+    padding-top: 2px;
+    border-top: 0;
+    background: none;
+  }
+
+  .toolbar {
+    max-width: 100%;
+  }
+}
+
+/* Reduced motion: the inspector only fades (global.css zeroes durations),
+   the picture does not glide (Workspace.tsx skips it), the Show pill and the
+   picture appear at once. */
+@media (prefers-reduced-motion: reduce) {
+  .workspace:not([data-open]) .inspector {
+    translate: none;
+  }
+}

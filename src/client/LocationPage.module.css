@@ -1,5 +1,9 @@
-/* The Location tab's own pieces; the layout and stage come from Studio.module.css. */
+/* The Location tab's own pieces; the canvas, inspector and strip come from
+   the Workspace (layouts/Workspace.module.css). */
 
+/* The empty upload box (DESIGN 4, ImageDropZone): dashed at rest, filling in
+   when the pointer is over it. The zone's own pill and drag-over wash sit on
+   top of it. */
 .dropEmpty {
   display: grid;
   place-items: center;
@@ -7,24 +11,40 @@
   min-height: 180px;
   padding: 24px 20px 56px;
   border: 1px dashed var(--bay-border-strong);
-  border-radius: var(--bay-r-md);
-  background: var(--bay-bg-subtle);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-sunken);
   color: var(--bay-text-3);
   text-align: center;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .dropEmpty:hover {
+    background: var(--bay-bg-subtle);
+  }
+}
+
+@supports (corner-shape: squircle) {
+  .dropEmpty,
+  .card,
+  .cardFrame {
+    corner-shape: squircle;
+  }
 }
 
 /* Latitude and longitude side by side. */
 .coords {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
   align-items: start;
 }
 
 .fieldError {
   margin: 0;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-err-fg);
-  font-size: 13px;
 }
 
 @media (max-width: 560px) {
@@ -33,43 +53,125 @@
   }
 }
 
-/* Earlier takes, as a shelf of thumbnails under the stage. */
-.earlier {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 20px 16px;
-}
-
-.earlierCard {
+/* The strip's cards: the take on the canvas first, then earlier locations.
+   A card (DESIGN 4) is a solid surface with a hairline; hover or keyboard
+   focus brightens the border and zooms the picture inside its own frame. The
+   strip is a fixed height, so a card fills it and nothing lifts. */
+.card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
+  gap: 4px;
+  width: 148px;
+  height: 100%;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+  color: var(--bay-text-2);
+  font: inherit;
   text-align: left;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+button.card {
   cursor: pointer;
 }
 
-.earlierCard:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: 3px;
-  border-radius: var(--bay-r-md);
+/* The take on the canvas: the accent hairline says which one is showing. */
+.card[data-current] {
+  border-color: var(--bay-accent);
+  color: var(--bay-text);
 }
 
-.earlierThumb {
+button.card:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+  border-color: var(--bay-border-strong);
+  color: var(--bay-text);
+}
+
+@media (hover: hover) {
+  button.card:hover {
+    border-color: var(--bay-border-strong);
+    color: var(--bay-text);
+  }
+}
+
+button.card:active {
+  border-color: var(--bay-border-hair);
+}
+
+/* The picture sits in its own clipped frame, so the zoom stays inside it. */
+.cardFrame {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--r-control);
+  background: var(--bay-stage-frame);
+}
+
+.cardThumb {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: contain;
-  border-radius: var(--bay-r-md);
-  background: var(--bay-stage-frame);
-  transition: opacity var(--bay-dur-fast) var(--bay-ease);
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--dur-3) var(--ease-out);
 }
 
-.earlierCard:hover .earlierThumb {
-  opacity: 0.85;
+button.card:focus-visible .cardThumb {
+  transform: scale(1.03);
+}
+
+@media (hover: hover) {
+  button.card:hover .cardThumb {
+    transform: scale(1.03);
+  }
+}
+
+.cardName {
+  flex: none;
+  padding: 0 2px;
+  overflow: hidden;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Reduced motion: the border and the ring carry the state; nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  button.card:focus-visible .cardThumb,
+  button.card:hover .cardThumb {
+    transform: none;
+  }
+}
+
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .card {
+    width: 120px;
+  }
+}
+
+/* "Check again" and "Stop waiting" under the lost-track alert in the frame:
+   a plain row, no glass on the frame's solid black. */
+.alertActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* A failed download sits at the foot of the picture, over it. */
+.pictureAlert {
+  z-index: 1;
+  align-self: end;
+  width: min(440px, calc(100% - 24px));
+  margin-bottom: 12px;
 }
 
 .upscaleRow {

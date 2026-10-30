@@ -1,3 +1,4 @@
+/* Nothing here yet (DESIGN 4): one sentence, at most one action. */
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -9,19 +10,20 @@
 }
 
 .title {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
   color: var(--bay-text-2);
+  text-wrap: balance;
 }
 
 .hint {
-  font-size: 13px;
-  color: var(--bay-text-3);
   max-width: 420px;
-  line-height: 1.55;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text-3);
+  text-wrap: pretty;
 }
 
 .action {
-  margin-top: 6px;
+  margin-top: 8px;
 }

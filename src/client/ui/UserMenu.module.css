@@ -1,15 +1,19 @@
+/* The identity chip: avatar 28 + name (DESIGN 4). It sits on glass (the
+   sidebar), so its text is ink or ink 2 only. */
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  color: var(--bay-text-2);
-  font-family: var(--bay-font-sans);
-  font-size: 13px;
+  max-width: 100%;
+  font: var(--text-headline);
   font-weight: 500;
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text-2);
 }
 
 .name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -18,16 +22,35 @@
 .trigger {
   display: inline-flex;
   align-items: center;
-  background: transparent;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 4px 12px 4px 4px;
   border: none;
+  border-radius: var(--r-control);
+  background-color: transparent;
+  font: inherit;
   cursor: pointer;
-  border-radius: var(--bay-r-md);
-  padding: 2px 6px 2px 2px;
-  transition: background var(--bay-dur) var(--bay-ease);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
-.trigger[data-hovered] {
-  background: var(--bay-bg-sunken);
+.trigger[data-hovered],
+.trigger[data-focus-visible],
+.trigger[aria-expanded='true'] {
+  background-color: var(--glass-btn);
+}
+
+.trigger[data-hovered] .chip,
+.trigger[data-focus-visible] .chip,
+.trigger[aria-expanded='true'] .chip {
+  color: var(--bay-text);
+}
+
+.trigger[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+  transform: scale(0.98);
 }
 
 .trigger[data-focus-visible] {
@@ -35,28 +58,25 @@
   outline-offset: 2px;
 }
 
+/* The menu: a thick glass popover (DESIGN 2.3, 4). */
 .popover {
-  background: var(--bay-bg-surface);
-  border-radius: var(--bay-r-lg);
-  box-shadow: var(--bay-shadow-pop);
-  min-width: 200px;
+  composes: glass-thick from global;
+  min-width: 220px;
   padding: 6px;
-  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  outline: none;
 }
 
 .popover[data-entering] {
-  animation: popIn var(--bay-dur) var(--bay-ease);
+  animation: popIn var(--dur-3) var(--ease-spring);
 }
 
-@keyframes popIn {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.popover[data-placement='top'][data-entering] {
+  animation-name: popInUp;
+}
+
+.popover[data-exiting] {
+  animation: popOut 160ms var(--ease-out) forwards;
 }
 
 .menu {
@@ -67,22 +87,38 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 32px;
   padding: 6px 10px;
   border-radius: var(--bay-r-sm);
-  font-size: 13px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text);
   text-decoration: none;
   cursor: pointer;
+  outline: none;
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
-.item[data-focused] {
-  background: var(--bay-bg-sunken);
+.item[data-focused],
+.item[data-hovered] {
+  background-color: var(--glass-btn);
+}
+
+.item[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+.item[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
 }
 
 .email {
   padding: 6px 10px;
-  font-size: 12px;
-  color: var(--bay-text-3);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  overflow-wrap: anywhere;
 }
 
 .email[data-disabled] {
@@ -91,7 +127,55 @@
 
 .separator {
   height: 1px;
-  background: var(--bay-border-hair);
-  margin: 4px 0;
+  margin: 4px 6px;
   border: none;
+  background: var(--bay-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger[data-pressed] {
+    transform: none;
+  }
+
+  .popover[data-entering],
+  .popover[data-placement='top'][data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .popover[data-exiting] {
+    animation-name: fadeOut;
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@keyframes popInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes popOut {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
+    opacity: 0;
+  }
 }

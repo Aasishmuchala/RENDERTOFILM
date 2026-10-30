@@ -1,15 +1,20 @@
+/* A setting row (DESIGN 4): label and hint on the left, a 36 x 22 track on
+   the right with an 18 px white knob. The row is a solid field; the track
+   carries the focus ring. */
 .switch {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid var(--bay-border-hair);
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-bg-canvas);
+  border-radius: var(--r-control);
+  background: var(--bay-bg-sunken);
   cursor: pointer;
-  transition: border-color var(--bay-dur) var(--bay-ease);
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background-color var(--dur-1) var(--ease-out);
 }
 
 .switch[data-hovered] {
@@ -21,12 +26,16 @@
 }
 
 .switch[data-focus-visible] {
+  outline: none;
+}
+
+.switch[data-focus-visible] .track {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
 }
 
 .switch[data-disabled] {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -38,37 +47,49 @@
 }
 
 .label {
-  font-size: 14px;
+  font: var(--text-callout);
   font-weight: 500;
+  letter-spacing: var(--track-callout);
   color: var(--bay-text);
 }
 
 .hint {
-  font-size: 13px;
-  line-height: 1.45;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
   color: var(--bay-text-3);
 }
 
 .track {
   flex: none;
   position: relative;
-  width: 40px;
-  height: 24px;
-  border-radius: var(--bay-r-pill);
+  width: 36px;
+  height: 22px;
+  border-radius: var(--r-pill);
   background: var(--bay-border-strong);
-  transition: background var(--bay-dur) var(--bay-ease);
+  transition: background-color var(--dur-2) var(--ease-out);
 }
 
 .thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(30, 27, 24, 0.25);
-  transition: transform var(--bay-dur) var(--bay-ease);
+  background: var(--bay-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bay-bg-canvas) 70%, transparent);
+  transition:
+    translate var(--dur-2) var(--ease-out),
+    scale var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
+}
+
+.switch[data-hovered] .thumb {
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--bay-bg-canvas) 80%, transparent);
+}
+
+.switch[data-pressed] .thumb {
+  scale: 1.05;
 }
 
 .switch[data-selected] .track {
@@ -76,12 +97,16 @@
 }
 
 .switch[data-selected] .thumb {
-  transform: translateX(16px);
+  translate: 14px 0;
 }
 
+/* Reduced motion: the knob jumps, the colours still change. */
 @media (prefers-reduced-motion: reduce) {
-  .track,
   .thumb {
-    transition: none;
+    transition: box-shadow var(--dur-2) var(--ease-out);
+  }
+
+  .switch[data-pressed] .thumb {
+    scale: none;
   }
 }

@@ -1,11 +1,16 @@
+/* A round person avatar. The palette comes inline from the bay-react tokens;
+   a hairline inside the edge keeps a light tile from bleeding into the dark
+   surface. */
 .avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
+  outline: 1px solid var(--bay-border);
+  outline-offset: -1px;
   object-fit: cover;
-  font-family: var(--bay-font-sans);
+  font-family: var(--font-sans);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--track-footnote);
   flex-shrink: 0;
 }

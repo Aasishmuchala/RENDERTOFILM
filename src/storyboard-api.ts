@@ -4,6 +4,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTextTask, textTaskSnapshot } from './ai-text.ts';
+import {
+  DEFAULT_DIRECTOR_LENS,
+  DIRECTION_DOCTRINE,
+  DIRECTOR_LENS_IDS,
+  type DirectorLensId,
+  lensBlock,
+} from './direction.ts';
 import { ownerKey, readLibrary, type Still, updateLibrary } from './library.ts';
 import {
   ANGLE_IDS,
@@ -45,6 +52,10 @@ import { router, signedInProcedure } from './trpc.ts';
  * story arc (and keeps the light consistent), and the frames are ordered by
  * that. A batch that fails leaves its images on the board as rendered; the
  * other batches' plans, already paid for, are kept.
+ *
+ * The planner directs by src/direction.ts (story function, blocking with an
+ * end state, continuity, cut geometry), and by one director lens when the
+ * job has one (`directorStyle`); the answer's shape is the same either way.
  */
 
 const PLANNER_MODEL = 'claude-sonnet-5-5';
@@ -96,6 +107,8 @@ export type StoryboardJob = {
   updatedAt?: string | undefined;
   storyline: StorylineId;
   story: string;
+  /** The director lens the planner directs with (src/direction.ts); unset on plans made before it, read as 'none'. */
+  directorStyle?: DirectorLensId | undefined;
   imageModel: ImageModelId;
   resolution: string;
   images: StoryboardImage[];
@@ -154,14 +167,16 @@ function notFound(): TRPCError {
   return new TRPCError({ code: 'NOT_FOUND', message: 'That storyboard is no longer saved. Plan a new one.' });
 }
 
-const PLANNER_SYSTEM =
-  'You are the director and director of photography of a cinematic architectural film. You are given images of one architecture or landscape project and a storyline, and you plan how each image is re-shot as a photoreal film still so the set tells that story. You only ever choose from the presets you are given, and you never ask for anything that is not already in the images.';
+export const PLANNER_SYSTEM = [
+  'You are the director and director of photography of a cinematic architectural film. You are given images of one architecture or landscape project and a storyline, and you plan how each image is re-shot as a photoreal film still so the set tells that story. You only ever choose from the presets you are given, and you never ask for anything that is not already in the images.',
+  DIRECTION_DOCTRINE,
+].join('\n\n');
 
 function presetList<T extends { id: string; name: string; hint: string }>(list: readonly T[]): string {
   return list.map((x) => `- "${x.id}": ${x.name} (${x.hint})`).join('\n');
 }
 
-function plannerPrompt(job: StoryboardJob, from: number, count: number, planned: readonly FramePlan[]): string {
+export function plannerPrompt(job: StoryboardJob, from: number, count: number, planned: readonly FramePlan[]): string {
   const storyline = STORYLINES.find((s) => s.id === job.storyline) ?? STORYLINES[0];
   const total = job.images.length;
   return [
@@ -196,6 +211,7 @@ function plannerPrompt(job: StoryboardJob, from: number, count: number, planned:
     'People presets:',
     presetList(CROWDS),
     '',
+    lensBlock(job.directorStyle),
     'For each image give: "image" (its number here), "space" ("exterior" or "interior"), "position", "title" (two to five words, e.g. "Arrival at the gate"), "beat" (one sentence: what this frame says in the story), "look", "look_why", "crowd", "people", "crowd_why" (each why is one short sentence).',
     'Answer with one JSON object and nothing else, in exactly this shape:',
     '{"frames":[{"image":1,"space":"exterior","position":10,"title":"...","beat":"...","look":"golden-hour","look_why":"...","crowd":"few","people":"...","crowd_why":"..."}]}',
@@ -512,6 +528,8 @@ export const storyboardRouter = router({
           .max(MAX_STORYBOARD_IMAGES, `A storyboard takes up to ${MAX_STORYBOARD_IMAGES} images.`),
         storyline: z.enum(STORYLINE_IDS),
         story: z.string().max(1500, 'Your story is over 1,500 characters. Shorten it and try again.').default(''),
+        /** One director lens for the whole plan (src/direction.ts); older pages send none. */
+        directorStyle: z.enum(DIRECTOR_LENS_IDS).default(DEFAULT_DIRECTOR_LENS),
         imageModel: z.enum(IMAGE_MODEL_IDS),
         resolution: z.string().max(20).optional(),
       })
@@ -527,6 +545,7 @@ export const storyboardRouter = router({
         createdAt: new Date().toISOString(),
         storyline: input.storyline,
         story: input.story.trim(),
+        directorStyle: input.directorStyle,
         imageModel: input.imageModel,
         resolution,
         images: input.images,
@@ -651,6 +670,8 @@ export const storyboardRouter = router({
     const prompt = buildCinematicPrompt(look, note, crowd, who, angle, '', {
       strict: true,
       maxLength: imageModelPromptLimit(job.imageModel) ?? 4000,
+      // The physical realism this frame's own words switch on (src/realism.ts); Stills never asks for it.
+      realism: { interior: plan.space === 'interior', cues: [plan.title, plan.beat, plan.people, note].filter(Boolean).join('. ') },
     });
     let id: string;
     try {

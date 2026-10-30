@@ -88,3 +88,24 @@ export function stillThumbUrl(id: string): string {
 export function stillViewUrl(id: string): string {
   return `${libraryUrl('still', id)}?view`;
 }
+
+/** A neutral frame for a clip with no picture to show (no poster, and no still left). */
+export const NO_POSTER = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#1e1b18"/><path d="M72 38v24l20-12z" fill="#a59c90"/></svg>'
+)}`;
+
+/**
+ * A clip's poster: its own stored copy of the image it started on (src/thumbs.ts),
+ * else a copy of the library still it was made from while `stills` still
+ * has it (`view` for the big screen). `undefined` when it has neither — show
+ * a placeholder, never a request that 404s.
+ */
+export function clipPosterUrl(
+  clip: { id: string; stillId: string; posterKey?: string | undefined },
+  stills: { has(id: string): boolean },
+  size: 'thumb' | 'view' = 'thumb'
+): string | undefined {
+  if (clip.posterKey) return `${libraryUrl('clip', clip.id)}?poster`;
+  if (!clip.stillId || !stills.has(clip.stillId)) return undefined;
+  return size === 'view' ? stillViewUrl(clip.stillId) : stillThumbUrl(clip.stillId);
+}

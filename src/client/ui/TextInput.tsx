@@ -32,7 +32,7 @@ export function TextInput({
 }: TextInputProps) {
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
-    // An IME commit (confirming a CJK candidate) also arrives as Enter —
+    // An IME commit (confirming a CJK candidate) also arrives as Enter:
     // `isComposing` (and the legacy keyCode 229) marks those, and firing the
     // callback there would submit half-typed text.
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;

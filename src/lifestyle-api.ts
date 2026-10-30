@@ -4,6 +4,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTextTask, textTaskSnapshot } from './ai-text.ts';
+import {
+  DEFAULT_DIRECTOR_LENS,
+  DIRECTION_DOCTRINE,
+  DIRECTOR_LENS_IDS,
+  type DirectorLensId,
+  lensBlock,
+} from './direction.ts';
 import { type Library, ownerKey, readLibrary, type Still, type TaskState, updateLibrary } from './library.ts';
 import {
   buildCastSheetPrompt,
@@ -20,13 +27,30 @@ import {
   CHAPTERS,
   type ChapterId,
   DEFAULT_HERITAGE,
+  DEPTH_IDS,
+  DEPTH_PRESETS,
+  type DepthId,
+  FOCUS_IDS,
+  FOCUS_TARGETS,
+  type FocusId,
+  type FrameCamera,
+  frameCamera,
+  type FrameLighting,
+  frameLighting,
   GRAMMAR_IDS,
   grammarById,
   GRAMMARS,
   type GrammarId,
+  LIGHTING_PRESET_IDS,
+  LIGHTING_PRESETS,
+  lightingPresetById,
+  type LightingPresetId,
   MOMENT_IDS,
   type MomentId,
   MOMENTS,
+  SUN_POSITION_IDS,
+  SUN_POSITIONS,
+  type SunPositionId,
 } from './lifestyle.ts';
 import { ETHNICITIES, ETHNICITY_IDS, type EthnicityId } from './looks.ts';
 import {
@@ -60,7 +84,9 @@ import { router, signedInProcedure } from './trpc.ts';
  * most six images per call, so a larger set goes in batches of six, one after
  * another, each told what the earlier ones planned so every frame lands in the
  * same film. A batch that fails leaves its images on the board as empty
- * frames; the other batches' plans, already paid for, are kept.
+ * frames; the other batches' plans, already paid for, are kept. Like the
+ * Director's, the planner directs by src/direction.ts and by one director
+ * lens when the job has one (`directorStyle`); the answer's shape is the same.
  *
  * A two-pass plan (`pass2`, the default) shoots every take twice. Pass 1 is
  * the filmic photograph, on the plan's own model; once it has succeeded, the
@@ -115,6 +141,15 @@ export type LifestyleFrame = {
   people: string;
   /** The household roles in the frame (friends and staff are never roles). */
   cast: CastRoleId[];
+  /** Where the sun is (the window side indoors), the planner's lighting design; absent on frames planned before 2026-10-29. */
+  sun?: SunPositionId | undefined;
+  /** The frame's lighting brief, ≤ 300 chars: pools and shade, who stands where in it, what falls dark. */
+  light?: string | undefined;
+  /** The lighting preset the planner chose (Phase 7); absent on frames planned before it. */
+  lighting?: LightingPresetId | undefined;
+  /** The shot's depth of field and focus plane (Phase 7); absent = the shot's own. */
+  depth?: DepthId | undefined;
+  focus?: FocusId | undefined;
   /** Why this chapter and shot, in one sentence. */
   why: string;
 };
@@ -127,6 +162,13 @@ export type LifestyleChoice = {
   crop?: string | undefined;
   people?: string | undefined;
   note?: string | undefined;
+  /** Where the sun is; `null` = the person cleared it: back to the chapter's fixed light. */
+  sun?: SunPositionId | null | undefined;
+  light?: string | undefined;
+  /** A lighting preset, depth of field or focus plane; `null` = the person cleared it: back to the chapter's light / the shot's own. */
+  lighting?: LightingPresetId | null | undefined;
+  depth?: DepthId | null | undefined;
+  focus?: FocusId | null | undefined;
   /** In the film (the default); a frame left out is neither cast nor shot. */
   include?: boolean | undefined;
   /** The take used for this frame, when not its newest (a still id). */
@@ -182,6 +224,10 @@ export type LifestyleShot = {
   createdAt: string;
   pass2?: Pass2State | undefined;
   plate?: true | undefined;
+  /** The lighting the first pass was shot with (Phase 5); the develop relights to it. Unset on older takes and unlit frames. */
+  lighting?: FrameLighting | undefined;
+  /** The depth and focus the first pass was shot with (Phase 7); the develop keeps them. Unset on older takes and frames without a camera design. */
+  camera?: FrameCamera | undefined;
 };
 
 export type LifestyleImage = { url: string; width: number; height: number; name: string };
@@ -199,6 +245,8 @@ export type LifestyleJob = {
   heritage: EthnicityId;
   /** The person's own note about who lives there. */
   household: string;
+  /** The director lens the planner directs with (src/direction.ts); unset on plans made before it, read as 'none'. */
+  directorStyle?: DirectorLensId | undefined;
   /** Optional light, colour and planting reference (ephemeral upload), the last image of every take. */
   lightRefUrl?: string | undefined;
   images: LifestyleImage[];
@@ -286,8 +334,10 @@ function resolutionFor(model: ImageModelId, asked: string | undefined): string {
   return offered.find((r) => r.name === '4K')?.id ?? defaultImageResolution(model);
 }
 
-const PLANNER_SYSTEM =
-  'You are the director and director of photography of a premium residential lifestyle film, planning how each render of one project is re-photographed as a real photograph of the residents living there. You only choose from the presets you are given and never ask for anything not already in the images.';
+export const PLANNER_SYSTEM = [
+  'You are the director and director of photography of a premium residential lifestyle film, planning how each render of one project is re-photographed as a real photograph of the residents living there. You only choose from the presets you are given and never ask for anything not already in the images.',
+  DIRECTION_DOCTRINE,
+].join('\n\n');
 
 function presetList<T extends { id: string; name: string; hint: string }>(list: readonly T[]): string {
   return list.map((x) => `- "${x.id}": ${x.name} (${x.hint})`).join('\n');
@@ -302,7 +352,7 @@ const EMPTY_SHOT: Record<GrammarId, string> = {
   empty: 'No people: the whole render re-photographed as it is.',
 };
 
-function plannerPrompt(job: LifestyleJob, from: number, count: number, planned: readonly LifestyleFrame[]): string {
+export function plannerPrompt(job: LifestyleJob, from: number, count: number, planned: readonly LifestyleFrame[]): string {
   const total = job.images.length;
   const heritage = (ETHNICITIES.find((e) => e.id === job.heritage) ?? ETHNICITIES[0]).name;
   return [
@@ -340,13 +390,29 @@ function plannerPrompt(job: LifestyleJob, from: number, count: number, planned: 
     '- "people", at most 400 characters: who of the household is there by role, where in the frame (beside things already in it) and what they are doing, ordinary and unposed; never how big they are, which the shot sets. For "empty" and "detail" it begins "No people." and then says what the subject is, e.g. "No people. Petals fallen on the stone path by the bench."',
     '- "cast": the household roles in the frame, from the roles below; the same household recurs across the film. "friends" and "staff" may be named in "people" but are never roles. Leave it [] for "empty" and "detail".',
     '- "moment": one of the signature moments below when a frame suits it (fit its people to the image), otherwise "".',
+    '- "sun": where the sun stands relative to the camera, one of the positions below (for an interior, the side the main window is on, in the same words). The take is relit from scratch, so the sun need not follow the render\'s own shadows: choose a back or side sun the geometry allows (open sky on that side, not a tower that would put the whole frame in shade unless that shade is the point). Prefer back and side light for people, and keep the chapter\'s time of day.',
+    '- "light", at most 300 characters, in your own words, concrete and motivated: where the sun lands in pools and what sits in shade (and what casts that shade: a tower, a canopy, a tree), where the people stand so they separate from what is behind them (in a pool of sun against shade, in shade against a sunlit background, or rim-lit), and what is allowed to fall to near-darkness. Say where light falls, not how it looks: no words about glow, haze, grain or colour grade. For example: "The tower on the left keeps the near walkway in cool shade; sun breaks through the jacaranda in pools down the middle. The mother walks out of shade into the first pool, rim-lit against the shaded façade; the bench corner falls dark."',
+    '- "lighting": one of the lighting presets below for the frame\'s setting (the outside list for an exterior, the inside list for an interior), or "" to leave the chapter\'s light. The take is relit from scratch, so the render\'s own shadows need not be kept: choose the light the geometry allows at the chapter\'s time of day. Prefer the backlight and side-light presets for people (long shadows toward the camera, rims on hair and leaves, texture in every surface); "dappled-canopy" where trees stand over paving and people; "soft-overcast" rarely, for a quiet frame that wants no sun; "blue-hour" and "evening-lamps" only when the render already shows lamps or lit windows. With a preset, "sun" gives only its side, left or right, where the preset needs one.',
+    '- "depth": one of the depth presets below, or "" for the shot\'s own: "deep" for a wide of architecture, "natural" for most frames with people at mid distance, "portrait" for a close-up, "dreamy" rarely, for a detail or a close-up where one thing alone matters.',
+    '- "focus": where the focus plane sits, one of the focus targets below, or "" for the people (or the subject).',
+    'Sun positions:',
+    presetList(SUN_POSITIONS),
+    'Lighting presets, outside:',
+    presetList(LIGHTING_PRESETS.filter((p) => p.setting === 'exterior')),
+    'Lighting presets, inside:',
+    presetList(LIGHTING_PRESETS.filter((p) => p.setting === 'interior')),
+    'Depth presets:',
+    presetList(DEPTH_PRESETS),
+    'Focus targets:',
+    presetList(FOCUS_TARGETS),
     'Household roles:',
     CAST_ROLES.map((r) => `- "${r.id}": ${r.description}`).join('\n'),
     'Signature moments:',
     presetList(MOMENTS),
-    'For each image give: "image" (its number here), "setting" ("exterior" or "interior"), "space" (a few words naming the place, e.g. "pool deck"), "chapter", "position", "title" (two to five words, e.g. "Morning by the pool"), "grammar", "moment", "keep", "crop", "people", "cast", "why" (one short sentence: why this chapter and shot).',
+    lensBlock(job.directorStyle),
+    'For each image give: "image" (its number here), "setting" ("exterior" or "interior"), "space" (a few words naming the place, e.g. "pool deck"), "chapter", "position", "title" (two to five words, e.g. "Morning by the pool"), "grammar", "moment", "keep", "crop", "people", "cast", "sun", "light", "lighting", "depth", "focus", "why" (one short sentence: why this chapter and shot).',
     'Answer with one JSON object and nothing else, in exactly this shape:',
-    '{"frames":[{"image":1,"setting":"exterior","space":"...","chapter":"morning","position":12,"title":"...","grammar":"wide","moment":"","keep":"...","crop":"","people":"...","cast":["mother"],"why":"..."}]}',
+    '{"frames":[{"image":1,"setting":"exterior","space":"...","chapter":"morning","position":12,"title":"...","grammar":"wide","moment":"","keep":"...","crop":"","people":"...","cast":["mother"],"sun":"behind-left","light":"...","lighting":"morning-backlight-trees","depth":"natural","focus":"subject","why":"..."}]}',
   ]
     .filter(Boolean)
     .join('\n');
@@ -382,6 +448,23 @@ const planSchema = z.object({
         .unknown()
         .optional()
         .transform((v): CastRoleId[] => (Array.isArray(v) ? CAST_ROLE_IDS.filter((r) => v.includes(r)) : [])),
+      sun: z
+        .unknown()
+        .optional()
+        .transform((v): SunPositionId | undefined => ((SUN_POSITION_IDS as readonly unknown[]).includes(v) ? (v as SunPositionId) : undefined)),
+      light: text(300),
+      lighting: z
+        .unknown()
+        .optional()
+        .transform((v): LightingPresetId | undefined => ((LIGHTING_PRESET_IDS as readonly unknown[]).includes(v) ? (v as LightingPresetId) : undefined)),
+      depth: z
+        .unknown()
+        .optional()
+        .transform((v): DepthId | undefined => ((DEPTH_IDS as readonly unknown[]).includes(v) ? (v as DepthId) : undefined)),
+      focus: z
+        .unknown()
+        .optional()
+        .transform((v): FocusId | undefined => ((FOCUS_IDS as readonly unknown[]).includes(v) ? (v as FocusId) : undefined)),
       why: text(300),
     })
   ),
@@ -457,6 +540,11 @@ export function parsePlan(answer: string, from: number, count: number): Lifestyl
         crop: f.crop,
         people: withPeople ? f.people : noPeople(f.people),
         cast: withPeople ? f.cast : [],
+        sun: f.sun,
+        light: f.light || undefined,
+        ...(f.lighting && lightingPresetById(f.lighting)?.setting === f.setting ? { lighting: f.lighting } : {}),
+        ...(f.depth ? { depth: f.depth } : {}),
+        ...(f.focus ? { focus: f.focus } : {}),
         why: f.why,
       });
     }
@@ -617,6 +705,11 @@ export function boardFrame(frame: LifestyleFrame, choice: LifestyleChoice | unde
     crop: c.crop ?? frame.crop,
     people,
     cast: withPeople ? castRoles(frame, fits, c.people !== undefined, people) : [],
+    sun: c.sun === null ? undefined : (c.sun ?? frame.sun),
+    light: (c.light ?? frame.light ?? '').trim() || undefined,
+    lighting: c.lighting === null ? undefined : (c.lighting ?? frame.lighting),
+    depth: c.depth === null ? undefined : (c.depth ?? frame.depth),
+    focus: c.focus === null ? undefined : (c.focus ?? frame.focus),
     note: c.note?.trim() ?? '',
     include: c.include ?? true,
   };
@@ -845,13 +938,18 @@ async function pass1Size(
  * (`shot.plate`) is developed: the plate (image 1), the render (image 2) and,
  * when the plan has one, the light reference (image 3), with the develop
  * prompt cut to the pass-2 model's cap. Any other take gets today's request:
- * the first pass and the render, re-photographed at full detail. Pure.
+ * the first pass and the render, re-photographed at full detail. A plate's
+ * develop relights to the lighting the take recorded (`shot.lighting`), not
+ * the board's current fields, and keeps the lighting preset and the camera
+ * (depth and focus) the take recorded. The frame's own words (keep-list,
+ * place, title, people brief) only switch on the develop's realism clauses.
+ * Pure.
  */
 export function pass2Request(
   job: TwoPassJob,
   shot: LifestyleShot,
   pass1: Still,
-  frame: Pick<LifestyleFrame, 'setting' | 'chapter' | 'grammar'> | undefined,
+  frame: (Pick<LifestyleFrame, 'setting' | 'chapter' | 'grammar'> & Partial<Pick<LifestyleFrame, 'keep' | 'space' | 'title' | 'people'>>) | undefined,
   urls: { pass1: string; render: string }
 ): { references: { tag: string; url: string }[]; prompt: string } {
   const grammar = grammarById(pass1.lifestyle?.grammar ?? frame?.grammar);
@@ -873,6 +971,9 @@ export function pass2Request(
       lightReference: lightRefUrl !== undefined,
       resolutionName,
       maxLength: imageModelPromptLimit(job.pass2.imageModel),
+      sun: shot.lighting?.sun, light: shot.lighting?.light,
+      lighting: shot.lighting?.preset, depth: shot.camera?.depth, focus: shot.camera?.focus,
+      scene: [frame?.keep, frame?.space, frame?.title, frame?.people].filter(Boolean).join('. '),
     }),
   };
 }
@@ -1166,6 +1267,11 @@ const choiceInput = frameInput.extend({
   crop: z.string().max(200, 'What the camera moves in on is over 200 characters. Shorten it and try again.').optional(),
   people: z.string().max(400, 'Who is there is over 400 characters. Shorten it and try again.').optional(),
   note: z.string().max(400, 'The direction is over 400 characters. Shorten it and try again.').optional(),
+  sun: z.enum(SUN_POSITION_IDS).nullable().optional(),
+  light: z.string().max(300, 'The lighting brief is over 300 characters. Shorten it and try again.').optional(),
+  lighting: z.enum(LIGHTING_PRESET_IDS).nullable().optional(),
+  depth: z.enum(DEPTH_IDS).nullable().optional(),
+  focus: z.enum(FOCUS_IDS).nullable().optional(),
   include: z.boolean().optional(),
   take: z.string().max(200).optional(),
 });
@@ -1193,6 +1299,8 @@ export const lifestyleRouter = router({
           .string()
           .max(400, 'The note about the household is over 400 characters. Shorten it and try again.')
           .default(''),
+        /** One director lens for the whole plan (src/direction.ts); older pages send none. */
+        directorStyle: z.enum(DIRECTOR_LENS_IDS).default(DEFAULT_DIRECTOR_LENS),
         /** Optional light, colour and planting reference: an ephemeral `/api/upload` URL. */
         lightRefUrl: z.string().url().optional(),
         /** The second pass that finishes each take; `null` shoots one pass. */
@@ -1224,6 +1332,7 @@ export const lifestyleRouter = router({
           : undefined,
         heritage: input.heritage,
         household: input.household.trim(),
+        directorStyle: input.directorStyle,
         lightRefUrl: input.lightRefUrl,
         images: input.images,
         status: 'planning',
@@ -1263,7 +1372,7 @@ export const lifestyleRouter = router({
       return out;
     }),
 
-  /** Save a frame's chapter, shot, keep-list, crop, people, note, inclusion or take as the person changes them. */
+  /** Save a frame's chapter, shot, keep-list, crop, people, note, sun, light, lighting, depth, focus, inclusion or take as the person changes them. */
   choose: signedInProcedure.input(choiceInput).mutation(async ({ ctx, input }) => {
     const owner = await ownerKey(ctx.req);
     const { id, image, ...choice } = input;
@@ -1446,6 +1555,8 @@ export const lifestyleRouter = router({
       }
       const grammar = grammarById(frame.grammar);
       const chapter = chapterById(frame.chapter);
+      const lighting = frameLighting(frame);
+      const camera = frameCamera(frame);
       if (grammar.people && (!frame.people || NO_PEOPLE_LEAD.test(frame.people))) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -1491,6 +1602,8 @@ export const lifestyleRouter = router({
           castRoles: frame.cast,
           note: frame.note,
           fixes,
+          sun: frame.sun, light: frame.light,
+          lighting: frame.lighting, depth: frame.depth, focus: frame.focus,
         },
         {
           heritage: job.heritage,
@@ -1530,7 +1643,14 @@ export const lifestyleRouter = router({
           () => true,
           (j) => ({
             shots: [
-              { image: frameImage, stillId: id, createdAt: still.createdAt, ...(isTwoPass(job) ? { plate: true as const } : {}) },
+              {
+                image: frameImage,
+                stillId: id,
+                createdAt: still.createdAt,
+                ...(isTwoPass(job) ? { plate: true as const } : {}),
+                ...(lighting ? { lighting } : {}),
+                ...(camera ? { camera } : {}),
+              },
               ...(j.shots ?? []),
             ].slice(0, 200),
             // A new take is the one the frame uses.

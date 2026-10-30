@@ -1,0 +1,86 @@
+/* The line under the primary action (DESIGN 3.3): footnote, ink 2 because
+   it sits on the inspector's glass. The breakdown opens under a small accent
+   trigger whose chevron turns as it opens. */
+.cost {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.summary {
+  margin: 0;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  text-wrap: pretty;
+}
+
+.disclosure {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 24 px tall for the pointer, flush with the text above it. */
+.trigger {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  margin: 2px 0 0 -2px;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: var(--bay-r-xs);
+  background: transparent;
+  color: var(--bay-accent-fg);
+  font: var(--text-footnote);
+  font-weight: 500;
+  letter-spacing: var(--track-footnote);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.trigger[data-hovered],
+.trigger[data-focus-visible] {
+  background-color: var(--glass-btn);
+  color: var(--bay-accent-hover);
+}
+
+.trigger[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+.trigger[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.chevron {
+  flex: none;
+  transition: rotate var(--dur-2) var(--ease-out);
+}
+
+.disclosure[data-expanded] .chevron {
+  rotate: 90deg;
+}
+
+.panel {
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  text-wrap: pretty;
+}
+
+.disclosure[data-expanded] .panel {
+  padding-top: 8px;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.panel p + p {
+  margin-top: 6px;
+}

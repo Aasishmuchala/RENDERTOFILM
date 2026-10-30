@@ -187,6 +187,67 @@ function bayErrorShape<
   return next;
 }
 
+/** Zod's own wording ("Too big: expected string to have <=512 characters"), as opposed to a message the schema's author wrote. */
+const ZOD_DEFAULT_MESSAGE = /^(Invalid\b|Too (big|small)\b|Unrecognized key|Required$|Input not\b)/;
+
+type InputIssue = {
+  message?: unknown;
+  path?: unknown;
+  code?: unknown;
+  origin?: unknown;
+  maximum?: unknown;
+  minimum?: unknown;
+};
+
+/** "taskId" becomes "Task id". */
+function fieldLabel(path: unknown): string | undefined {
+  if (!Array.isArray(path)) return undefined;
+  const name = [...path].reverse().find((p): p is string => typeof p === 'string');
+  if (!name) return undefined;
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : undefined;
+}
+
+/**
+ * One plain sentence for a failed input check, from the `ZodError` found on a
+ * `cause` chain: the first issue's own message when its schema wrote one, else a
+ * short "<field>: <message>" (or a length sentence for a string that is too
+ * long or short). tRPC's default message is the issues as pretty-printed JSON,
+ * which the visitor must never read. Built from the issue alone, so no stack or
+ * internal detail reaches the browser.
+ */
+function inputErrorMessage(cause: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  let current = cause;
+  for (let depth = 0; depth < 8; depth++) {
+    if (!(current instanceof Error) || seen.has(current)) return undefined;
+    seen.add(current);
+    const { issues } = current as Error & { issues?: unknown };
+    if (Array.isArray(issues)) {
+      const first = issues.find((i): i is InputIssue => typeof i === 'object' && i !== null);
+      if (!first) return undefined;
+      const raw = typeof first.message === 'string' ? first.message.trim() : '';
+      const field = fieldLabel(first.path);
+      // A message the schema's author wrote is already a sentence: use it as is.
+      if (raw && !ZOD_DEFAULT_MESSAGE.test(raw)) return raw.length > 200 ? `${raw.slice(0, 199)}…` : raw;
+      const what = first.origin === 'string' ? 'characters' : first.origin === 'array' ? 'items' : undefined;
+      if (first.code === 'too_big' && typeof first.maximum === 'number' && what) {
+        return `${field ?? 'This'} is too long (${first.maximum.toLocaleString('en-US')} ${what} at most).`;
+      }
+      if (first.code === 'too_small' && typeof first.minimum === 'number' && what) {
+        return first.minimum <= 1
+          ? `${field ?? 'This'} can't be empty.`
+          : `${field ?? 'This'} is too short (${first.minimum.toLocaleString('en-US')} ${what} at least).`;
+      }
+      if (!raw) return field ? `${field} is not valid.` : 'That request is not valid.';
+      const text = field ? `${field}: ${raw}` : raw;
+      return text.length > 200 ? `${text.slice(0, 199)}…` : text;
+    }
+    current = current.cause;
+  }
+  return undefined;
+}
+
 /** What the visitor reads when this app has no grant to call Runway for them. */
 const CONSENT_MESSAGE =
   'This app needs your permission to generate with your Runway account. Allow it, then try again.';
@@ -238,7 +299,11 @@ const t = initTRPC.context<Context>().create({
   // your own; never return `opts.shape` directly.
   errorFormatter(opts) {
     const { error, ctx } = opts;
-    const shape = bayErrorShape(opts);
+    let shape = bayErrorShape(opts);
+    // A failed input check answers a sentence, not the issues as JSON. 5xx
+    // answers keep `bayErrorShape`'s fixed sentence and reference.
+    const invalid = shape.data.httpStatus < 500 ? inputErrorMessage(error.cause) : undefined;
+    if (invalid) shape = { ...shape, message: invalid };
     const consent = consentUrlFrom(error.cause);
     if (consent) {
       return {

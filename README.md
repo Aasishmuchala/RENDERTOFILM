@@ -144,7 +144,7 @@ src/
 AGENTS.md
 bay.models.json
 bay.yaml
-design.md
+DESIGN.md
 Dockerfile
 index.html
 lefthook.yml

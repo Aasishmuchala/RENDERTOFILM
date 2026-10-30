@@ -1,44 +1,58 @@
+/* The scrim fades its colour, not its opacity: an ancestor with opacity < 1
+   would cut the modal's backdrop blur off while it fades in. */
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 110;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(20, 17, 14, 0.42);
+  padding: clamp(12px, 3vw, 24px);
+  background: var(--scrim);
 }
 
 .overlay[data-entering] {
-  animation: fade var(--bay-dur-fast) var(--bay-ease);
+  animation: scrimIn var(--dur-3) var(--ease-out);
 }
 
+.overlay[data-exiting] {
+  animation: scrimOut 160ms var(--ease-out) forwards;
+}
+
+/* The glass panel (DESIGN 2.3, 4): thick, because it carries text. */
 .modal {
+  composes: glass-thick from global;
   width: min(420px, 100%);
+  border-radius: var(--r-panel);
   outline: none;
+}
+
+.modal[data-entering] {
+  animation: dialogIn var(--dur-3) var(--ease-spring);
+}
+
+.modal[data-exiting] {
+  animation: dialogOut 160ms var(--ease-out) forwards;
 }
 
 .dialog {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 28px;
-  border-radius: var(--bay-r-lg);
-  background: var(--bay-bg-surface);
-  box-shadow: var(--bay-shadow-pop);
+  padding: 24px;
   outline: none;
 }
 
 .title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font: var(--text-title-2);
+  letter-spacing: var(--track-title-2);
   color: var(--bay-text);
+  text-wrap: balance;
 }
 
 .body {
-  font-size: 14px;
-  line-height: 1.5;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
   color: var(--bay-text-2);
 }
 
@@ -54,11 +68,53 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
-@keyframes fade {
+@media (prefers-reduced-motion: reduce) {
+  .modal[data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .modal[data-exiting] {
+    animation-name: fadeOut;
+  }
+}
+
+@keyframes scrimIn {
   from {
+    background-color: transparent;
+  }
+}
+
+@keyframes scrimOut {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes dialogOut {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
     opacity: 0;
   }
 }

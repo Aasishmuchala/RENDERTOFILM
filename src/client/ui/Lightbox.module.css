@@ -1,15 +1,21 @@
+/* The room goes dark around one picture. The scrim fades its colour, not its
+   opacity, so the bar's backdrop blur is never cut off by an ancestor. */
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(20, 17, 14, 0.92);
+  padding: clamp(12px, 3vw, 24px);
+  background: var(--scrim-deep);
 }
 
 .overlay[data-entering] {
-  animation: fade var(--bay-dur) var(--bay-ease);
+  animation: scrimIn var(--dur-3) var(--ease-out);
+}
+
+.overlay[data-exiting] {
+  animation: scrimOut 160ms var(--ease-out) forwards;
 }
 
 .modal {
@@ -18,41 +24,127 @@
   outline: none;
 }
 
+.modal[data-entering] {
+  animation: dialogIn var(--dur-3) var(--ease-spring);
+}
+
+.modal[data-exiting] {
+  animation: dialogOut 160ms var(--ease-out) forwards;
+}
+
 .dialog {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: calc(100vh - 48px);
+  gap: 12px;
+  max-height: calc(100dvh - 48px);
   outline: none;
-  --bay-text: #f6f1e9;
-  --bay-text-2: #f6f1e9;
-  --bay-bg-sunken: rgba(246, 241, 233, 0.12);
 }
 
+/* The title bar: a thin glass pill above the picture. The picture sets the
+   width; the title gives way (ellipsis) rather than widening it. */
 .bar {
+  composes: glass-thin from global;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  color: #f6f1e9;
+  min-height: 48px;
+  padding: 6px 6px 6px 20px;
+  border-radius: var(--r-pill);
+  color: var(--bay-text);
 }
 
 .title {
+  flex: 1;
+  width: 0;
+  min-width: 0;
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font: var(--text-title-2);
+  letter-spacing: var(--track-title-2);
+  color: var(--bay-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Close: a 36 px round ghost button. */
+.bar button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--r-pill);
+  flex: none;
+}
+
+/* The picture itself: no glass, no filter, nothing over it. */
 .image {
   display: block;
   max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 100px);
+  max-height: calc(100dvh - 48px - 60px);
   object-fit: contain;
-  border-radius: var(--bay-r-lg);
+  border-radius: var(--r-card);
 }
 
-@keyframes fade {
+@media (width < 480px), (width < 900px) and (orientation: portrait) {
+  .bar {
+    min-height: 44px;
+    padding: 4px 4px 4px 16px;
+  }
+
+  .title {
+    font: var(--text-headline);
+    letter-spacing: var(--track-headline);
+  }
+
+  .image {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px - 56px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal[data-entering] {
+    animation-name: fadeIn;
+  }
+
+  .modal[data-exiting] {
+    animation-name: fadeOut;
+  }
+}
+
+@keyframes scrimIn {
   from {
+    background-color: transparent;
+  }
+}
+
+@keyframes scrimOut {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes dialogOut {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
     opacity: 0;
   }
 }

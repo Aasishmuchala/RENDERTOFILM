@@ -1,0 +1,63 @@
+/**
+ * The glass material (DESIGN.md 2.3). Global on purpose: a material is shared
+ * by design, so this is the one sanctioned exception to "CSS Modules only".
+ * A module takes it with `composes: glass from global;` (or glass-thick,
+ * glass-thin) and adds only its own geometry (radius, padding, position).
+ * Values come from the `--glass-*` tokens in tokens.css.
+ *
+ *   .glass        sidebar, action bar, top bar, tab bar
+ *   .glass-thick  sheets, dialogs, popovers, menus (text-heavy)
+ *   .glass-thin   the stage toolbar pill (icon buttons, short labels)
+ *
+ * Never glass on glass, never glass under scrolling lists, fields or images.
+ * Blur radius never animates.
+ */
+
+.glass,
+.glass-thick,
+.glass-thin {
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+
+.glass {
+  background: var(--glass-fill);
+}
+
+.glass-thick {
+  background: var(--glass-fill-thick);
+}
+
+.glass-thin {
+  --glass-blur: 16px;
+  background: var(--glass-fill-thin);
+}
+
+@supports (corner-shape: squircle) {
+  .glass,
+  .glass-thick,
+  .glass-thin {
+    corner-shape: squircle;
+  }
+}
+
+/* No backdrop-filter: the fill goes solid so text keeps its contrast. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-thick,
+  .glass-thin {
+    background: var(--glass-solid);
+  }
+}
+
+/* Reduced transparency: no blur, solid fill (the ambient layer is not rendered). */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-thick,
+  .glass-thin {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--glass-solid);
+  }
+}

@@ -110,7 +110,7 @@ export function TagPicker({ label, options, selected, onChange }: TagPickerProps
     >
       <TagList className={styles.pickerList}>
         {options.map((o) => (
-          <Tag key={o.tag} id={o.tag} textValue={`@${o.tag}, ${o.count}`} className={styles.pick}>
+          <Tag key={o.tag} id={o.tag} textValue={`@${o.tag}, ${o.count} ${o.count === 1 ? 'item' : 'items'}`} className={styles.pick}>
             @{o.tag}
             <span className={styles.count}>{o.count}</span>
           </Tag>

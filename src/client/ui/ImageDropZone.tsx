@@ -19,6 +19,8 @@ export type ImageDropZoneProps = {
   children?: ReactNode | undefined;
   /** Label of the pick-a-file button; defaults to "Replace render". */
   actionLabel?: string | undefined;
+  /** The drop zone's accessible name, naming the task ("Drop or choose the source render"). */
+  label?: string | undefined;
 };
 
 /** Drop an image on it, or press it to pick one (or several, with `onFiles`). PNG, JPEG or WebP. */
@@ -28,9 +30,11 @@ export function ImageDropZone({
   disabled = false,
   children,
   actionLabel = 'Replace render',
+  label = 'Drop an image here',
 }: ImageDropZoneProps) {
   return (
     <DropZone
+      aria-label={label}
       className={styles.zone}
       isDisabled={disabled}
       getDropOperation={(types) =>

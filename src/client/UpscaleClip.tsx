@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { CLIP_UPSCALERS, upscalerName, type ClipUpscalerId } from '../models.ts';
 import { libraryUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
@@ -40,6 +41,8 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
   const [upscaler, setUpscaler] = useState<ClipUpscalerId>('runway');
 
   const upscale = trpc.upscaleClip.useMutation();
+  // A double-click's second press arrives before upscale.isPending shows.
+  const guard = useInFlight();
   const status = trpc.videoStatus.useQuery(
     { id: job?.id ?? '' },
     {
@@ -81,12 +84,15 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
   const { planBlocked, unavailable } = classifyRunwayError(shownError);
 
   async function run() {
+    if (!guard.start()) return;
     try {
       const { id } = await upscale.mutateAsync({ clipId, upscaler: chosen });
       // Reaches the page even if this view was left while the upscale started.
       onJob({ id, upscaler: chosen });
     } catch {
       // Shown by RunwayErrorNotice from upscale.error.
+    } finally {
+      guard.end();
     }
   }
 
@@ -182,25 +188,28 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
             )}
           </div>
           {done && (
-            <div className={styles.resultActions}>
-              <Button
-                icon={<Download size={16} />}
-                loading={saver.pending}
-                onPress={() => saver.start(libraryUrl('clip', done.id), `${name}-upscaled.mp4`)}
-              >
-                {saver.label('Download upscaled')}
-              </Button>
-              <Button
-                variant="ghost"
-                icon={<ExternalLink size={16} />}
-                onPress={() => window.open(libraryUrl('clip', done.id), '_blank', 'noopener')}
-              >
-                Open full size
-              </Button>
-              <Text tone="muted" size="sm" className={styles.resultNote}>
+            <>
+              <div className={styles.resultActions}>
+                <Button
+                  variant="ghost"
+                  icon={<Download size={16} />}
+                  loading={saver.pending}
+                  onPress={() => saver.start(libraryUrl('clip', done.id), `${name}-upscaled.mp4`)}
+                >
+                  {saver.label('Download upscaled')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  icon={<ExternalLink size={16} />}
+                  onPress={() => window.open(libraryUrl('clip', done.id), '_blank', 'noopener')}
+                >
+                  Open full size
+                </Button>
+              </div>
+              <Text tone="muted" size="sm" as="p" className={styles.resultNote}>
                 {upscalerName(done.upscaler)}
               </Text>
-            </div>
+            </>
           )}
           {saver.error && (
             <Alert tone="error" title="Download failed">

@@ -1,36 +1,52 @@
+/* A pill toggle (DESIGN 4): 28 px, a glass-button fill; on, the accent soft
+   fill and accent text. The icon in the component (ring or filled check)
+   repeats the state for people who do not see colour. */
 .toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--bay-border);
-  border-radius: var(--bay-r-pill);
-  background: transparent;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--glass-btn);
   color: var(--bay-text-2);
-  font: inherit;
-  font-size: 13px;
+  font: var(--text-subhead);
   font-weight: 500;
+  letter-spacing: var(--track-subhead);
   cursor: pointer;
   transition:
-    background var(--bay-dur-fast) var(--bay-ease),
-    border-color var(--bay-dur-fast) var(--bay-ease),
-    color var(--bay-dur-fast) var(--bay-ease);
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
 .toggle[data-hovered] {
-  border-color: var(--bay-border-strong);
+  background: var(--glass-btn-hover);
   color: var(--bay-text);
 }
 
+.toggle[data-pressed] {
+  background: var(--glass-btn-pressed);
+  color: var(--bay-text);
+  transform: scale(0.98);
+}
+
 .toggle[data-selected] {
-  border-color: var(--bay-accent);
-  background: var(--bay-accent);
-  color: var(--bay-text-on-accent);
+  border-color: rgba(var(--bay-accent-rgb), 0.4);
+  background: var(--bay-accent-soft);
+  color: var(--bay-accent-fg);
 }
 
 .toggle[data-selected][data-hovered] {
-  background: var(--bay-accent-hover);
+  background: rgba(var(--bay-accent-rgb), 0.24);
+  color: var(--bay-accent-fg);
+}
+
+.toggle[data-selected][data-pressed] {
+  background: rgba(var(--bay-accent-rgb), 0.3);
+  color: var(--bay-accent-fg);
 }
 
 .toggle[data-focus-visible] {
@@ -39,6 +55,13 @@
 }
 
 .toggle[data-disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle,
+  .toggle[data-pressed] {
+    transform: none;
+  }
 }

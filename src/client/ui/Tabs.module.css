@@ -2,83 +2,87 @@
   display: block;
 }
 
-/* Refined text tabs: muted until current, a thin accent rule under the
-   selected one. */
+/* The segmented control (DESIGN 4): a quiet track; the selected segment is a
+   raised glass-button fill that slides from segment to segment. */
 .list {
   display: inline-flex;
   align-items: stretch;
-  gap: 28px;
-  height: 100%;
+  gap: 2px;
+  /* Never wider than its container: too many segments scroll inside it. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 3px;
+  border-radius: var(--r-control);
+  background-color: var(--bay-border-hair);
 }
 
 .tab {
   position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-height: 44px;
-  padding: 0 2px;
-  font-size: 14px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--bay-r-sm);
+  font: var(--text-callout);
   font-weight: 500;
-  letter-spacing: -0.005em;
-  color: var(--bay-text-3);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text-2);
+  white-space: nowrap;
   cursor: pointer;
   outline: none;
-  transition: color var(--bay-dur) var(--bay-ease);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
 }
 
-.tab::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--bay-accent);
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform var(--bay-dur-slow) var(--bay-ease);
-}
-
-.tab[data-hovered] {
+.tab[data-hovered],
+.tab[data-focus-visible] {
+  background-color: var(--bay-border-hair);
   color: var(--bay-text);
 }
 
 .tab[data-selected] {
+  background-color: transparent;
   color: var(--bay-text);
-}
-
-.tab[data-selected]::after {
-  transform: scaleX(1);
-}
-
-.tab[data-selected] svg {
-  color: var(--bay-accent);
 }
 
 .tab[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: -2px;
-  border-radius: var(--bay-r-sm);
+  outline-offset: 1px;
 }
 
-@media (max-width: 680px) {
-  .list {
-    display: flex;
-    width: 100%;
-    gap: 0;
-  }
+/* The shared indicator: one per list, rendered in the selected segment and
+   slid there from the last one (react-aria's SelectionIndicator). */
+.indicator {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: var(--glass-btn-selected);
+  box-shadow: var(--glass-edge);
+  transition: translate var(--dur-3) var(--ease-spring);
+}
 
-  .tab {
-    flex: 1;
-    padding: 0 8px;
-  }
+/* The open segment answers the pointer and the keyboard too (DESIGN 2.7): its
+   fill brightens a step, as it does while pressed. */
+.tab[data-selected][data-hovered] .indicator,
+.tab[data-selected][data-focus-visible] .indicator,
+.tab[data-pressed] .indicator {
+  background-color: var(--glass-btn-pressed);
 }
 
 .panel {
   outline: none;
+}
+
+.panel[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
 }
 
 .panel[data-inert] {

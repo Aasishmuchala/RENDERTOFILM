@@ -1,38 +1,61 @@
-.text {
-  line-height: 1.55;
-}
-
+/* Running text (DESIGN 2.6). Size sets the type role, tone sets the ink:
+   default is ink, secondary is ink 2, muted is ink 3 (the floor for small
+   text; ink 4 is decorative only, so no tone uses it). */
 .default {
   color: var(--bay-text);
 }
 
 .secondary {
-  color: var(--bay-text-3);
+  color: var(--bay-text-2);
 }
 
 .muted {
-  color: var(--bay-text-4);
+  color: var(--bay-text-3);
 }
 
 .sm {
-  font-size: 13px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
 }
 
 .md {
-  font-size: 14px;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
 }
 
+/* Links: underlined at rest (1 px), 2 px on hover and keyboard focus. The
+   vertical padding with an equal negative margin lifts a link that sits alone
+   in a flex row to a 24 px target without moving anything around it; in a
+   sentence it is inline, so it changes nothing. */
 .link {
-  color: var(--bay-accent);
-  text-decoration: none;
+  padding-block: 2px;
+  margin-block: -2px;
+  color: var(--bay-accent-fg);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
   cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    text-decoration-thickness var(--dur-1) var(--ease-out);
 }
 
-.link[data-hovered] {
-  text-decoration: underline;
+.link[data-hovered],
+.link[data-focus-visible] {
+  text-decoration-thickness: 2px;
+}
+
+.link[data-pressed] {
+  color: var(--bay-accent-hover);
 }
 
 .link[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  border-radius: var(--bay-r-xs);
+}
+
+.link[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

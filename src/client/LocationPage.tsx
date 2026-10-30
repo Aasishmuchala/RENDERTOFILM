@@ -1,5 +1,5 @@
 import { Clapperboard, Download, ExternalLink, MapPinned } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Still } from '../api.ts';
 import {
@@ -23,14 +23,17 @@ import {
   upscalerName,
 } from '../models.ts';
 import { Section } from './layouts/Section.tsx';
+import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
+import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
+import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
 import { CompareSlider } from './ui/CompareSlider.tsx';
-import { EmptyState } from './ui/EmptyState.tsx';
+import { CostLine } from './ui/CostLine.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
@@ -176,6 +179,9 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
 
   const create = trpc.location.create.useMutation();
   const upscale = trpc.upscaleStill.useMutation();
+  // A double-click's second press arrives before isPending shows.
+  const createGuard = useInFlight();
+  const upscaleGuard = useInFlight();
   const status = trpc.shotStatus.useQuery(
     { id: take?.id ?? '' },
     {
@@ -212,15 +218,17 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
 
   const startUpscale = useCallback(
     async (t: Take) => {
-      if (!t.auto) return;
+      if (!t.auto || !upscaleGuard.start()) return;
       try {
         const { id } = await upscale.mutateAsync({ stillId: t.id, upscaler: t.auto.upscaler, factor: t.auto.factor });
         setTake((cur) => (cur && cur.id === t.id ? { ...cur, upscale: { id } } : cur));
       } catch {
         // Shown by RunwayErrorNotice from upscale.error.
+      } finally {
+        upscaleGuard.end();
       }
     },
-    [upscale]
+    [upscale, upscaleGuard]
   );
 
   // Once the render is done, upscale it once: the ref is keyed on the take id.
@@ -232,7 +240,8 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
   }, [take, finished, resultUrl, startUpscale]);
 
   function retryUpscale() {
-    if (!take?.auto) return;
+    // An upscale already being sent is not reset or sent again.
+    if (!take?.auto || upscaleGuard.busy()) return;
     upscale.reset();
     upscaleStarted.current = take.id;
     const next: Take = { ...take, upscale: undefined };
@@ -339,6 +348,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
 
   async function run() {
     if (!ready || busy || directionTooLong || !upload?.hostedUrl || latNum === null || lngNum === null) return;
+    if (!createGuard.start()) return;
     upscale.reset();
     try {
       const { id, width, height } = await create.mutateAsync({
@@ -366,6 +376,8 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
       void utils.library.invalidate();
     } catch {
       // Shown by RunwayErrorNotice from create.error.
+    } finally {
+      createGuard.end();
     }
   }
 
@@ -392,6 +404,17 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
   const factorLabel = bestFactor ? `-${bestFactor}x` : '';
   const hasUpscaleCopy = bestIsUpscale;
 
+  // A picked card moves to the front of the strip as the current take; the strip keeps its scroll, so bring it back.
+  const currentCard = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    currentCard.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduced ? 'auto' : 'smooth' });
+  }, [take?.id]);
+
+  // The room takes the light of the finished take (its first-pass thumbnail,
+  // which the upscale matches), else of the screenshot being rendered.
+  useAmbient(take && resultUrl ? stillThumbUrl(take.id) : (upload?.src ?? before ?? null));
+
   const buttonLabel = create.isPending
     ? 'Starting the render…'
     : rendering
@@ -406,358 +429,405 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
               ? 'Upload a screenshot first'
               : 'Render location';
 
-  return (
-    <div className={styles.layout}>
-      <div className={styles.controls}>
-        <PageHeader
-          title="Render a location"
-          description="Turn a Google Earth screenshot into a photoreal aerial photograph of the same place, then upscale it for detailed textures."
-        />
-        <Section step={1} title="Location" description="Where the screenshot was taken, in decimal degrees.">
-          <div className={styles.stack}>
-            <div className={own.coords}>
-              <div className={styles.stack}>
-                <TextInput
-                  label="Latitude"
-                  value={lat}
-                  onChange={(v) => setCoord('lat', v)}
-                  placeholder="12.9716"
-                  disabled={busy}
-                />
-                {latError && (
-                  <p className={own.fieldError} role="alert">
-                    {latError}
-                  </p>
-                )}
-              </div>
-              <div className={styles.stack}>
-                <TextInput
-                  label="Longitude"
-                  value={lng}
-                  onChange={(v) => setCoord('lng', v)}
-                  placeholder="77.5946"
-                  disabled={busy}
-                />
-                {lngError && (
-                  <p className={own.fieldError} role="alert">
-                    {lngError}
-                  </p>
-                )}
-              </div>
-            </div>
-            <TextInput
-              label="Place name (optional)"
-              value={place}
-              onChange={setPlace}
-              maxLength={PLACE_MAX}
-              placeholder="e.g. Koramangala, Bengaluru"
-              disabled={busy}
-            />
-            <Text tone="muted" size="sm" as="p">
-              {coordsOk && latNum !== null && lngNum !== null
-                ? formatCoords(latNum, lngNum)
-                : 'Paste "12.9716, 77.5946" into either field to fill both.'}
-            </Text>
-          </div>
-        </Section>
+  // The finished take (or its upscale) on the canvas; while it upscales automatically, the status shows instead.
+  const showResult = take !== null && Boolean(resultUrl) && !upscaling && bestId !== undefined;
+  const canvasState: CanvasState = take || create.isPending ? 'live' : upload ? 'preview' : 'empty';
+  const resolutionName = imageResolutions(imageModel).find((r) => r.id === resolution)?.name ?? resolution;
 
-        <Section
-          step={2}
-          title="Satellite image"
-          description="Take a screenshot in Google Earth of that spot, with labels and UI turned off if possible."
+  function dropFiles(files: File[]) {
+    // The step 2 zone is disabled while busy; a drop on the canvas waits the same way.
+    const file = files[0];
+    if (!file || busy || uploading) return;
+    void onFile(file);
+  }
+
+  let canvas: ReactNode = null;
+  if (showResult && bestId) {
+    canvas = (
+      <>
+        {before ? (
+          <CompareSlider
+            before={before}
+            after={stillViewUrl(bestId)}
+            afterFallback={stillThumbUrl(bestId)}
+            beforeAlt="The Google Earth screenshot"
+            afterAlt={`Photoreal aerial photograph of ${shownName}`}
+            aspectRatio={aspect}
+          />
+        ) : (
+          <img src={stillViewUrl(bestId)} alt={`Photoreal aerial photograph of ${shownName}`} decoding="async" />
+        )}
+        {saver.error && (
+          <div className={own.pictureAlert}>
+            <Alert tone="error" title="Download failed">
+              {saver.error}
+            </Alert>
+          </div>
+        )}
+      </>
+    );
+  } else if (rendering && status.error && (statusErr?.signIn || statusErr?.consent)) {
+    canvas = (
+      <div className={styles.frameAlert}>
+        <RunwayErrorNotice error={status.error} modelName="the image model" onRetry={() => void status.refetch()} />
+      </div>
+    );
+  } else if (rendering && status.error) {
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="warning" title="Lost track of the take">
+          {statusErr?.message ?? 'The status check failed.'} The render may still be
+          running, so check again before starting another.
+        </Alert>
+        <div className={own.alertActions}>
+          <Button size="sm" loading={status.isFetching} onPress={() => void status.refetch()}>
+            Check again
+          </Button>
+          <Button size="sm" variant="ghost" onPress={() => setTake(null)}>
+            Stop waiting
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (rendering || create.isPending) {
+    canvas = (
+      <RenderingStatus
+        label={create.isPending ? 'Starting the take…' : 'Rendering the location…'}
+        progress={status.data?.progress}
+        runKey={take?.id}
+      />
+    );
+  } else if (upscaling) {
+    canvas = (
+      <RenderingStatus
+        label={`Upscaling ${take?.auto?.factor ?? useFactor}× for detailed textures…`}
+        progress={upscaleStatus.data?.progress}
+        runKey={upscaleId ?? take?.id}
+      />
+    );
+  } else if (takeError) {
+    canvas = (
+      <div className={styles.frameAlert}>
+        <Alert tone="error" title="The take didn't finish">
+          {takeError}
+        </Alert>
+      </div>
+    );
+  } else if (upload) {
+    canvas = <img src={upload.src} alt="The screenshot to render" decoding="async" />;
+  }
+
+  const caption = take
+    ? showResult
+      ? [shownName, 'Saved to your library, tagged @location']
+      : shownName
+    : [imageModelName(imageModel), resolutionName];
+
+  const canvasActions =
+    showResult && bestId ? (
+      <>
+        <Button
+          variant="ghost"
+          icon={<Download size={16} />}
+          loading={saver.pending}
+          onPress={() => saver.start(libraryUrl('still', bestId), `location-${slugify(shownName)}${factorLabel}.png`)}
         >
-          <div className={styles.stack}>
-            <ImageDropZone
-              onFile={(f) => void onFile(f)}
-              disabled={busy || uploading}
-              actionLabel={upload ? 'Replace screenshot' : 'Choose a screenshot'}
+          {saver.label(hasUpscaleCopy ? 'Download upscaled' : 'Download')}
+        </Button>
+        <Button
+          variant="ghost"
+          icon={<ExternalLink size={16} />}
+          onPress={() => window.open(libraryUrl('still', bestId), '_blank', 'noopener')}
+        >
+          Open full size
+        </Button>
+        <Button variant="ghost" icon={<Clapperboard size={16} />} onPress={() => onAnimate(bestId)}>
+          Make a video
+        </Button>
+      </>
+    ) : undefined;
+
+  // The current take leads the strip (it is on the canvas); the earlier ones follow and put themselves there.
+  const takeThumb = take && resultUrl ? stillThumbUrl(take.id) : before;
+  const strip =
+    take || earlier.length > 0 ? (
+      <>
+        {take && (
+          <div className={own.card} data-current="" ref={currentCard}>
+            <span className={own.cardFrame}>
+              {takeThumb && <img className={own.cardThumb} src={takeThumb} alt="" decoding="async" />}
+            </span>
+            <span className={own.cardName} title={shownName}>
+              {shownName}
+            </span>
+          </div>
+        )}
+        {earlier.map((s) => {
+          const name = s.location ? locationName(s.location) : 'this take';
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className={own.card}
+              onClick={() => showEarlier(s)}
+              aria-label={`Show ${name}`}
+              title={name}
             >
-              {upload ? (
-                <figure className={styles.frame} style={{ aspectRatio: `${upload.width} / ${upload.height}` }}>
-                  <img className={styles.image} src={upload.src} alt={`Uploaded screenshot: ${upload.name}`} />
-                </figure>
-              ) : (
-                <div className={own.dropEmpty}>
-                  <MapPinned size={20} aria-hidden />
-                  <Text tone="secondary" size="sm">
-                    Drop your Google Earth screenshot here. PNG, JPEG or WebP.
-                  </Text>
-                </div>
+              <span className={own.cardFrame}>
+                <img className={own.cardThumb} src={stillThumbUrl(s.id)} alt="" loading="lazy" decoding="async" />
+              </span>
+              <span className={own.cardName}>{name}</span>
+            </button>
+          );
+        })}
+      </>
+    ) : undefined;
+
+  const inspector = (
+    <>
+      <PageHeader
+        title="Render a location"
+        description="Turn a Google Earth screenshot into a photoreal aerial photograph of the same place, then upscale it for detailed textures."
+      />
+      <Section step={1} title="Location" description="Where the screenshot was taken, in decimal degrees.">
+        <div className={styles.stack}>
+          <div className={own.coords}>
+            <div className={styles.stack}>
+              <TextInput
+                label="Latitude"
+                value={lat}
+                onChange={(v) => setCoord('lat', v)}
+                placeholder="12.9716"
+                disabled={busy}
+              />
+              {latError && (
+                <p className={own.fieldError} role="alert">
+                  {latError}
+                </p>
               )}
-            </ImageDropZone>
-            {uploading && (
-              <Text tone="muted" size="sm" as="p">
-                Uploading the screenshot…
-              </Text>
+            </div>
+            <div className={styles.stack}>
+              <TextInput
+                label="Longitude"
+                value={lng}
+                onChange={(v) => setCoord('lng', v)}
+                placeholder="77.5946"
+                disabled={busy}
+              />
+              {lngError && (
+                <p className={own.fieldError} role="alert">
+                  {lngError}
+                </p>
+              )}
+            </div>
+          </div>
+          <TextInput
+            label="Place name (optional)"
+            value={place}
+            onChange={setPlace}
+            maxLength={PLACE_MAX}
+            placeholder="e.g. Koramangala, Bengaluru"
+            disabled={busy}
+          />
+          <Text tone="muted" size="sm" as="p">
+            {coordsOk && latNum !== null && lngNum !== null
+              ? formatCoords(latNum, lngNum)
+              : 'Paste "12.9716, 77.5946" into either field to fill both.'}
+          </Text>
+        </div>
+      </Section>
+
+      <Section
+        step={2}
+        title="Satellite image"
+        description="Take a screenshot in Google Earth of that spot, with labels and UI turned off if possible."
+      >
+        <div className={styles.stack}>
+          <ImageDropZone
+            onFile={(f) => void onFile(f)}
+            disabled={busy || uploading}
+            actionLabel={upload ? 'Replace screenshot' : 'Choose a screenshot'}
+            label="Drop or choose the map screenshot"
+          >
+            {upload ? (
+              <figure className={styles.frame} style={{ aspectRatio: `${upload.width} / ${upload.height}` }}>
+                <img className={styles.image} src={upload.src} alt={`Uploaded screenshot: ${upload.name}`} />
+              </figure>
+            ) : (
+              <div className={own.dropEmpty}>
+                <MapPinned size={20} aria-hidden />
+                <Text tone="secondary" size="sm">
+                  Drop your Google Earth screenshot here. PNG, JPEG or WebP.
+                </Text>
+              </div>
             )}
-            <RunwayErrorNotice error={uploadError} modelName="the upload" onRetry={() => setUploadError(null)} />
-          </div>
-        </Section>
+          </ImageDropZone>
+          {uploading && (
+            <Text tone="muted" size="sm" as="p">
+              Uploading the screenshot…
+            </Text>
+          )}
+          <RunwayErrorNotice error={uploadError} modelName="the upload" onRetry={() => setUploadError(null)} />
+        </div>
+      </Section>
 
-        <Section step={3} title="View and light" description="Small moves only. Nothing new is added to the site.">
-          <div className={styles.stack}>
-            <Select
-              label="View"
-              options={VIEWS}
-              value={view}
-              onChange={(id) => setView(id as LocationViewId)}
-              disabled={busy}
-            />
-            <Select
-              label="Light"
-              options={LIGHTS}
-              value={light}
-              onChange={(id) => setLight(id as LocationLightId)}
-              disabled={busy}
-            />
-            <TextArea
-              label="Extra direction (optional)"
-              value={direction}
-              onChange={setDirection}
-              rows={3}
-              maxLength={DIRECTION_MAX}
-              disabled={busy}
-              placeholder="e.g. monsoon season, dry paddy fields, tiled roofs"
-              onSubmit={() => void run()}
-            />
-          </div>
-        </Section>
+      <Section step={3} title="View and light" description="Small moves only. Nothing new is added to the site.">
+        <div className={styles.stack}>
+          <Select
+            label="View"
+            options={VIEWS}
+            value={view}
+            onChange={(id) => setView(id as LocationViewId)}
+            disabled={busy}
+          />
+          <Select
+            label="Light"
+            options={LIGHTS}
+            value={light}
+            onChange={(id) => setLight(id as LocationLightId)}
+            disabled={busy}
+          />
+          <TextArea
+            label="Extra direction (optional)"
+            value={direction}
+            onChange={setDirection}
+            rows={3}
+            maxLength={DIRECTION_MAX}
+            disabled={busy}
+            placeholder="e.g. monsoon season, dry paddy fields, tiled roofs"
+            onSubmit={() => void run()}
+          />
+        </div>
+      </Section>
 
-        <Section step={4} title="Model" description="Re-draws the screenshot as a photograph.">
-          <div className={styles.selectRow}>
+      <Section step={4} title="Model" description="Re-draws the screenshot as a photograph.">
+        <div className={styles.selectRow}>
+          <Select
+            label="Image model"
+            options={IMAGE_MODELS}
+            value={imageModel}
+            onChange={(id) => {
+              const m = id as ImageModelId;
+              setImageModel(m);
+              setResolution(highestResolution(m));
+            }}
+            disabled={busy}
+          />
+          {imageResolutions(imageModel).length > 1 && (
             <Select
-              label="Image model"
-              options={IMAGE_MODELS}
-              value={imageModel}
-              onChange={(id) => {
-                const m = id as ImageModelId;
-                setImageModel(m);
-                setResolution(highestResolution(m));
-              }}
+              label="Resolution"
+              options={imageResolutions(imageModel)}
+              value={resolution}
+              onChange={setResolution}
               disabled={busy}
+              showHint={false}
             />
-            {imageResolutions(imageModel).length > 1 && (
+          )}
+        </div>
+      </Section>
+
+      <Section step={5} title="Upscale" description="Adds fine texture to the finished render.">
+        <div className={styles.stack}>
+          <Switch
+            label="Upscale automatically when the render is done"
+            hint="Off: you can upscale the result by hand."
+            checked={autoUpscale}
+            onChange={setAutoUpscale}
+            disabled={busy}
+          />
+          {autoUpscale && (
+            <div className={own.upscaleRow}>
               <Select
-                label="Resolution"
-                options={imageResolutions(imageModel)}
-                value={resolution}
-                onChange={setResolution}
+                label="Upscaler"
+                options={STILL_UPSCALERS}
+                value={upscaler}
+                onChange={(id) => setUpscaler(id as StillUpscalerId)}
+                disabled={busy}
+              />
+              <Select
+                label="Scale"
+                options={factorChoices}
+                value={String(useFactor)}
+                onChange={(id) => setFactor(id === '4' ? 4 : 2)}
                 disabled={busy}
                 showHint={false}
               />
-            )}
-          </div>
-        </Section>
-
-        <Section step={5} title="Upscale" description="Adds fine texture to the finished render.">
-          <div className={styles.stack}>
-            <Switch
-              label="Upscale automatically when the render is done"
-              hint="Off: you can upscale the result by hand."
-              checked={autoUpscale}
-              onChange={setAutoUpscale}
-              disabled={busy}
-            />
-            {autoUpscale && (
-              <div className={own.upscaleRow}>
-                <Select
-                  label="Upscaler"
-                  options={STILL_UPSCALERS}
-                  value={upscaler}
-                  onChange={(id) => setUpscaler(id as StillUpscalerId)}
-                  disabled={busy}
-                />
-                <Select
-                  label="Scale"
-                  options={factorChoices}
-                  value={String(useFactor)}
-                  onChange={(id) => setFactor(id === '4' ? 4 : 2)}
-                  disabled={busy}
-                  showHint={false}
-                />
-              </div>
-            )}
-          </div>
-        </Section>
-
-        <div className={styles.actionBar}>
-          <Button
-            variant="primary"
-            className={styles.generate}
-            icon={<MapPinned size={16} />}
-            loading={busy}
-            disabled={!ready || directionTooLong}
-            onPress={() => void run()}
-          >
-            {buttonLabel}
-          </Button>
-          <Text tone="muted" size="sm" as="p" className={styles.meta}>
-            {imageModelName(imageModel)}
-            {autoUpscale ? `, then upscaled ${useFactor}× with ${upscalerName(upscaler)}` : ''}. Billed to your own Runway
-            credits.
-          </Text>
-          <RunwayErrorNotice error={create.error} modelName={imageModelName(imageModel)} onRetry={() => void run()} />
-        </div>
-      </div>
-
-      <div className={styles.result} data-stage>
-        <Section title="Photoreal location">
-          {take && resultUrl && !upscaling && bestId ? (
-            <>
-              {before ? (
-                <CompareSlider
-                  before={before}
-                  after={stillViewUrl(bestId)}
-                  afterFallback={stillThumbUrl(bestId)}
-                  beforeAlt="The Google Earth screenshot"
-                  afterAlt={`Photoreal aerial photograph of ${shownName}`}
-                  aspectRatio={aspect}
-                />
-              ) : (
-                <div className={styles.resultFrame} style={{ aspectRatio: aspect, ['--ar' as string]: aspect }}>
-                  <img
-                    className={styles.image}
-                    src={stillViewUrl(bestId)}
-                    alt={`Photoreal aerial photograph of ${shownName}`}
-                    decoding="async"
-                  />
-                </div>
-              )}
-              {saver.error && (
-                <Alert tone="error" title="Download failed">
-                  {saver.error}
-                </Alert>
-              )}
-              {upscaleError || upscaleFailed ? (
-                <div className={styles.upscale}>
-                  <RunwayErrorNotice
-                    error={upscaleError ?? { message: upscaleStatus.data?.error ?? 'The upscale did not return an image.' }}
-                    modelName={upscalerName(take.auto?.upscaler ?? upscaler)}
-                    onRetry={upscalePollError ? () => void upscaleStatus.refetch() : retryUpscale}
-                  />
-                  {upscalePollError ? (
-                    <Button size="sm" loading={upscaleStatus.isFetching} onPress={() => void upscaleStatus.refetch()}>
-                      Check again
-                    </Button>
-                  ) : (
-                    <Button size="sm" onPress={retryUpscale}>
-                      Retry the upscale
-                    </Button>
-                  )}
-                </div>
-              ) : null}
-              <div className={styles.resultActions}>
-                <Button
-                  icon={<Download size={16} />}
-                  loading={saver.pending}
-                  onPress={() =>
-                    saver.start(libraryUrl('still', bestId), `location-${slugify(shownName)}${factorLabel}.png`)
-                  }
-                >
-                  {saver.label(hasUpscaleCopy ? 'Download upscaled' : 'Download')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  icon={<ExternalLink size={16} />}
-                  onPress={() => window.open(libraryUrl('still', bestId), '_blank', 'noopener')}
-                >
-                  Open full size
-                </Button>
-                <Button icon={<Clapperboard size={16} />} onPress={() => onAnimate(bestId)}>
-                  Make a video
-                </Button>
-                <Text tone="muted" size="sm" className={styles.resultNote}>
-                  {shownName}. Saved to your library, tagged @location.
-                  {before ? ' Drag the divider to compare with your screenshot.' : ''}
-                </Text>
-              </div>
-              {!take.auto && !hasUpscaleCopy && (
-                <UpscaleStill
-                  stillId={take.id}
-                  aspectRatio={aspect}
-                  name={`location-${slugify(shownName)}`}
-                  job={manualJob}
-                  onJob={setManualJob}
-                />
-              )}
-            </>
-          ) : (
-            <div className={styles.resultFrame} style={{ aspectRatio: aspect, ['--ar' as string]: aspect }}>
-              {rendering && status.error && (statusErr?.signIn || statusErr?.consent) ? (
-                <div className={styles.frameAlert}>
-                  <RunwayErrorNotice error={status.error} modelName="the image model" onRetry={() => void status.refetch()} />
-                </div>
-              ) : rendering && status.error ? (
-                <div className={styles.frameAlert}>
-                  <Alert tone="warning" title="Lost track of the take">
-                    {statusErr?.message ?? 'The status check failed.'} The render may still be
-                    running, so check again before starting another.
-                  </Alert>
-                  <div className={styles.resultActions}>
-                    <Button size="sm" loading={status.isFetching} onPress={() => void status.refetch()}>
-                      Check again
-                    </Button>
-                    <Button size="sm" variant="ghost" onPress={() => setTake(null)}>
-                      Stop waiting
-                    </Button>
-                  </div>
-                </div>
-              ) : rendering || create.isPending ? (
-                <RenderingStatus
-                  label={create.isPending ? 'Starting the take…' : 'Rendering the location…'}
-                  progress={status.data?.progress}
-                  runKey={take?.id}
-                />
-              ) : upscaling ? (
-                <RenderingStatus
-                  label={`Upscaling ${take?.auto?.factor ?? useFactor}× for detailed textures…`}
-                  progress={upscaleStatus.data?.progress}
-                  runKey={upscaleId ?? take?.id}
-                />
-              ) : takeError ? (
-                <div className={styles.frameAlert}>
-                  <Alert tone="error" title="The take didn't finish">
-                    {takeError}
-                  </Alert>
-                </div>
-              ) : upload ? (
-                <img className={styles.image} src={upload.src} alt="The screenshot to render" decoding="async" />
-              ) : (
-                <EmptyState
-                  title="Your photoreal location will appear here"
-                  hint="Enter the coordinates, upload a Google Earth screenshot, then press Render location."
-                />
-              )}
             </div>
           )}
-        </Section>
-        {earlier.length > 0 && (
-          <div className={styles.below}>
-            <Section title="Earlier locations">
-              <div className={own.earlier}>
-                {earlier.map((s) => {
-                  const name = s.location ? locationName(s.location) : 'this take';
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className={own.earlierCard}
-                      onClick={() => showEarlier(s)}
-                      aria-label={`Show ${name}`}
-                    >
-                      <img className={own.earlierThumb} src={stillThumbUrl(s.id)} alt="" loading="lazy" decoding="async" />
-                      <Text tone="muted" size="sm">
-                        {name}
-                      </Text>
-                    </button>
-                  );
-                })}
-              </div>
-            </Section>
+        </div>
+        {showResult && take && (upscaleError || upscaleFailed) ? (
+          <div className={styles.upscale}>
+            <RunwayErrorNotice
+              error={upscaleError ?? { message: upscaleStatus.data?.error ?? 'The upscale did not return an image.' }}
+              modelName={upscalerName(take.auto?.upscaler ?? upscaler)}
+              onRetry={upscalePollError ? () => void upscaleStatus.refetch() : retryUpscale}
+            />
+            {upscalePollError ? (
+              <Button size="sm" loading={upscaleStatus.isFetching} onPress={() => void upscaleStatus.refetch()}>
+                Check again
+              </Button>
+            ) : (
+              <Button size="sm" onPress={retryUpscale}>
+                Retry the upscale
+              </Button>
+            )}
           </div>
+        ) : null}
+        {showResult && take && !take.auto && !hasUpscaleCopy && (
+          <UpscaleStill
+            stillId={take.id}
+            aspectRatio={aspect}
+            name={`location-${slugify(shownName)}`}
+            job={manualJob}
+            onJob={setManualJob}
+          />
         )}
-      </div>
-    </div>
+      </Section>
+    </>
+  );
+
+  const footer = (
+    <>
+      <Button
+        variant="primary"
+        size="lg"
+        icon={<MapPinned size={16} />}
+        loading={busy}
+        disabled={!ready || directionTooLong}
+        onPress={() => void run()}
+      >
+        {buttonLabel}
+      </Button>
+      <CostLine
+        summary={`${imageModelName(imageModel)}${
+          autoUpscale ? `, then upscaled ${useFactor}× with ${upscalerName(upscaler)}` : ''
+        }. Billed to your own Runway credits.`}
+      />
+      <RunwayErrorNotice error={create.error} modelName={imageModelName(imageModel)} onRetry={() => void run()} />
+    </>
+  );
+
+  return (
+    <Workspace
+      page="location"
+      canvasState={canvasState}
+      canvas={canvas}
+      aspectRatio={aspect}
+      caption={caption}
+      canvasNote="Your photoreal location will appear here"
+      canvasActions={canvasActions}
+      onDropFiles={dropFiles}
+      empty={{
+        title: 'Drop a Google Earth screenshot to begin',
+        hint: 'PNG, JPEG or WebP. Enter the coordinates, then press Render location.',
+        action: 'Choose a map screenshot',
+        label: 'Drop or choose the map screenshot',
+      }}
+      inspector={inspector}
+      footer={footer}
+      strip={strip}
+      stripLabel="Earlier locations"
+    />
   );
 }
 

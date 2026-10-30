@@ -12,7 +12,7 @@ type Props = {
 
 type State = { error: Error | null };
 
-/** Wrap each route and section, not just the root — a single top-level
+/** Wrap each route and section, not just the root: a single top-level
  * boundary turns one broken component into an empty page. */
 export class ErrorBoundary extends Component<Props, State> {
   override state: State = { error: null };

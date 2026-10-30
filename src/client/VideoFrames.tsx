@@ -27,6 +27,8 @@ export type FrameImage = {
   /** An upload's own pixel size, so a clip can take the shape of its first frame. */
   width?: number | undefined;
   height?: number | undefined;
+  /** An upload's small JPEG (data URL), kept with a take that starts on it. */
+  thumb?: string | undefined;
 };
 
 /** A frame between first and last; `at` is how far into the clip, 0 to 1. */
@@ -157,9 +159,9 @@ export function useVideoFrames() {
       const key = nextKey();
       place(slot, { key, src: URL.createObjectURL(file), name: file.name, uploading: true });
       try {
-        const { width, height } = await measure(file);
+        const { width, height, thumb } = await measure(file);
         const uploadUrl = await uploadRender(file);
-        patch(key, { uploadUrl, uploading: false, width, height });
+        patch(key, { uploadUrl, uploading: false, width, height, thumb });
       } catch (e) {
         remove(key);
         // The route's body, so a sign-in or consent refusal shows its prompt.
@@ -195,16 +197,25 @@ export function useVideoFrames() {
 
 export type VideoFramesApi = ReturnType<typeof useVideoFrames>;
 
-/** An image file's own pixel size. */
-async function measure(file: Blob): Promise<{ width: number; height: number }> {
+/** Long side of the small copy of an upload kept with a take. */
+const THUMB_EDGE = 320;
+
+/** An image file's own pixel size, and a small JPEG of it for the take strip. */
+async function measure(file: Blob): Promise<{ width: number; height: number; thumb: string }> {
+  let bitmap: ImageBitmap;
   try {
-    const bitmap = await createImageBitmap(file);
-    const size = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    return size;
+    bitmap = await createImageBitmap(file);
   } catch {
     throw new Error('That file could not be read as an image. Use a PNG, JPEG or WebP.');
   }
+  const { width, height } = bitmap;
+  const scale = Math.min(1, THUMB_EDGE / Math.max(width, height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return { width, height, thumb: canvas.toDataURL('image/jpeg', 0.8) };
 }
 
 /**
@@ -267,7 +278,7 @@ function ImageChooser({
           </Button>
         </div>
       )}
-      <ImageDropZone onFile={onFile} actionLabel="Upload an image">
+      <ImageDropZone onFile={onFile} actionLabel="Upload an image" label="Drop or choose a frame">
         <div className={styles.chooserUpload}>
           <ImagePlus size={18} aria-hidden />
           <span>Or drop an image here (PNG, JPEG or WebP)</span>
@@ -362,7 +373,7 @@ export function FramesField({
         <Text tone="muted" size="sm" as="p" className={styles.frameNote}>
           {picked
             ? 'The shot starts on the still you picked in step 1. Set frames only if you need them.'
-            : 'Pick a still in step 1; the shot starts on it.'}
+            : 'Pick a still in step 1, or choose a first frame of your own; the shot starts on it.'}
         </Text>
       )}
 
@@ -393,7 +404,7 @@ export function FramesField({
                 disabled={disabled}
                 onPress={() => frames.remove(first.key)}
               >
-                Use picked still
+                {picked ? 'Use picked still' : 'Remove'}
               </Button>
             </div>
           </div>

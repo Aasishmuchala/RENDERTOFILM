@@ -26,6 +26,7 @@ import {
   patchClip,
   patchStill,
   readLibrary,
+  recordClip,
   type Still,
   type StillCheck,
   type TaskState,
@@ -65,9 +66,10 @@ import { locationRouter } from './location-api.ts';
 import { forgetTake as forgetLifestyleTake, lifestyleRouter } from './lifestyle-api.ts';
 import { forgetTake, storyboardRouter } from './storyboard-api.ts';
 import { settingsRouter } from './settings-api.ts';
+import { recreateRouter } from './recreate-api.ts';
 import { pick, submitStill } from './still-submit.ts';
 import { deleteObject, getObject, putObject } from './storage.ts';
-import { thumbKey, viewKey } from './thumbs.ts';
+import { ensureClipPoster, posterFromThumb, thumbKey, viewKey } from './thumbs.ts';
 import {
   buildVideoPrompt,
   clampPrompt,
@@ -272,36 +274,6 @@ async function clipBytes(url: string): Promise<number> {
 }
 
 /**
- * Save a new clip's record. A clip with no record would 404 on every poll and
- * never show in Your clips, so one failure is retried and a second is said
- * out loud instead of returning an id the app can't follow.
- */
-async function recordClip(owner: string, clip: Clip): Promise<void> {
-  const save = () =>
-    updateLibrary(owner, (lib) => ({
-      ...lib,
-      clips: [clip, ...lib.clips.filter((c) => c.id !== clip.id)],
-    }));
-  try {
-    await save();
-    return;
-  } catch (first) {
-    console.warn('[library] could not record clip, retrying', clip.id, first);
-  }
-  try {
-    await save();
-  } catch (err) {
-    console.warn('[library] could not record clip', clip.id, err);
-    throw new TRPCError({
-      code: 'INTERNAL_SERVER_ERROR',
-      message:
-        'Your video started on Runway, but saving it to your library failed, so this page cannot follow it. Look for it in your Runway account, and try again in a moment.',
-      cause: err,
-    });
-  }
-}
-
-/**
  * Save a new still's record, retrying once. A paid take with no record would
  * read as "deleted" on its first poll, so a second failure is said out loud
  * with a 4xx code (which the error formatter passes through unmasked).
@@ -327,6 +299,41 @@ async function recordStillWithRetry(
 }
 
 /**
+ * Videos made from stills being deleted keep their picture: each still's
+ * stored thumbnail is copied as the poster of its clips that have none,
+ * before the thumbnail itself goes. Best effort; a clip left without one
+ * shows a placeholder.
+ */
+async function keepClipPosters(owner: string, stills: readonly Still[]): Promise<void> {
+  try {
+    const ids = new Set(stills.map((s) => s.id));
+    const used = new Set(
+      (await readLibrary(owner)).clips.filter((c) => !c.posterKey && ids.has(c.stillId)).map((c) => c.stillId)
+    );
+    const posters = new Map<string, string>();
+    await Promise.all(
+      [...used].map(async (id) => {
+        const key = await posterFromThumb(owner, id).catch((err: unknown) => {
+          console.warn('[delete] poster', id, err);
+          return undefined;
+        });
+        if (key) posters.set(id, key);
+      })
+    );
+    if (posters.size === 0) return;
+    await updateLibrary(owner, (lib) => ({
+      ...lib,
+      clips: lib.clips.map((c) => {
+        const key = c.posterKey ? undefined : posters.get(c.stillId);
+        return key ? { ...c, posterKey: key } : c;
+      }),
+    }));
+  } catch (err) {
+    console.warn('[delete] could not keep clip posters', err);
+  }
+}
+
+/**
  * `@imgN` into the words the model reads. The picked frame is image 1 and
  * the extras follow, so @img1 is "image 2" (Seedance and MiniMax read plain
  * reference images in order).
@@ -348,6 +355,8 @@ export const AppRouter = router({
   lifestyle: lifestyleRouter,
   /** The Settings tab: Runway, Higgsfield and other MCP servers, Seevio key (src/settings-api.ts). */
   settings: settingsRouter,
+  /** The Video tab's Recreate in 4K: a reference clip repeated from a 4K still (src/recreate-api.ts). */
+  recreate: recreateRouter,
 
   profile: publicProcedure.query(({ ctx }) => resolveProfile(ctx)),
 
@@ -807,8 +816,9 @@ export const AppRouter = router({
 
   /**
    * Take a still or clip out of the visitor's library, with its upscaled
-   * copies. Videos made from a deleted still stay. Only the library record
-   * goes: the Runway task behind it stays in the visitor's Runway history.
+   * copies. Videos made from a deleted still stay, with its thumbnail as
+   * their poster. Only the library record goes: the Runway task behind it
+   * stays in the visitor's Runway history.
    */
   deleteItem: signedInProcedure
     .input(z.object({ kind: z.enum(['still', 'clip']), id: z.string().min(1) }))
@@ -817,6 +827,8 @@ export const AppRouter = router({
       let removed = 0;
       let dropped: Still[] = [];
       let kept: Still[] = [];
+      let droppedClips: Clip[] = [];
+      let keptClips: Clip[] = [];
       await updateLibrary(owner, (lib) => {
         const gone = (x: { id: string; upscaleOf?: string | undefined }) =>
           x.id === input.id || x.upscaleOf === input.id;
@@ -829,18 +841,25 @@ export const AppRouter = router({
         }
         const clips = lib.clips.filter((c) => !gone(c));
         removed = lib.clips.length - clips.length;
+        droppedClips = lib.clips.filter(gone);
+        keptClips = clips;
         return { ...lib, clips };
       });
+      if (dropped.length > 0) await keepClipPosters(owner, dropped);
       // The marked edit's stored files go with it; a mask shared with a
-      // remaining take stays.
+      // remaining take stays. So does a poster another clip still shows.
       const stillUsed = new Set(kept.flatMap((s) => [s.maskKey, s.renderKey]).filter(Boolean));
-      const files = dropped.flatMap((s) => [
-        s.maskKey && !stillUsed.has(s.maskKey) ? s.maskKey : undefined,
-        s.compositeKey,
-        s.renderKey && !stillUsed.has(s.renderKey) ? s.renderKey : undefined,
-        thumbKey(owner, s.id),
-        viewKey(owner, s.id),
-      ]);
+      const posterUsed = new Set(keptClips.map((c) => c.posterKey).filter(Boolean));
+      const files = [
+        ...dropped.flatMap((s) => [
+          s.maskKey && !stillUsed.has(s.maskKey) ? s.maskKey : undefined,
+          s.compositeKey,
+          s.renderKey && !stillUsed.has(s.renderKey) ? s.renderKey : undefined,
+          thumbKey(owner, s.id),
+          viewKey(owner, s.id),
+        ]),
+        ...droppedClips.map((c) => (c.posterKey && !posterUsed.has(c.posterKey) ? c.posterKey : undefined)),
+      ];
       await Promise.all(
         [...new Set(files)].flatMap((key) =>
           key ? [deleteObject(key).catch((err: unknown) => console.warn('[delete]', key, err))] : []
@@ -958,12 +977,14 @@ export const AppRouter = router({
   /**
    * Animate one of the visitor's finished stills on the chosen video model.
    * The still is the first frame; the prompt keeps the scene as it is and
-   * moves only what moves in life. Returns at once; poll `videoStatus`.
+   * moves only what moves in life. A first frame of their own (an upload)
+   * needs no still. Returns at once; poll `videoStatus`.
    */
   createVideo: signedInProcedure
     .input(
       z.object({
-        stillId: z.string().min(1),
+        /** The still picked in step 1; optional when `firstFrame` is set. */
+        stillId: z.string().min(1).optional(),
         videoModel: z.enum(VIDEO_MODEL_IDS).default('seedance-2'),
         motion: z.enum(MOTION_IDS).default('still-life'),
         moveStyle: z.enum(MOVE_STYLE_IDS).default('steady'),
@@ -997,24 +1018,37 @@ export const AppRouter = router({
         input.seconds ?? defaultVideoSeconds(input.videoModel)
       );
       const lib = await readLibrary(owner);
-      const picked = lib.stills.find((s) => s.id === input.stillId);
-      if (!picked) {
+      const picked = input.stillId ? lib.stills.find((s) => s.id === input.stillId) : undefined;
+      if (input.stillId && !picked) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'That still is no longer in your library. Pick another one.',
         });
       }
+      // An uploaded first frame is the clip's source: no library still is
+      // recorded for it, even when one was picked in step 1.
+      const upload =
+        input.firstFrame && 'uploadUrl' in input.firstFrame ? input.firstFrame : undefined;
       // A library still chosen as the first frame is the clip's still.
       const firstId =
         input.firstFrame && 'stillId' in input.firstFrame ? input.firstFrame.stillId : undefined;
-      const still = (firstId ? lib.stills.find((s) => s.id === firstId) : undefined) ?? picked;
+      const still = upload
+        ? undefined
+        : ((firstId ? lib.stills.find((s) => s.id === firstId) : undefined) ?? picked);
       // The shape of the clip is the shape of the frame it starts on: that
       // still, or the uploaded image's own size. An upload's contents aren't
       // known here, so it is treated as possibly showing people.
-      const shape =
-        input.firstFrame && 'uploadUrl' in input.firstFrame
-          ? { width: input.firstFrame.width, height: input.firstFrame.height, people: true }
-          : { width: still.width, height: still.height, people: still.crowd !== 'none' };
+      const shape = upload
+        ? { width: upload.width, height: upload.height, people: true }
+        : still && { width: still.width, height: still.height, people: still.crowd !== 'none' };
+      const first: FrameRef | undefined = input.firstFrame ?? (still && { stillId: still.id });
+      if (!shape || !first) {
+        throw new TRPCError(
+          input.firstFrame
+            ? { code: 'NOT_FOUND', message: 'A still you chose is no longer in your library. Pick another one.' }
+            : { code: 'BAD_REQUEST', message: 'Pick a still, or choose a first frame of your own.' }
+        );
+      }
       // In clip order, so the keyframes go out first to last.
       const middleSorted = [...input.middleFrames].sort((a, b) => a.at - b.at);
       checkFrameInput({ ...input, middleFrames: middleSorted });
@@ -1038,7 +1072,7 @@ export const AppRouter = router({
         const resolve = (ref: FrameRef) =>
           'stillId' in ref ? sign(ref.stillId) : Promise.resolve(ref.uploadUrl);
         const [frameUrl, last, middle, refs] = await Promise.all([
-          input.firstFrame ? resolve(input.firstFrame) : sign(still.id),
+          resolve(first),
           input.lastFrame ? resolve(input.lastFrame) : Promise.resolve(undefined),
           Promise.all(middleSorted.map((m) => resolve(m))),
           Promise.all(input.refs.map((r) => resolve(r))),
@@ -1068,7 +1102,8 @@ export const AppRouter = router({
         1 + middleSorted.length + (lastFrameUrl && input.lastFrame ? 1 : 0);
       const clip: Clip = {
         id,
-        stillId: still.id,
+        stillId: still?.id ?? '',
+        ...(upload ? { firstFrameUrl: upload.uploadUrl } : {}),
         createdAt: new Date().toISOString(),
         status: 'pending',
         videoModel: input.videoModel,
@@ -1085,6 +1120,8 @@ export const AppRouter = router({
         ...(input.refs.length ? { refCount: input.refs.length } : {}),
       };
       await recordClip(owner, clip);
+      // Its poster is the uploaded frame, kept while the clip renders.
+      void ensureClipPoster(owner, clip);
       return { id };
     }),
 
@@ -1096,7 +1133,10 @@ export const AppRouter = router({
       try {
         const snap = await ctx.runway.taskSnapshot(input.id);
         if (snap.done) {
-          await patchClip(owner, input.id, () => settled(snap)).catch(() => {});
+          const lib = await patchClip(owner, input.id, () => settled(snap)).catch(() => null);
+          // The poster started with the clip may have been lost with its pod.
+          const clip = lib?.clips.find((c) => c.id === input.id);
+          if (clip) await ensureClipPoster(owner, clip);
         }
         return {
           done: snap.done,
@@ -1431,6 +1471,11 @@ function submitVideo(
         // refuses an explicit resolution alongside it.
         duration: seconds,
         providerSettings: { sound: false },
+      });
+    case 'kling-4-0':
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Kling 4.0 is used by Recreate in 4K. Pick another model here.',
       });
     case 'gen-4-5':
       return ctx.runway.createTask('gen4.5', {
