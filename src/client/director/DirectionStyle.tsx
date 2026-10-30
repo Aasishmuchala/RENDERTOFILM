@@ -10,10 +10,10 @@ const OPTIONS: readonly SelectOption[] = DIRECTOR_LENSES.map((l) => ({
   hint: l.summary,
 }));
 
-const storeKey = (page: 'director' | 'lifestyle') => `render-to-film:${page}:direction-style`;
+const storeKey = (page: 'director' | 'lifestyle' | 'video') => `render-to-film:${page}:direction-style`;
 
 /** The page's direction style for its next plan, remembered in this browser; an id no longer offered reads as none. */
-export function useDirectionStyle(page: 'director' | 'lifestyle') {
+export function useDirectionStyle(page: 'director' | 'lifestyle' | 'video') {
   const [style, setStyle] = useState<DirectorLensId>(() => {
     try {
       return directorLensById(localStorage.getItem(storeKey(page)) ?? undefined)?.id ?? DEFAULT_DIRECTOR_LENS;

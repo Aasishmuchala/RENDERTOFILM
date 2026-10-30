@@ -33,9 +33,16 @@ export async function imageSlot<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Downloads an image, refusing one that is too large or too slow. */
-export async function readCapped(url: string, what = 'image'): Promise<Buffer> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+/**
+ * Downloads an image, refusing one that is too large or too slow. `get` is
+ * `safeFetch` (src/safe-fetch.ts) for an address a visitor supplied.
+ */
+export async function readCapped(
+  url: string,
+  what = 'image',
+  get: (url: string, init: { signal: AbortSignal }) => Promise<Response> = fetch
+): Promise<Buffer> {
+  const res = await get(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok || !res.body) throw new Error(`Could not load the ${what} (${res.status}).`);
   const tooLarge = () => new Error(`The ${what} is too large to process.`);
   if (Number(res.headers.get('content-length')) > MAX_SOURCE_BYTES) {

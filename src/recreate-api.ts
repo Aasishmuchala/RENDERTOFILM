@@ -26,6 +26,8 @@ import {
   type RecreateRouteId,
   recreateSeconds,
 } from './recreate.ts';
+import { buildRecreateDirectedPrompt, resolveShotPlan } from './shot-director.ts';
+import { clipShot, shotPlanRawSchema } from './shot-director-api.ts';
 import {
   finishedUrl,
   logRejection,
@@ -239,6 +241,8 @@ export const recreateRouter = router({
         source: sourceRef,
         route: z.enum(RECREATE_ROUTE_IDS).default(DEFAULT_RECREATE_ROUTE),
         note: z.string().max(RECREATE_NOTE_MAX).default(''),
+        /** The shot director's plan of the source (src/shot-director-api.ts); only its inventory lock is used. */
+        shot: shotPlanRawSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ id: string; seconds: number; route: RecreateRouteId }> => {
@@ -291,7 +295,21 @@ export const recreateRouter = router({
         throw toTrpcError(err);
       }
       const seconds = recreateSeconds(route.id, refSeconds);
-      const prompt = clampPrompt(buildRecreatePrompt(input.note), 3500);
+      // The reference clip sets the camera, so a directed recreation adds
+      // only "these exist, these move"; any move the plan names is kept as is.
+      const directed = input.shot
+        ? resolveShotPlan(input.shot, {
+            videoModel: route.model,
+            width: shape.width,
+            height: shape.height,
+            people: true,
+            userKeyframes: true,
+            canEndFrame: false,
+          })
+        : undefined;
+      const prompt = directed
+        ? clampPrompt(buildRecreateDirectedPrompt(input.note, directed), 3500)
+        : clampPrompt(buildRecreatePrompt(input.note), 3500);
       const aspectRatio = snapAspectRatio(shape.width, shape.height, alias) ?? '16:9';
       const name = 'render-to-film recreate';
       let id: string;
@@ -349,6 +367,7 @@ export const recreateRouter = router({
               ? { stillId: source.stillId }
               : { url: source.uploadUrl, width: source.width, height: source.height },
         },
+        ...(directed ? { shot: clipShot(directed, false) } : {}),
       };
       await recordClip(owner, clip);
       // An uploaded source is its poster, kept while the clip renders.

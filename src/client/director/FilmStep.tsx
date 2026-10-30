@@ -1,5 +1,5 @@
-import { Clapperboard, Film, Scissors } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Clapperboard, Film, ScanEye, Scissors, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type { Clip, Still } from '../../api.ts';
 import {
@@ -15,14 +15,18 @@ import {
   type SpeedId,
   VIDEO_MODELS,
   videoDurations,
+  videoKeyframeLimit,
   type VideoModelId,
   videoModelName,
   videoResolutions,
 } from '../../models.ts';
+import { type ShotContext, type ShotPlanRaw, shotSummary } from '../../shot-director.ts';
 import type { FramePlan, StoryboardJob } from '../../storyboard-api.ts';
 import { Section } from '../layouts/Section.tsx';
 import { libraryUrl, stillThumbUrl } from '../lib/download.ts';
 import { useInFlight } from '../lib/useInFlight.ts';
+import { type ShotPlan, useShotPlan } from '../lib/useShotPlan.ts';
+import { ShotDirector } from '../ShotDirector.tsx';
 import { trpc } from '../trpc.ts';
 import { Alert } from '../ui/Alert.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -45,6 +49,8 @@ type FilmSettings = {
   direction: string;
   onlyInImage: boolean;
   archviz: boolean;
+  /** Plan each clip from its frame with the shot director (src/shot-director.ts) before it is made. */
+  direct: boolean;
   /** A camera move per frame (its image index); unset frames use the suggested move. */
   moves: Record<number, MotionId>;
 };
@@ -59,6 +65,7 @@ function defaults(): FilmSettings {
     direction: '',
     onlyInImage: true,
     archviz: true,
+    direct: true,
     moves: {},
   };
 }
@@ -91,6 +98,7 @@ function useFilmSettings(jobId: string) {
             direction: typeof saved.direction === 'string' ? saved.direction.slice(0, DIRECTION_MAX) : '',
             onlyInImage: typeof saved.onlyInImage === 'boolean' ? saved.onlyInImage : d.onlyInImage,
             archviz: typeof saved.archviz === 'boolean' ? saved.archviz : d.archviz,
+            direct: typeof saved.direct === 'boolean' ? saved.direct : d.direct,
             moves,
           };
         }
@@ -146,19 +154,86 @@ export type FilmStepProps = {
   actionInFooter?: boolean | undefined;
 };
 
+/** How long the batch waits for a card to show how its director call went before it moves on. */
+const REPORT_WAIT_MS = 5000;
+
+/** What a card's shot director tells the step; each card reports after every render. */
+type ShotReport = {
+  /** Directing is on and this frame has no fresh plan yet. */
+  needsPlan: boolean;
+  /** Its director call is being sent or polled. */
+  planning: boolean;
+  /** Why its last director call could not be sent. */
+  planError: unknown;
+  /** The plan its clip is made with: set only with directing on and a fresh plan. */
+  sendable: ShotPlanRaw | undefined;
+  /** The plan's camera move, once the frame is directed. */
+  move: MotionId | undefined;
+  direct: () => Promise<void>;
+};
+
+/** The part of a report the step's labels read, kept in state so a change shows. */
+type ShotView = Pick<ShotReport, 'needsPlan' | 'planning' | 'move'>;
+
+function errorCode(e: unknown): string | undefined {
+  return (e as { data?: { code?: string } } | null)?.data?.code;
+}
+
 /** Step two of the Director tab: the chosen frames, shot as clips in story order. */
 export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit, onNext, actionInFooter = false }: FilmStepProps) {
   const utils = trpc.useUtils();
-  // This section's button and the page's footer both start a batch; a
-  // double-click on either starts one.
+  // This section's button and the page's footer both start a batch (directing
+  // or making); a double-click on either starts one.
   const makeGuard = useInFlight();
   const [s, setS] = useFilmSettings(job.id);
   const [making, setMaking] = useState<number | null>(null);
-  /** The frames the running batch makes, for its "clip N of M" count. */
+  /** The frame whose director call the running batch is sending. */
+  const [directing, setDirecting] = useState<number | null>(null);
+  /** The frames the running batch makes or directs, for its "N of M" count. */
   const [batch, setBatch] = useState<readonly number[]>([]);
   const [errors, setErrors] = useState<Record<number, unknown>>({});
   const [batchError, setBatchError] = useState<unknown>(null);
+  /** Whose refusal stopped the batch: the shot director's or the video model's. */
+  const [batchFrom, setBatchFrom] = useState<'direct' | 'make'>('make');
+  /** The card whose plan is open; one at a time. */
+  const [editing, setEditing] = useState<number | null>(null);
   const set = (patch: Partial<FilmSettings>) => setS((prev) => ({ ...prev, ...patch }));
+
+  // Each card owns its frame's shot director (FilmFrameRow) and reports it
+  // here: the batch reads the latest report from the ref, the labels from
+  // `shots`, which changes only when what they read does.
+  const reports = useRef(new Map<number, ShotReport & { seq: number }>());
+  const reportSeq = useRef(0);
+  const reportWaiters = useRef(new Set<() => void>());
+  const [shots, setShots] = useState<Record<number, ShotView>>({});
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const onReport = useCallback((image: number, r: ShotReport | null) => {
+    if (r) reports.current.set(image, { ...r, seq: ++reportSeq.current });
+    else reports.current.delete(image);
+    for (const wake of [...reportWaiters.current]) wake();
+    setShots((prev) => {
+      const was = prev[image];
+      if (!r) return was ? Object.fromEntries(Object.entries(prev).filter(([k]) => Number(k) !== image)) : prev;
+      if (was && was.needsPlan === r.needsPlan && was.planning === r.planning && was.move === r.move) return prev;
+      return { ...prev, [image]: { needsPlan: r.needsPlan, planning: r.planning, move: r.move } };
+    });
+  }, []);
+  /** Resolves once a card's report passes `done` (or the card is gone), or after `ms`. */
+  const waitForReport = (image: number, done: (r: ShotReport & { seq: number }) => boolean, ms: number) =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(finish, ms);
+      function finish() {
+        clearTimeout(timer);
+        reportWaiters.current.delete(check);
+        resolve();
+      }
+      function check() {
+        const r = reports.current.get(image);
+        if (!r || done(r)) finish();
+      }
+      reportWaiters.current.add(check);
+      check();
+    });
 
   const clipById = useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
   /** Each frame's newest clip of its current take that is still in the
@@ -180,13 +255,54 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   const resolution = resolutions.some((r) => r.id === s.resolution) ? s.resolution : defaultVideoResolution(s.videoModel);
   const seconds = snapVideoSeconds(s.videoModel, s.seconds);
   const moveOf = (frame: FramePlan, order: number) => s.moves[frame.image] ?? suggestedMove(frame, order, frames.length);
-  const busy = making !== null;
+  /** The camera a frame's clip moves with: its plan's once directed, else its preset. */
+  const cameraOf = (frame: FramePlan, order: number) => (s.direct ? shots[frame.image]?.move : undefined) ?? moveOf(frame, order);
+  const busy = making !== null || directing !== null;
   const madeAny = film.some(({ frame }) => clipFor.has(frame.image));
   const rendering = film.filter(({ frame }) => clipFor.get(frame.image)?.status === 'pending').length;
   const missing = film.filter(({ frame }) => {
     const c = clipFor.get(frame.image);
     return !c || c.status === 'failed';
   });
+  // With directing on, each clip to make is directed first (a text call each).
+  const toDirect = s.direct ? missing.filter(({ frame }) => shots[frame.image]?.needsPlan ?? true) : [];
+  const planningNow = s.direct ? missing.filter(({ frame }) => shots[frame.image]?.planning).length : 0;
+  const working = busy || planningNow > 0;
+
+  /**
+   * Direct the frames that have no fresh plan, one call at a time. Each is
+   * one text call; no video is billed. A sign-in or plan refusal stops the
+   * run (the next frame would be refused the same way) and shows once, under
+   * the button; each plan comes back on its card.
+   */
+  async function direct(list: typeof film) {
+    if (!makeGuard.start()) return;
+    setBatchError(null);
+    const todo = list.filter(({ frame }) => {
+      const r = reports.current.get(frame.image);
+      return r?.needsPlan && !r.planning;
+    });
+    setBatch(todo.map(({ frame }) => frame.image));
+    for (const { frame } of todo) {
+      const r = reports.current.get(frame.image);
+      if (!r?.needsPlan || r.planning) continue;
+      setDirecting(frame.image);
+      await r.direct();
+      // Every render from here on shows how the call went: planning, or why it was refused.
+      const since = reportSeq.current;
+      rerender();
+      await waitForReport(frame.image, (x) => x.seq > since, REPORT_WAIT_MS);
+      const refused = reports.current.get(frame.image)?.planError;
+      const code = errorCode(refused);
+      if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
+        setBatchError(refused);
+        setBatchFrom('direct');
+        break;
+      }
+    }
+    setDirecting(null);
+    makeGuard.end();
+  }
 
   async function make(list: typeof film) {
     if (!makeGuard.start()) return;
@@ -199,6 +315,8 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
       setErrors((e) => ({ ...e, [frame.image]: undefined }));
       try {
         const move = moveOf(frame, order);
+        // A directed frame sends its plan; the server resolves it again for this clip.
+        const shot = s.direct ? reports.current.get(frame.image)?.sendable : undefined;
         const { id } = await utils.client.createVideo.mutate({
           stillId: take.id,
           videoModel: s.videoModel,
@@ -210,6 +328,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
           direction: s.direction,
           onlyInImage: s.onlyInImage,
           archviz: s.archviz,
+          ...(shot ? { shot } : {}),
         });
         await utils.client.storyboard.recordClip.mutate({ id: job.id, image: frame.image, clipId: id });
         await onMade();
@@ -219,6 +338,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
         const code = (error as { data?: { code?: string } } | null)?.data?.code;
         if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
           setBatchError(error);
+          setBatchFrom('make');
           break;
         }
         setErrors((e) => ({ ...e, [frame.image]: error }));
@@ -228,17 +348,36 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
     makeGuard.end();
   }
 
-  const makeLabel = busy
-    ? `Starting clip ${batch.indexOf(making ?? -1) + 1} of ${batch.length}…`
-    : missing.length === 0
-      ? 'Every chosen frame has a clip'
-      : missing.length === film.length
-        ? `Make ${film.length} clip${film.length === 1 ? '' : 's'}`
-        : `Make the other ${missing.length} clip${missing.length === 1 ? '' : 's'}`;
-  const cost = `${film.length} clip${film.length === 1 ? '' : 's'} of ${seconds} seconds with ${videoModelName(s.videoModel)}. Each costs the same as one on the Video tab, billed to your own Runway credits.`;
+  /** The batch's next press: direct the frames that still need a plan, else make the clips. */
+  function advance(list: typeof film) {
+    if (s.direct && list.some(({ frame }) => shots[frame.image]?.needsPlan ?? true)) void direct(list);
+    else void make(list);
+  }
+
+  const makeLabel =
+    making !== null
+      ? `Starting clip ${batch.indexOf(making) + 1} of ${batch.length}…`
+      : directing !== null
+        ? `Directing shot ${batch.indexOf(directing) + 1} of ${batch.length}…`
+        : planningNow > 0
+          ? `Directing ${planningNow} shot${planningNow === 1 ? '' : 's'}…`
+          : missing.length === 0
+            ? 'Every chosen frame has a clip'
+            : toDirect.length > 0
+              ? `Direct ${toDirect.length} shot${toDirect.length === 1 ? '' : 's'}`
+              : missing.length === film.length
+                ? `Make ${film.length} clip${film.length === 1 ? '' : 's'}`
+                : `Make the other ${missing.length} clip${missing.length === 1 ? '' : 's'}`;
+  const directedAll = s.direct && missing.length > 0 && toDirect.length === 0;
+  const clipCost = `${film.length} clip${film.length === 1 ? '' : 's'} of ${seconds} seconds with ${videoModelName(s.videoModel)}${directedAll ? ', directed' : ''}. Each costs the same as one on the Video tab, billed to your own Runway credits.`;
+  const cost =
+    toDirect.length > 0
+      ? `${clipCost} Directing is ${toDirect.length} text call${toDirect.length === 1 ? '' : 's'}; clips are billed only when you make them.`
+      : clipCost;
+  const batchModel = batchFrom === 'direct' ? 'the shot director' : videoModelName(s.videoModel);
   const offersMake = film.length > 0 && (busy || missing.length > 0);
   const makeMissing = useRef(() => {});
-  makeMissing.current = () => void make(missing);
+  makeMissing.current = () => advance(missing);
   // Before paint, so the footer never shows a step this section has moved past.
   useLayoutEffect(() => {
     onNext?.(
@@ -246,20 +385,20 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
         ? {
             kind: 'make',
             label: makeLabel,
-            busy,
+            busy: working,
             cost,
             make: () => makeMissing.current(),
             error: batchError,
-            modelName: videoModelName(s.videoModel),
+            modelName: batchModel,
           }
         : { kind: 'edit', film: film.length, rendering }
     );
-  }, [onNext, offersMake, makeLabel, busy, cost, batchError, s.videoModel, film.length, rendering]);
+  }, [onNext, offersMake, makeLabel, working, cost, batchError, batchModel, film.length, rendering]);
   useLayoutEffect(() => () => onNext?.(null), [onNext]);
 
   const secondsOptions = durations.map((n) => ({ id: String(n), name: `${n} seconds` }));
   const anyTravel = film.some(({ frame, order }) => {
-    const m = moveOf(frame, order);
+    const m = cameraOf(frame, order);
     return m !== 'still-life' && m !== 'focus-pull';
   });
 
@@ -329,6 +468,17 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                 showHint={false}
               />
               <Switch
+                label="Direct each shot"
+                hint={
+                  s.direct
+                    ? 'An AI director reads each frame and plans its camera, what moves and the timing from what is really there. Nothing new is added.'
+                    : 'Off: each clip uses its camera move and your direction as they are.'
+                }
+                checked={s.direct}
+                onChange={(direct) => set({ direct })}
+                disabled={busy}
+              />
+              <Switch
                 label="Architectural film style"
                 hint={
                   s.archviz
@@ -365,10 +515,10 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                     variant="primary"
                     size="lg"
                     className={own.filmMake}
-                    icon={<Clapperboard size={16} />}
-                    loading={busy}
+                    icon={toDirect.length > 0 ? <ScanEye size={16} /> : <Clapperboard size={16} />}
+                    loading={working}
                     disabled={missing.length === 0 && !busy}
-                    onPress={() => void make(missing)}
+                    onPress={() => advance(missing)}
                   >
                     {makeLabel}
                   </Button>
@@ -386,77 +536,237 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                 {!(actionInFooter && offersMake) && (
                   <RunwayErrorNotice
                     error={batchError}
-                    modelName={videoModelName(s.videoModel)}
-                    onRetry={busy ? undefined : () => void make(missing)}
+                    modelName={batchModel}
+                    onRetry={busy ? undefined : () => advance(missing)}
                   />
                 )}
               </div>
             </div>
 
             <ol className={own.clips} aria-label="Clips in story order">
-              {film.map(({ frame, order }) => {
-                const take = takes.get(frame.image)!;
-                const clip = clipFor.get(frame.image);
-                const aspect = `${take.width} / ${take.height}`;
-                const starting = making === frame.image;
-                return (
-                  <li key={frame.image} className={own.clip}>
-                    <div className={own.clipFrame} style={{ aspectRatio: aspect }}>
-                      {starting || clip?.status === 'pending' ? (
-                        <RenderingStatus label={starting ? 'Starting the clip…' : 'Rendering the clip…'} runKey={clip?.id ?? `${job.id}-${frame.image}`} />
-                      ) : clip?.status === 'succeeded' ? (
-                        <video
-                          key={clip.id}
-                          className={own.clipVideo}
-                          src={libraryUrl('clip', clip.id)}
-                          poster={stillThumbUrl(take.id)}
-                          preload="none"
-                          playsInline
-                          controls
-                          aria-label={`Clip ${order}: ${frame.title}`}
-                        />
-                      ) : (
-                        <img className={own.clipVideo} src={stillThumbUrl(take.id)} alt={`Film still: ${frame.title}`} loading="lazy" decoding="async" />
-                      )}
-                    </div>
-                    <div className={own.clipBody}>
-                      <h3 className={own.clipTitle}>
-                        <span className={own.cardNo}>{order}</span>
-                        {frame.title}
-                        {clip?.status === 'succeeded' && <span className={own.clipMeta}>{videoModelName(clip.videoModel)}</span>}
-                      </h3>
-                      <Select
-                        label="Camera move"
-                        options={MOTIONS}
-                        value={moveOf(frame, order)}
-                        onChange={(id) => set({ moves: { ...s.moves, [frame.image]: id as MotionId } })}
-                        disabled={busy}
-                      />
-                      {clip?.status === 'failed' && !starting && (
-                        <Alert tone="error" title="This clip didn't render">
-                          {clip.error ?? 'Make it again.'}
-                        </Alert>
-                      )}
-                      {clip?.status === 'succeeded' && (
-                        <div className={own.cardActions}>
-                          <Button size="sm" variant="ghost" icon={<Film size={14} />} onPress={() => void make([{ frame, order }])} disabled={busy}>
-                            Make again
-                          </Button>
-                        </div>
-                      )}
-                      <RunwayErrorNotice
-                        error={errors[frame.image]}
-                        modelName={videoModelName(s.videoModel)}
-                        onRetry={busy ? undefined : () => void make([{ frame, order }])}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
+              {film.map(({ frame, order }) => (
+                <FilmFrameRow
+                  key={frame.image}
+                  job={job}
+                  frame={frame}
+                  order={order}
+                  take={takes.get(frame.image)!}
+                  clip={clipFor.get(frame.image)}
+                  settings={s}
+                  seconds={seconds}
+                  move={moveOf(frame, order)}
+                  starting={making === frame.image}
+                  busy={busy}
+                  error={errors[frame.image]}
+                  editing={editing === frame.image}
+                  onEditing={setEditing}
+                  onMove={(m) => set({ moves: { ...s.moves, [frame.image]: m } })}
+                  onDirect={(on) => set({ direct: on })}
+                  onMake={() => advance([{ frame, order }])}
+                  onReport={onReport}
+                />
+              ))}
             </ol>
           </div>
         )}
       </div>
     </Section>
+  );
+}
+
+type FilmFrameRowProps = {
+  job: StoryboardJob;
+  frame: FramePlan;
+  order: number;
+  take: Still;
+  clip: Clip | undefined;
+  settings: FilmSettings;
+  seconds: number;
+  /** The frame's camera preset: its clip's move undirected, the director's hint directed. */
+  move: MotionId;
+  /** This frame's clip is being started. */
+  starting: boolean;
+  /** A batch is running. */
+  busy: boolean;
+  error: unknown;
+  /** This card's plan is open. */
+  editing: boolean;
+  onEditing: (image: number | null) => void;
+  onMove: (move: MotionId) => void;
+  /** The film's directing switch, which the plan's own switch also sets. */
+  onDirect: (on: boolean) => void;
+  /** Make this frame's clip again; directing first when it has no fresh plan. */
+  onMake: () => void;
+  onReport: (image: number, report: ShotReport | null) => void;
+};
+
+/**
+ * One frame of the film as a card: its clip (or its still), its camera and,
+ * with directing on, its shot director. A component of its own so each frame
+ * owns its director hook while frames come and go; it reports to the step
+ * after every render.
+ */
+function FilmFrameRow({
+  job,
+  frame,
+  order,
+  take,
+  clip,
+  settings: s,
+  seconds,
+  move,
+  starting,
+  busy,
+  error,
+  editing,
+  onEditing,
+  onMove,
+  onDirect,
+  onMake,
+  onReport,
+}: FilmFrameRowProps) {
+  const context: ShotContext = {
+    videoModel: s.videoModel,
+    width: take.width,
+    height: take.height,
+    people: take.crowd !== 'none',
+    userKeyframes: false,
+    canEndFrame: videoKeyframeLimit(s.videoModel) >= 2,
+  };
+  const plan = useShotPlan({
+    page: 'director',
+    // Per storyboard as well as per frame, so another storyboard's frame never shows this plan.
+    slot: `${job.id}:${frame.image}`,
+    first: { stillId: take.id },
+    videoModel: s.videoModel,
+    seconds,
+    motion: move,
+    direction: s.direction,
+    directorStyle: job.directorStyle,
+    context,
+  });
+  // The film's own switch decides, not the Video tab's: a storyboard directs its clips or it doesn't.
+  const fresh = plan.state.kind === 'ready' && !plan.stale ? plan.state.raw : undefined;
+  const shot: ShotPlan = {
+    ...plan,
+    enabled: s.direct,
+    setEnabled: onDirect,
+    needsPlan: s.direct && !fresh,
+    sendable: s.direct ? fresh : undefined,
+  };
+  const resolved = shot.sendable ? plan.resolved : null;
+  const plannedMove = resolved?.camera.move;
+
+  useLayoutEffect(() => {
+    onReport(frame.image, {
+      needsPlan: shot.needsPlan,
+      planning: plan.planning,
+      planError: plan.planError,
+      sendable: shot.sendable,
+      move: plannedMove,
+      direct: plan.direct,
+    });
+  });
+  useLayoutEffect(() => () => onReport(frame.image, null), [frame.image, onReport]);
+
+  const aspect = `${take.width} / ${take.height}`;
+  const kind = plan.state.kind;
+  const status = plan.planning
+    ? 'Directing the shot…'
+    : resolved
+      ? shotSummary(resolved)
+      : kind === 'ready'
+        ? 'The frame, the video model or the clip length changed since this plan. Direct it again.'
+        : kind === 'failed'
+          ? 'The director could not plan this shot.'
+          : 'Not directed yet: the director plans it from this frame before its clip is made.';
+  // A refused sign-in or plan shows once, under the batch's button.
+  const planErrorCode = errorCode(plan.planError);
+  const cardPlanError = planErrorCode === 'FORBIDDEN' || planErrorCode === 'UNAUTHORIZED' ? null : plan.planError;
+
+  return (
+    <li className={own.clip}>
+      <div className={own.clipFrame} style={{ aspectRatio: aspect }}>
+        {starting || clip?.status === 'pending' ? (
+          <RenderingStatus label={starting ? 'Starting the clip…' : 'Rendering the clip…'} runKey={clip?.id ?? `${job.id}-${frame.image}`} />
+        ) : clip?.status === 'succeeded' ? (
+          <video
+            key={clip.id}
+            className={own.clipVideo}
+            src={libraryUrl('clip', clip.id)}
+            poster={stillThumbUrl(take.id)}
+            preload="none"
+            playsInline
+            controls
+            aria-label={`Clip ${order}: ${frame.title}`}
+          />
+        ) : (
+          <img className={own.clipVideo} src={stillThumbUrl(take.id)} alt={`Film still: ${frame.title}`} loading="lazy" decoding="async" />
+        )}
+      </div>
+      <div className={own.clipBody}>
+        <h3 className={own.clipTitle}>
+          <span className={own.cardNo}>{order}</span>
+          {frame.title}
+          {clip?.status === 'succeeded' && <span className={own.clipMeta}>{videoModelName(clip.videoModel)}</span>}
+        </h3>
+        {/* A directed frame moves as its plan says (the line below, and the plan's own Select when open). */}
+        {!resolved && (
+          <Select
+            label="Camera move"
+            options={MOTIONS}
+            value={move}
+            onChange={(id) => onMove(id as MotionId)}
+            disabled={busy}
+          />
+        )}
+        {s.direct && (
+          <div className={own.clipShot}>
+            {!editing && (
+              <div role="status" aria-live="polite">
+                <Text tone={resolved ? 'secondary' : 'muted'} size="sm" as="p" className={own.clipShotLine}>
+                  {status}
+                </Text>
+              </div>
+            )}
+            {(editing || ((kind === 'ready' || kind === 'failed') && !plan.planning)) && (
+              <div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<SlidersHorizontal size={14} />}
+                  onPress={() => onEditing(editing ? null : frame.image)}
+                >
+                  {editing ? 'Hide the direction' : 'Edit the direction'}
+                </Button>
+              </div>
+            )}
+            {editing && <ShotDirector shot={shot} context={context} seconds={seconds} disabled={busy} />}
+            {!editing && !plan.planning && (
+              <RunwayErrorNotice error={cardPlanError} modelName="the shot director" onRetry={() => void plan.direct()} />
+            )}
+          </div>
+        )}
+        {clip?.status === 'failed' && !starting && (
+          <Alert tone="error" title="This clip didn't render">
+            {clip.error ?? 'Make it again.'}
+          </Alert>
+        )}
+        {clip?.status === 'succeeded' && (
+          <div className={own.cardActions}>
+            {shot.needsPlan ? (
+              <Button size="sm" variant="ghost" icon={<ScanEye size={14} />} onPress={onMake} disabled={busy || plan.planning}>
+                Direct the shot
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" icon={<Film size={14} />} onPress={onMake} disabled={busy}>
+                Make again
+              </Button>
+            )}
+          </div>
+        )}
+        <RunwayErrorNotice error={error} modelName={videoModelName(s.videoModel)} onRetry={busy ? undefined : onMake} />
+      </div>
+    </li>
   );
 }

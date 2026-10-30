@@ -1130,17 +1130,17 @@ export function buildVideoPrompt(
  * One small, unhurried action per person, lips closed, and the breeze in hair
  * and cloth: the pattern of a good locked-off portrait clip.
  */
-const PEOPLE_MOTION_SENTENCE =
+export const PEOPLE_MOTION_SENTENCE =
   'The people already in the frame stay exactly the same people, with the same faces, hair, clothing and real-world scale, and their faces never change or morph. Each person makes one small, natural, feel-good movement at true real-time speed, as if unaware of the camera: a slow turn of the head, a glance up at the trees, a soft smile forming, a hand brushing hair back, or an unhurried step with weight on each foot. Lips stay closed: no talking, no mouth movement, no visible breath. Eyes blink naturally and look where the action leads, never into the lens. Loose strands of hair and the folds of linen and cotton lift and settle gently in the same light breeze that moves the leaves, and a few petals or leaves drift down. Real skin texture, pores and fine lines stay sharp and unchanged; hands keep five natural fingers; feet stay planted on the ground with matching shadows, never sliding; no one appears, disappears or changes size.';
 
-const ARCHVIZ_SENTENCE =
+export const ARCHVIZ_SENTENCE =
   'Shot as a high-end architectural film: the architecture is the hero. The horizon stays perfectly level and every vertical line stays truly vertical and parallel, with no tilt, roll, keystone or lens distortion. One deliberate, motion-control-smooth move from start to finish, no zooming, no shake, no sudden change of direction. Crisp, true material detail in stone, timber, glass, metal and planting, natural daylight behaviour, calm and premium like a luxury property film.';
 
 /** The same film, for a locked-off or focus-only shot: no move to describe. */
-const ARCHVIZ_LOCKED_SENTENCE =
+export const ARCHVIZ_LOCKED_SENTENCE =
   'Shot as a high-end architectural film: the architecture is the hero. The horizon stays perfectly level and every vertical line stays truly vertical and parallel, with no tilt, roll, keystone or lens distortion. No zooming and no shake. Crisp, true material detail in stone, timber, glass, metal and planting, natural daylight behaviour, calm and premium like a luxury property film.';
 
-const STRICT_SENTENCE =
+export const STRICT_SENTENCE =
   'Strict rule: nothing appears that is not already visible in the photograph or the supplied frames. No new objects, buildings, furniture, plants, vehicles, people, animals, signs, text, sky features or light sources. The camera never reveals space beyond the edges of the image: keep the move small enough that every frame shows only what the photograph already contains.';
 
 /** For the models that take a negative prompt, when the frame has people: no talking, morphing or sliding. */
@@ -1150,7 +1150,7 @@ export const PEOPLE_NEGATIVE_PROMPT =
 /** For the models that take a negative prompt, with the strict switch on. */
 export const STRICT_NEGATIVE_PROMPT = `new objects, added buildings, added furniture, added plants or trees, added vehicles, new people, animals, birds, text, signage, logos, watermark, new light sources, objects appearing, objects disappearing, morphing, warping geometry, scene change, cut, invented areas beyond the frame, ${PEOPLE_NEGATIVE_PROMPT}`;
 
-function frameSentences(frames: { last?: boolean; middle?: number; refs?: number } | undefined): string[] {
+export function frameSentences(frames: { last?: boolean; middle?: number; refs?: number } | undefined): string[] {
   if (!frames) return [];
   const out: string[] = [];
   if (frames.last || frames.middle) {

@@ -1,0 +1,269 @@
+/* The shot director (DESIGN 8.3): the switch, the director's status, and the
+   plan as a solid card in the inspector (no glass on glass). Fields keep
+   their own fills; the plan's groups are spaced like a Section's fields. */
+.director {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The status line only takes room while it says something. */
+.live:empty {
+  display: none;
+}
+
+.line {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* The plan: a card on the inspector's glass. A container, so its pairs sit
+   side by side only where the card is wide enough for both. */
+.plan {
+  container: plan / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background: var(--bay-bg-surface);
+}
+
+/* A plan for another picture stays readable, but reads as inactive. */
+.plan[data-stale] .summary,
+.plan[data-stale] .chips {
+  opacity: 0.55;
+}
+
+.summary {
+  margin: 0;
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+  text-wrap: pretty;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.groupTitle {
+  margin: 0;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+/* What the director found in the picture: read-only chips. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--bay-border);
+  border-radius: var(--r-pill);
+  background: var(--bay-bg-sunken);
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  overflow-wrap: anywhere;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* What moves: one checkbox per element that moves in life, its "how" under it. */
+.movers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A checkbox row, after the Switch (ui/Switch.module.css): the box carries
+   the focus ring, selected turns it accent, disabled dims the row. */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.check[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--bay-border-strong);
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-bg-sunken);
+  color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    scale var(--dur-1) var(--ease-out);
+}
+
+.check[data-hovered] .box {
+  border-color: var(--bay-text-3);
+}
+
+.check[data-pressed] .box {
+  scale: 0.94;
+}
+
+.check[data-selected] .box {
+  border-color: var(--bay-accent);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.check[data-selected][data-hovered] .box {
+  border-color: var(--bay-accent-hover);
+  background: var(--bay-accent-hover);
+}
+
+.check[data-focus-visible] .box {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.checkText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.checkLabel {
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+}
+
+.checkHint {
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-3);
+}
+
+/* Beats: a head line (its number, its time, Remove), then what changes on a
+   line of its own, so the sentence is readable at every width. The time
+   field's label is for screen readers; the group's line says what the
+   numbers are. */
+.beats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.beat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.beatHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.beatName {
+  flex: none;
+  min-width: 44px;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-3);
+}
+
+.beatTime {
+  width: 96px;
+}
+
+.beatTime label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.beatRemove {
+  margin-left: auto;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+@container plan (min-width: 400px) {
+  .pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box {
+    transition: none;
+  }
+
+  .check[data-pressed] .box {
+    scale: none;
+  }
+}

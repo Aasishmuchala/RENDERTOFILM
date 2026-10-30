@@ -1,4 +1,4 @@
-import { Clapperboard, Download, ExternalLink, ListX, Maximize2, Play, Trash2 } from 'lucide-react';
+import { Clapperboard, Download, ExternalLink, ListX, Maximize2, Play, ScanEye, Trash2 } from 'lucide-react';
 import { type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { TabListStateContext, TabPanel, ToggleButton } from 'react-aria-components';
 
@@ -37,15 +37,19 @@ import {
   type VideoModelId,
 } from '../models.ts';
 import { recreateTitle } from '../recreate.ts';
+import { type ShotContext, shotSummary } from '../shot-director.ts';
 import { settingName } from '../surroundings.ts';
 import { DeleteItemDialog, type DeleteTarget } from './DeleteItemDialog.tsx';
+import { DirectionStyleSelect, useDirectionStyle } from './director/DirectionStyle.tsx';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, usePhoneLayout, Workspace, type WorkspaceProps } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { clipPosterUrl, libraryUrl, NO_POSTER, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
 import { useInFlight } from './lib/useInFlight.ts';
+import { useShotPlan } from './lib/useShotPlan.ts';
 import { useRecreateWorkspace } from './RecreatePanel.tsx';
+import { ShotDirector } from './ShotDirector.tsx';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
@@ -188,6 +192,8 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
   const [seconds, setSeconds] = useState(defaultVideoSeconds('seedance-2'));
   const [direction, setDirection] = useState('');
   const [onlyInImage, setOnlyInImage] = useState(true);
+  /** The shot director's lens (src/direction.ts), remembered in this browser. */
+  const [directorStyle, setDirectorStyle] = useDirectionStyle('video');
   const [filter, setFilter] = useState<Filter>('all');
   const [shown, setShown] = useState(PAGE);
   const [zoom, setZoom] = useState<Still | null>(null);
@@ -403,8 +409,14 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
     return own ?? selected;
   })();
   const previewRatio = frameRatio(firstShape);
-
-  const cameraTravels = motion !== 'still-life' && motion !== 'focus-pull';
+  // Whether the first frame may show people, as createVideo reads it: that
+  // still's crowd, or true for an upload (its contents aren't known).
+  const firstPeople = (() => {
+    const f = frames.first;
+    if (f && !f.stillId) return true;
+    const still = (f?.stillId ? stills.find((x) => x.id === f.stillId) : undefined) ?? selected;
+    return still ? still.crowd !== 'none' : true;
+  })();
 
   // What the chosen model can take from the frames and extra-images areas.
   const keyframeLimit = videoKeyframeLimit(videoModel);
@@ -419,6 +431,39 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
   const middleSent = frames.middle.slice(0, Math.max(0, keyframeLimit - 2));
   const refsSent = extrasBlocked ? [] : extrasUsed;
   const handleProblem = unknownHandle(direction, refsSent.length, videoModelName(videoModel));
+
+  // The shot director plans from the first frame (or the picked still), the
+  // frames it must pass through, and what this model can end on.
+  const shotFirst = frames.first ? firstFrameRef(frames.first) : selected ? { stillId: selected.id } : null;
+  const shotContext: ShotContext | null =
+    shotFirst && firstShape
+      ? {
+          videoModel,
+          width: firstShape.width,
+          height: firstShape.height,
+          people: firstPeople,
+          userKeyframes: Boolean(lastSent) || middleSent.length > 0,
+          canEndFrame: keyframeLimit >= 2 && !(refsSent.length > 0 && exclusive),
+        }
+      : null;
+  const shot = useShotPlan({
+    page: 'video',
+    first: shotFirst,
+    last: lastSent ? frameRef(lastSent) : null,
+    middle: middleSent.map(frameRef).filter((m) => m !== null),
+    refs: refsSent.length,
+    videoModel,
+    seconds,
+    motion,
+    direction,
+    directorStyle,
+    context: shotContext,
+  });
+  // A directed shot's camera is the plan's; otherwise the preset's.
+  const shownMotion = shot.sendable && shot.resolved ? shot.resolved.camera.move : motion;
+  const cameraTravels = shownMotion !== 'still-life' && shownMotion !== 'focus-pull';
+  const directing = shot.enabled && shot.planning;
+  const directFirst = !directing && shot.needsPlan;
   const directionTooLong = direction.length > DIRECTION_MAX;
   const duplicateFrames = duplicateMiddle(middleSent).size > 0;
 
@@ -429,6 +474,8 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
   async function run() {
     // A first frame of your own needs no still picked in step 1.
     if ((!selected && !frames.first) || handleProblem || directionTooLong || duplicateFrames || full) return;
+    // With the director on, the video waits for a plan made for this picture.
+    if (shot.needsPlan) return;
     if (!startGuard.start()) return;
     try {
       const refs = refsSent.map(frameRef);
@@ -446,6 +493,8 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
       ) {
         return;
       }
+      const directed = shot.sendable;
+      const summary = directed && shot.resolved ? shotSummary(shot.resolved) : undefined;
       const { id } = await createVideo.mutateAsync({
         ...(selected ? { stillId: selected.id } : {}),
         videoModel,
@@ -460,6 +509,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
         ...(last ? { lastFrame: last } : {}),
         ...(middle.length ? { middleFrames: middle.filter((m) => m !== null) } : {}),
         ...(refs.length ? { refs: refs.filter((r) => r !== null) } : {}),
+        ...(directed ? { shot: directed } : {}),
       });
       const take: Take = {
         id,
@@ -471,7 +521,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
         resolution,
         seconds,
         ratio: previewRatio,
-        title: `${MOTIONS.find((m) => m.id === motion)?.name ?? 'Shot'}, ${videoModelName(videoModel)}`,
+        title: summary ?? `${MOTIONS.find((m) => m.id === motion)?.name ?? 'Shot'}, ${videoModelName(videoModel)}`,
         since: Date.now(),
       };
       setTakes((prev) => {
@@ -525,8 +575,8 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
 
   const motionText = (
     cameraTravels
-      ? motionLabel(motion, moveStyle, speed)
-      : motionLabel(motion, moveStyle === 'handheld' ? moveStyle : undefined)
+      ? motionLabel(shownMotion, moveStyle, speed)
+      : motionLabel(shownMotion, moveStyle === 'handheld' ? moveStyle : undefined)
   ).toLowerCase();
   const focusReady = focus !== null && focusState === 'ready';
   const focusUrl = focus ? libraryUrl('clip', focus.id) : '';
@@ -687,15 +737,27 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
       <Section
         step={4}
         title="Camera"
-        description="Short moves only, so nothing outside the still has to be invented."
+        description="Directed from the image, or set by hand. Short moves only, so nothing outside the still has to be invented."
       >
         <div className={styles.stack}>
-          <Select
-            label="Camera move"
-            options={MOTIONS}
-            value={motion}
-            onChange={(id) => setMotion(id as MotionId)}
+          <ShotDirector
+            shot={shot}
+            context={shotContext}
+            seconds={seconds}
+            disabled={createVideo.isPending}
+            styleField={
+              <DirectionStyleSelect value={directorStyle} onChange={setDirectorStyle} disabled={shot.planning} />
+            }
           />
+          {/* While the director is on, the plan's camera Select replaces this one. */}
+          {!shot.enabled && (
+            <Select
+              label="Camera move"
+              options={MOTIONS}
+              value={motion}
+              onChange={(id) => setMotion(id as MotionId)}
+            />
+          )}
           <div className={styles.cameraRow}>
             <Select
               label="Movement style"
@@ -786,42 +848,61 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
     </>
   );
 
+  // The primary's two presses (src/client/ShotDirector.tsx): with the director
+  // on and no plan for this picture it directs (a text call); else it makes.
+  const directLabel = frames.uploading
+    ? 'Uploading images…'
+    : shotFirst === null
+      ? 'Pick a still or an image'
+      : 'Direct the shot';
+  const makeLabel = full
+    ? `${MAX_IN_FLIGHT} videos rendering`
+    : duplicateFrames
+      ? 'Move frames that share a point'
+      : frames.uploading
+        ? 'Uploading images…'
+        : !selected && !frames.first
+          ? 'Pick a still or an image'
+          : inFlight > 0
+            ? 'Make another video'
+            : 'Make the video';
   const animateFooter = (
     <>
       <Button
         variant="primary"
         size="lg"
-        icon={<Clapperboard size={18} />}
-        loading={createVideo.isPending}
+        icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
+        loading={createVideo.isPending || directing}
         disabled={
-          createVideo.isPending ||
-          full ||
-          (!selected && !frames.first) ||
-          frames.uploading ||
-          handleProblem !== undefined ||
-          directionTooLong ||
-          duplicateFrames ||
-          planBlocked ||
-          unavailable
+          directing ||
+          (directFirst
+            ? shotFirst === null || frames.uploading
+            : createVideo.isPending ||
+              full ||
+              (!selected && !frames.first) ||
+              frames.uploading ||
+              handleProblem !== undefined ||
+              directionTooLong ||
+              duplicateFrames ||
+              planBlocked ||
+              unavailable)
         }
-        onPress={() => void run()}
+        onPress={directFirst ? () => void shot.direct() : () => void run()}
       >
         {createVideo.isPending
           ? 'Starting…'
-          : full
-            ? `${MAX_IN_FLIGHT} videos rendering`
-            : duplicateFrames
-              ? 'Move frames that share a point'
-              : frames.uploading
-                ? 'Uploading images…'
-                : !selected && !frames.first
-                  ? 'Pick a still or an image'
-                  : inFlight > 0
-                    ? 'Make another video'
-                    : 'Make the video'}
+          : directing
+            ? 'Directing the shot…'
+            : directFirst
+              ? directLabel
+              : makeLabel}
       </Button>
       <CostLine
-        summary={`${videoModelName(videoModel)} at ${videoResolutionName(videoModel, resolution)}, ${seconds} seconds, ${motionText}. Billed to your own Runway credits; video costs more than a still.`}
+        summary={
+          directing || directFirst
+            ? 'Directing is one text call on your AI text provider (Settings); the video is not billed until you make it.'
+            : `${videoModelName(videoModel)} at ${videoResolutionName(videoModel, resolution)}, ${seconds} seconds, ${motionText}${shot.sendable ? ', directed' : ''}. Billed to your own Runway credits; video costs more than a still.`
+        }
       />
       <p className={styles.queueNote} role="status" aria-live="polite">
         {full
@@ -912,7 +993,12 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
         : focusState === 'rendering' || focusState === 'queued'
           ? [focus.title, `${focus.seconds} seconds`, 'Keep working: set up the next shot and it renders alongside this one']
           : [focus.title, `${focus.seconds} seconds`]
-    : [videoModelName(videoModel), videoResolutionName(videoModel, resolution), `${seconds} seconds`, motionText];
+    : [
+        videoModelName(videoModel),
+        videoResolutionName(videoModel, resolution),
+        `${seconds} seconds`,
+        shot.needsPlan ? 'camera directed from the image' : shot.sendable ? `${motionText}, directed` : motionText,
+      ];
   const animateActions = focus && focusReady ? (
     <>
       <Button
@@ -1290,7 +1376,7 @@ export function clipLabel(c: Clip): string {
   ].filter(Boolean);
   const base = `${videoModelName(c.videoModel)}${res ? ` ${res}` : ''}, ${motion}${
     extras.length ? `, ${extras.join(' and ')}` : ''
-  }`;
+  }${c.shot ? ', directed' : ''}`;
   return c.upscaleOf ? `${base}, upscaled ${c.scale ?? ''}× (${upscalerName(c.upscaler)})` : base;
 }
 

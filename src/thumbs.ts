@@ -1,6 +1,7 @@
 import { headObject, presignGet } from '@runway/bay/storage';
 
 import { imageSlot, MAX_INPUT_PIXELS, readCapped, sharp } from './imaging.ts';
+import { safeFetch } from './safe-fetch.ts';
 import { type Clip, patchClip } from './library.ts';
 import { getObject, putObject } from './storage.ts';
 
@@ -37,7 +38,8 @@ const POSTER: CopySpec = { dir: 'posters', width: 1280, quality: 80 };
 async function writeCopy(spec: CopySpec, key: string, sourceUrl: string): Promise<void> {
   if (await headObject(key)) return;
   await imageSlot(async () => {
-    const out = await sharp(await readCapped(sourceUrl, 'still'), { limitInputPixels: MAX_INPUT_PIXELS })
+    // The source can be a visitor's own upload: never read a private address.
+    const out = await sharp(await readCapped(sourceUrl, 'still', safeFetch), { limitInputPixels: MAX_INPUT_PIXELS })
       .resize({ width: spec.width, withoutEnlargement: true })
       .webp({ quality: spec.quality })
       .toBuffer();

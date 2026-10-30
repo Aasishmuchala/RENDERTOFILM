@@ -147,6 +147,19 @@ export type ClipRecreate = {
   upscale?: RecreateUpscale | undefined;
 };
 
+/**
+ * A clip made with the shot director (src/shot-director.ts): the move it was
+ * shot with, the move the plan named when that one would have shown space
+ * outside the image, whether it ran between two crops of its first frame,
+ * and the plan in one line.
+ */
+export type ClipShot = {
+  move: MotionId;
+  downgradedFrom?: MotionId | undefined;
+  cropped: boolean;
+  summary: string;
+};
+
 /** One generated clip. `id` is its Runway task id. */
 export type Clip = {
   id: string;
@@ -190,6 +203,8 @@ export type Clip = {
   tags?: string[] | undefined;
   /** Made on the Video tab's Recreate in 4K: the route, the reference and the source. */
   recreate?: ClipRecreate | undefined;
+  /** Directed by the shot director; unset for a clip made as set. */
+  shot?: ClipShot | undefined;
 };
 
 export type Library = { stills: Still[]; clips: Clip[] };

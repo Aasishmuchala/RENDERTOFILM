@@ -51,6 +51,17 @@ import {
   maskPrefix,
   renderKeyFor,
 } from './composite.ts';
+import { firstFrameRef, type FrameRef, frameRef, middleFrameRef } from './frame-refs.ts';
+import { imageSlot, MAX_INPUT_PIXELS, readCapped, sharp } from './imaging.ts';
+import { safeFetch, UnsafeUrlError } from './safe-fetch.ts';
+import {
+  buildDirectedVideoPrompt,
+  type Rect,
+  type ResolvedShot,
+  resolveShotPlan,
+  type ShotContext,
+} from './shot-director.ts';
+import { clipShot, shotPlanRawSchema, shotRouter } from './shot-director-api.ts';
 import { MAX_TAGS, normalizeTags } from './tags.ts';
 import {
   finishedUrl,
@@ -173,39 +184,8 @@ async function resolveProfile(ctx: Context): Promise<AppProfile | null> {
   });
 }
 
-/**
- * A frame or reference image for a clip: one of the visitor's own library
- * stills (signed server-side, never a client URL) or an image they uploaded
- * through `POST /api/upload`.
- */
 /** Longest extra direction a clip takes, in characters. */
 const VIDEO_DIRECTION_MAX = 600;
-
-const frameRef = z.union([
-  z.object({ stillId: z.string().min(1).max(200) }),
-  z.object({ uploadUrl: z.url().max(4000) }),
-]);
-type FrameRef = z.infer<typeof frameRef>;
-
-/**
- * The first frame of a clip. An upload carries its real pixel size (read by
- * the browser from the file), because the clip's shape follows the frame it
- * starts on, not the still picked in step 1.
- */
-const firstFrameRef = z.union([
-  z.object({ stillId: z.string().min(1).max(200) }),
-  z.object({
-    uploadUrl: z.url().max(4000),
-    width: z.number().int().min(1).max(20000),
-    height: z.number().int().min(1).max(20000),
-  }),
-]);
-
-/** A frame between first and last; `at` is how far into the clip (0 to 1). */
-const middleFrameRef = z.union([
-  z.object({ stillId: z.string().min(1).max(200), at: z.number().min(0.05).max(0.95) }),
-  z.object({ uploadUrl: z.url().max(4000), at: z.number().min(0.05).max(0.95) }),
-]);
 
 /** What a video model can't take, said in words, before anything is billed. */
 function checkFrameInput(input: {
@@ -343,6 +323,67 @@ function rewriteHandles(model: VideoModelId, direction: string, refCount: number
   return rewriteExtraImageHandles(direction, (n) => `image ${n + 1}`);
 }
 
+const CROP_FAILED =
+  'The director could not cut the opening and closing frames from this image, so nothing was made. Try again, or turn the director off.';
+
+/**
+ * The clip's first frame as decoded, for a directed reveal move: its bytes
+ * and its upright size (by EXIF orientation), which the plan is judged on
+ * again before any crop is cut. The address may be a visitor's upload, so it
+ * is fetched through `safeFetch` (src/safe-fetch.ts). Throws a plain
+ * PRECONDITION_FAILED; nothing is billed yet.
+ */
+async function readShotFrame(frameUrl: string): Promise<{ bytes: Buffer; width: number; height: number }> {
+  try {
+    const bytes = await readCapped(frameUrl, 'still', safeFetch);
+    const { autoOrient } = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+    if (!(autoOrient.width > 0 && autoOrient.height > 0)) throw new Error('The still has no readable size.');
+    return { bytes, width: autoOrient.width, height: autoOrient.height };
+  } catch (err) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: err instanceof UnsafeUrlError ? err.message : CROP_FAILED,
+      cause: err,
+    });
+  }
+}
+
+/**
+ * The first and last frames of a directed reveal move, both pieces of the
+ * one photograph: each crop (in the decoded frame's own pixels) is cut and
+ * handed to Runway as an ephemeral asset (as `POST /api/upload` does). An
+ * absent rect is the whole frame, which the caller already has. Runs before
+ * the clip is sent, so a failure bills nothing.
+ */
+async function cutShotCrops(
+  ctx: RunwayCtx,
+  bytes: Buffer,
+  crops: { start?: Rect | undefined; end?: Rect | undefined }
+): Promise<{ first?: string | undefined; last?: string | undefined }> {
+  let pieces: (Buffer | undefined)[];
+  try {
+    const cut = (rect: Rect | undefined) =>
+      rect
+        ? imageSlot(() =>
+            sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
+              .autoOrient()
+              .extract({ left: rect.x, top: rect.y, width: rect.width, height: rect.height })
+              .jpeg({ quality: 92 })
+              .toBuffer()
+          )
+        : Promise.resolve(undefined);
+    pieces = [await cut(crops.start), await cut(crops.end)];
+  } catch (err) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: CROP_FAILED, cause: err });
+  }
+  const [first, last] = await Promise.all(
+    pieces.map(async (buf) =>
+      buf ? (await ctx.runway.uploadAsset(buf, { filename: 'shot-crop.jpg' })).url : undefined
+    )
+  );
+  return { first, last };
+}
+
 export const AppRouter = router({
   /** The Edit tab: timeline, grades, AI editor, memory, export (src/edit-api.ts). */
   edit: editRouter,
@@ -357,6 +398,8 @@ export const AppRouter = router({
   settings: settingsRouter,
   /** The Video tab's Recreate in 4K: a reference clip repeated from a 4K still (src/recreate-api.ts). */
   recreate: recreateRouter,
+  /** The shot director: one vision call that plans a clip from what its first frame shows (src/shot-director-api.ts). */
+  shot: shotRouter,
 
   profile: publicProcedure.query(({ ctx }) => resolveProfile(ctx)),
 
@@ -1004,6 +1047,8 @@ export const AppRouter = router({
         onlyInImage: z.boolean().default(true),
         /** Shoot it as an architectural film: true verticals, slow motion-control moves. */
         archviz: z.boolean().default(false),
+        /** The shot director's plan, as the visitor left it (src/shot-director-api.ts); resolved again here. */
+        shot: shotPlanRawSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1052,6 +1097,21 @@ export const AppRouter = router({
       // In clip order, so the keyframes go out first to last.
       const middleSorted = [...input.middleFrames].sort((a, b) => a.at - b.at);
       checkFrameInput({ ...input, middleFrames: middleSorted });
+      // A directed shot is checked again against the clip it makes: the
+      // model, the frame's size and people, and the visitor's own frames
+      // (src/shot-director.ts). A reveal move comes back with its two crops.
+      const shotContext: ShotContext = {
+        videoModel: input.videoModel,
+        width: shape.width,
+        height: shape.height,
+        people: shape.people,
+        userKeyframes: Boolean(input.lastFrame) || middleSorted.length > 0,
+        canEndFrame:
+          videoKeyframeLimit(input.videoModel) >= 2 &&
+          !(input.refs.length > 0 && videoExtrasExcludeEnd(input.videoModel)),
+      };
+      let directed: ResolvedShot | undefined = input.shot ? resolveShotPlan(input.shot, shotContext) : undefined;
+      let cropped = false;
       let id: string;
       let lastFrameUrl: string | undefined;
       try {
@@ -1071,22 +1131,62 @@ export const AppRouter = router({
         };
         const resolve = (ref: FrameRef) =>
           'stillId' in ref ? sign(ref.stillId) : Promise.resolve(ref.uploadUrl);
-        const [frameUrl, last, middle, refs] = await Promise.all([
+        const [wholeUrl, lastUrl, middle, refs] = await Promise.all([
           resolve(first),
           input.lastFrame ? resolve(input.lastFrame) : Promise.resolve(undefined),
           Promise.all(middleSorted.map((m) => resolve(m))),
           Promise.all(input.refs.map((r) => resolve(r))),
         ]);
+        let frameUrl = wholeUrl;
+        let last = lastUrl;
+        let frameShape = shape;
+        // A reveal move opens on one crop of the photograph and ends on
+        // another (or on the whole of it); never set alongside the visitor's
+        // frames. The size the client declared is judged again on the frame
+        // as decoded, so a small image declared large downgrades its move
+        // (with the note) instead of sending crops under the minimum.
+        if (input.shot && directed?.camera.crops) {
+          const frame = await readShotFrame(wholeUrl);
+          directed = resolveShotPlan(input.shot, { ...shotContext, width: frame.width, height: frame.height });
+          const crops = directed.camera.crops;
+          if (crops) {
+            const cut = await cutShotCrops(ctx, frame.bytes, crops);
+            frameUrl = cut.first ?? wholeUrl;
+            last = cut.last ?? wholeUrl;
+            if (crops.start) frameShape = { ...shape, width: crops.start.width, height: crops.start.height };
+            cropped = true;
+          }
+        }
         lastFrameUrl = last;
+        const direction = rewriteHandles(input.videoModel, input.direction, refs.length);
         ({ id } = await submitVideo(
           ctx,
           {
             ...input,
-            direction: rewriteHandles(input.videoModel, input.direction, refs.length),
+            direction,
             resolution,
             seconds,
+            ...(directed
+              ? {
+                  motion: directed.camera.move,
+                  directedPrompt: clampPrompt(
+                    buildDirectedVideoPrompt(directed, {
+                      seconds,
+                      direction,
+                      style: input.moveStyle,
+                      speed: input.speed,
+                      frames:
+                        last || middle.length || refs.length
+                          ? { last: last !== undefined, middle: middle.length, refs: refs.length }
+                          : undefined,
+                      archviz: input.archviz,
+                    }),
+                    3500
+                  ),
+                }
+              : {}),
           },
-          shape,
+          frameShape,
           frameUrl,
           {
             last,
@@ -1099,7 +1199,7 @@ export const AppRouter = router({
         throw toTrpcError(err);
       }
       const frameCount =
-        1 + middleSorted.length + (lastFrameUrl && input.lastFrame ? 1 : 0);
+        1 + middleSorted.length + (lastFrameUrl && (input.lastFrame || cropped) ? 1 : 0);
       const clip: Clip = {
         id,
         stillId: still?.id ?? '',
@@ -1107,7 +1207,7 @@ export const AppRouter = router({
         createdAt: new Date().toISOString(),
         status: 'pending',
         videoModel: input.videoModel,
-        motion: input.motion,
+        motion: directed ? directed.camera.move : input.motion,
         moveStyle: input.moveStyle,
         speed: input.speed,
         seconds,
@@ -1118,6 +1218,7 @@ export const AppRouter = router({
           ? { lastFrameStillId: input.lastFrame.stillId }
           : {}),
         ...(input.refs.length ? { refCount: input.refs.length } : {}),
+        ...(directed ? { shot: clipShot(directed, cropped) } : {}),
       };
       await recordClip(owner, clip);
       // Its poster is the uploaded frame, kept while the clip renders.
@@ -1363,6 +1464,8 @@ function submitVideo(
     resolution: string;
     onlyInImage: boolean;
     archviz?: boolean | undefined;
+    /** The shot director's prompt (already clamped), used in place of `buildVideoPrompt`'s. */
+    directedPrompt?: string | undefined;
   },
   /** The first frame's real size, and whether it may show people. */
   shape: { width: number; height: number; people: boolean },
@@ -1373,23 +1476,26 @@ function submitVideo(
   }
 ) {
   const { last, middle, refs } = extra;
-  const prompt = clampPrompt(
-    buildVideoPrompt(
-      input.motion,
-      input.direction,
-      shape.people,
-      input.moveStyle,
-      input.speed,
-      last || middle.length || refs.length
-        ? { last: last !== undefined, middle: middle.length, refs: refs.length }
-        : undefined,
-      input.onlyInImage,
-      input.archviz ?? false
-    ),
-    3500
-  );
+  const prompt =
+    input.directedPrompt ??
+    clampPrompt(
+      buildVideoPrompt(
+        input.motion,
+        input.direction,
+        shape.people,
+        input.moveStyle,
+        input.speed,
+        last || middle.length || refs.length
+          ? { last: last !== undefined, middle: middle.length, refs: refs.length }
+          : undefined,
+        input.onlyInImage,
+        input.archviz ?? false
+      ),
+      3500
+    );
   // The strict list already carries the people terms; without it, a frame with people still gets them.
-  const negative = input.onlyInImage
+  // A directed prompt is always strict.
+  const negative = input.directedPrompt || input.onlyInImage
     ? { negative_prompt: STRICT_NEGATIVE_PROMPT }
     : shape.people
       ? { negative_prompt: PEOPLE_NEGATIVE_PROMPT }

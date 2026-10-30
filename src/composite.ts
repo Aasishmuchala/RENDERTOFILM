@@ -1,6 +1,7 @@
 
 import { presignGet } from '@runway/bay/storage';
 import { imageSlot, MAX_COMPOSITE_PIXELS, MAX_INPUT_PIXELS, readCapped, sharp } from './imaging.ts';
+import { safeFetch } from './safe-fetch.ts';
 import { patchStill, type Still } from './library.ts';
 import { getObject, putObject } from './storage.ts';
 
@@ -141,7 +142,8 @@ async function loadRender(still: Still): Promise<Buffer> {
     const stored = await getObject(still.renderKey);
     if (stored) return Buffer.from(stored);
   }
-  return readCapped(still.sourceUrl, 'original render');
+  // The upload is the visitor's URL: never read a private address.
+  return readCapped(still.sourceUrl, 'original render', safeFetch);
 }
 
 /**
@@ -151,7 +153,7 @@ async function loadRender(still: Still): Promise<Buffer> {
 async function composite(still: Still, resultUrl: string, maskKey: string): Promise<Buffer> {
   const [renderBytes, resultBytes] = await Promise.all([
     loadRender(still),
-    readCapped(resultUrl, 'generated still'),
+    readCapped(resultUrl, 'generated still', safeFetch),
   ]);
   const render = await sharp(renderBytes, { limitInputPixels: MAX_COMPOSITE_PIXELS })
     .toColourspace('srgb')

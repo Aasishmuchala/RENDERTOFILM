@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
 
+import { safeFetch, UnsafeUrlError } from '../safe-fetch.ts';
+
 /**
  * The owner's own Anthropic or OmegaPlus key behind the `claude_api` tasks
  * (src/ai-text.ts): one text-and-images request in, one answer out. Both
@@ -163,7 +165,12 @@ export async function encodeImage(url: string, deps: ProviderDeps = {}): Promise
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new AiTextError('Image URL must be http(s).', 400);
   }
-  const res = await (deps.fetch ?? fetch)(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  // The address may be a visitor's upload: never one inside a network (src/safe-fetch.ts).
+  const res = await (deps.fetch ?? safeFetch)(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) }).catch(
+    (err: unknown) => {
+      throw err instanceof UnsafeUrlError ? new AiTextError(err.message, 400) : err;
+    }
+  );
   if (!res.ok) throw new AiTextError(`Could not fetch an input image (${res.status}).`, 422);
   const jpeg = await sharp(Buffer.from(await res.arrayBuffer()))
     .rotate()

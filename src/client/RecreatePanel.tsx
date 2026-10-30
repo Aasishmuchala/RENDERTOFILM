@@ -1,4 +1,4 @@
-import { Clapperboard, Download, ExternalLink, Film, ImageUp, ListX, RotateCcw, Trash2 } from 'lucide-react';
+import { Clapperboard, Download, ExternalLink, Film, ImageUp, ListX, RotateCcw, ScanEye, Trash2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { FileTrigger } from 'react-aria-components';
 
@@ -18,6 +18,7 @@ import {
   recreateSeconds,
   recreateTitle,
 } from '../recreate.ts';
+import type { ShotContext } from '../shot-director.ts';
 import { DeleteItemDialog, type DeleteTarget } from './DeleteItemDialog.tsx';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, usePhoneLayout } from './layouts/Workspace.tsx';
@@ -25,6 +26,8 @@ import { clipPosterUrl, libraryUrl, NO_POSTER, stillThumbUrl, stillViewUrl, useD
 import { classifyRunwayError, errorMessage } from './lib/runwayErrors.ts';
 import { isUploadFailure, uploadClip, uploadImageFull } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
+import { useShotPlan } from './lib/useShotPlan.ts';
+import { ShotDirector } from './ShotDirector.tsx';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
@@ -314,6 +317,32 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
       : null;
   const noteTooLong = note.length > RECREATE_NOTE_MAX;
   const { planBlocked, unavailable } = classifyRunwayError(start.error);
+  // The shot director reads the 4K source for what is in it and what may
+  // move; the reference clip sets the camera, so any move is kept as named
+  // and no crops are cut (src/recreate-api.ts adds only the inventory lock).
+  const shotContext: ShotContext | null =
+    source && sourceShape
+      ? {
+          videoModel: routeInfo.model,
+          width: sourceShape.width,
+          height: sourceShape.height,
+          people: true,
+          userKeyframes: true,
+          canEndFrame: false,
+        }
+      : null;
+  const shot = useShotPlan({
+    page: 'recreate',
+    first: source,
+    videoModel: routeInfo.model,
+    seconds,
+    motion: 'still-life',
+    direction: note,
+    context: shotContext,
+  });
+  const directing = shot.enabled && shot.planning;
+  // With the director on, the first press plans (a text call) and the second recreates.
+  const directFirst = !directing && shot.needsPlan && source !== null;
 
   // A take is in flight until a final status arrives: a failed poll never
   // frees it, or "Check again" would turn into a second bill.
@@ -413,9 +442,17 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
 
   async function run() {
     if (!reference || !source || uploading || noteTooLong) return;
+    // With the director on, the recreation waits for a plan made for this still.
+    if (shot.needsPlan) return;
     if (!startGuard.start()) return;
     try {
-      const res = await start.mutateAsync({ reference, source, route, note });
+      const res = await start.mutateAsync({
+        reference,
+        source,
+        route,
+        note,
+        ...(shot.sendable ? { shot: shot.sendable } : {}),
+      });
       const take: Take = {
         id: res.id,
         route: res.route,
@@ -661,6 +698,16 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
               )}
             </>
           )}
+          {/* Under the source: what the still holds, and what in it may move. */}
+          {source && (
+            <ShotDirector
+              shot={shot}
+              context={shotContext}
+              seconds={seconds}
+              cameraLocked="The reference clip sets the camera."
+              disabled={start.isPending || uploading}
+            />
+          )}
         </div>
       </Section>
 
@@ -707,26 +754,37 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
       <Button
         variant="primary"
         size="lg"
-        icon={<Clapperboard size={18} />}
-        loading={start.isPending}
-        disabled={start.isPending || uploading || !reference || !source || noteTooLong || planBlocked || unavailable}
-        onPress={() => void run()}
+        icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
+        loading={start.isPending || directing}
+        disabled={
+          directing ||
+          (directFirst
+            ? uploading || noteTooLong
+            : start.isPending || uploading || !reference || !source || noteTooLong || planBlocked || unavailable)
+        }
+        onPress={directFirst ? () => void shot.direct() : () => void run()}
       >
         {start.isPending
           ? 'Starting…'
           : uploading
             ? 'Uploading…'
-            : !reference
-              ? 'Pick a reference clip'
-              : !source
-                ? 'Add a 4K still'
-                : 'Recreate in 4K'}
+            : directing
+              ? 'Directing the shot…'
+              : directFirst
+                ? 'Direct the shot'
+                : !reference
+                  ? 'Pick a reference clip'
+                  : !source
+                    ? 'Add a 4K still'
+                    : 'Recreate in 4K'}
       </Button>
       <CostLine
         summary={
-          route === 'kling-upscale'
-            ? `Kling 4.0 at 1080p, then a 4K upscale, ${seconds} seconds.`
-            : `Seedance 2.0 at 4K, ${seconds} seconds.`
+          directing || directFirst
+            ? 'Directing is one text call on your AI text provider (Settings); the video is not billed until you make it.'
+            : route === 'kling-upscale'
+              ? `Kling 4.0 at 1080p, then a 4K upscale, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`
+              : `Seedance 2.0 at 4K, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`
         }
       />
       <p className={styles.queueNote} role="status" aria-live="polite">

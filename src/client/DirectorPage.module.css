@@ -734,6 +734,19 @@
   color: var(--bay-text-3);
 }
 
+/* The frame's shot director: what it plans (or why not), and the plan when open. */
+.clipShot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.clipShotLine {
+  margin: 0;
+  text-wrap: pretty;
+}
+
 /* Reduced motion: the outline and the ring carry the state; nothing zooms. */
 @media (prefers-reduced-motion: reduce) {
   .stripCard:hover .thumbPicture,
@@ -749,6 +762,8 @@
 @media (width < 480px), (width < 900px) and (orientation: portrait) {
   .clips {
     display: flex;
+    /* A card with its plan open grows alone; the others keep their height. */
+    align-items: flex-start;
     gap: 12px;
     margin: -3px -20px;
     padding: 3px 20px;

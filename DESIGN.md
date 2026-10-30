@@ -835,6 +835,11 @@ bottom.
   (`aria-label` "Play <title>"). The `<video>` has `controls` and loads only
   after that press (`preload="none"` before). The Edit player and the lightbox
   keep native controls.
+- `ShotDirector` (`src/client/ShotDirector.tsx`): the "Direct the shot" switch
+  (on by default, remembered per browser) and the editable plan (camera, what
+  moves, people, beats, focus, ends on) that sits at the top of a video
+  inspector's Camera section; its primary-button rule is two presses: "Direct
+  the shot" (a text call), then "Make the video".
 
 ### 8.4 Stress and shooter
 
