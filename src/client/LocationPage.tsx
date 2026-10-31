@@ -16,7 +16,6 @@ import {
   imageModelName,
   imageResolutions,
   type ImageModelId,
-  STILL_UPSCALERS,
   type StillUpscalerId,
   UPSCALE_FACTORS,
   type UpscaleFactor,
@@ -27,6 +26,7 @@ import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
@@ -35,6 +35,7 @@ import { Button } from './ui/Button.tsx';
 import { CompareSlider } from './ui/CompareSlider.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -147,10 +148,16 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
   const [view, setView] = useState<LocationViewId>('match');
   const [light, setLight] = useState<LocationLightId>('match');
   const [direction, setDirection] = useState('');
+  const { allowedImage, allowedStillUpscalers, modelBlocked, noneOffered, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const [resolution, setResolution] = useState(() => highestResolution('nano-banana-pro'));
-  const [autoUpscale, setAutoUpscale] = useState(true);
-  const [upscaler, setUpscaler] = useState<StillUpscalerId>('creative');
+  const canUpscale = allowedStillUpscalers.length > 0;
+  const [autoUpscaleOn, setAutoUpscale] = useState(true);
+  const autoUpscale = autoUpscaleOn && canUpscale;
+  // Nothing picked yet follows this provider's list, Creative first; a pick stays, offered or not.
+  const [pickedUpscaler, setUpscaler] = useState<StillUpscalerId | null>(null);
+  const upscaler: StillUpscalerId =
+    pickedUpscaler ?? allowedStillUpscalers.find((u) => u.id === 'creative')?.id ?? allowedStillUpscalers[0]?.id ?? 'creative';
   const [factor, setFactor] = useState<UpscaleFactor>(2);
   const [take, setTake] = useState<Take | null>(readTake);
   const [manualJob, setManualJob] = useState<UpscaleJob | null>(null);
@@ -267,6 +274,9 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
   const coordsOk = latNum !== null && lngNum !== null && !latError && !lngError;
   const directionTooLong = direction.length > DIRECTION_MAX;
   // A 4K render upscaled 4× is past what the stored copies can be made from, so 4K stops at 2×.
+  const modelOff = modelBlocked('image', imageModel);
+  const upscalerOff = autoUpscale ? modelBlocked('stillUpscaler', upscaler) : null;
+  const blocked = modelOff ?? upscalerOff;
   const fourK = imageResolutions(imageModel).find((r) => r.id === resolution)?.name === '4K';
   const factorChoices = fourK ? UPSCALE_FACTORS.filter((f) => f.id === '2') : UPSCALE_FACTORS;
   const useFactor: UpscaleFactor = fourK ? 2 : factor;
@@ -347,7 +357,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
   }
 
   async function run() {
-    if (!ready || busy || directionTooLong || !upload?.hostedUrl || latNum === null || lngNum === null) return;
+    if (!ready || busy || directionTooLong || blocked || !upload?.hostedUrl || latNum === null || lngNum === null) return;
     if (!createGuard.start()) return;
     upscale.reset();
     try {
@@ -704,7 +714,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
         <div className={styles.selectRow}>
           <Select
             label="Image model"
-            options={IMAGE_MODELS}
+            options={allowedImage(IMAGE_MODELS)}
             value={imageModel}
             onChange={(id) => {
               const m = id as ImageModelId;
@@ -723,6 +733,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
               showHint={false}
             />
           )}
+          {modelOff && <ModelUnavailable message={modelOff} />}
         </div>
       </Section>
 
@@ -733,13 +744,14 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
             hint="Off: you can upscale the result by hand."
             checked={autoUpscale}
             onChange={setAutoUpscale}
-            disabled={busy}
+            disabled={busy || !canUpscale}
           />
+          {!canUpscale && <ModelUnavailable message={noneOffered} />}
           {autoUpscale && (
             <div className={own.upscaleRow}>
               <Select
                 label="Upscaler"
-                options={STILL_UPSCALERS}
+                options={allowedStillUpscalers}
                 value={upscaler}
                 onChange={(id) => setUpscaler(id as StillUpscalerId)}
                 disabled={busy}
@@ -752,6 +764,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
                 disabled={busy}
                 showHint={false}
               />
+              {upscalerOff && <ModelUnavailable message={upscalerOff} />}
             </div>
           )}
         </div>
@@ -773,7 +786,7 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
             )}
           </div>
         ) : null}
-        {showResult && take && !take.auto && !hasUpscaleCopy && (
+        {showResult && take && !take.auto && !hasUpscaleCopy && canUpscale && (
           <UpscaleStill
             stillId={take.id}
             aspectRatio={aspect}
@@ -788,20 +801,23 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
 
   const footer = (
     <>
-      <Button
-        variant="primary"
-        size="lg"
-        icon={<MapPinned size={16} />}
-        loading={busy}
-        disabled={!ready || directionTooLong}
-        onPress={() => void run()}
-      >
-        {buttonLabel}
-      </Button>
+      <BlockedTip message={blocked}>
+        <Button
+          variant="primary"
+          size="lg"
+          icon={<MapPinned size={16} />}
+          loading={busy}
+          disabled={!ready || directionTooLong || blocked !== null}
+          onPress={() => void run()}
+        >
+          {buttonLabel}
+        </Button>
+      </BlockedTip>
       <CostLine
         summary={`${imageModelName(imageModel)}${
           autoUpscale ? `, then upscaled ${useFactor}× with ${upscalerName(upscaler)}` : ''
-        }. Billed to your own Runway credits.`}
+        }.${onBay ? ' Billed to your own Runway credits.' : ''}`}
+        providerNote={autoUpscale ? providerNote(imageModel, upscaler) : providerNote(imageModel)}
       />
       <RunwayErrorNotice error={create.error} modelName={imageModelName(imageModel)} onRetry={() => void run()} />
     </>

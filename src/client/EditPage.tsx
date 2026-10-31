@@ -44,6 +44,7 @@ import { frameGuidesClass, PHONE_QUERY, Workspace } from './layouts/Workspace.ts
 import { useAmbient } from './lib/ambient.tsx';
 import { clipPosterUrl, libraryUrl, useDownload } from './lib/download.ts';
 import { useGradedDownload } from './lib/gradedFilm.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
@@ -52,6 +53,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { EmptyState } from './ui/EmptyState.tsx';
 import { FilterChips } from './ui/FilterChips.tsx';
+import { BlockedTip } from './ui/ModelUnavailable.tsx';
 import { NumberInput } from './ui/NumberInput.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
@@ -129,6 +131,7 @@ const FIELD_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="spinbutton"], [role="slider"], [role="listbox"], [role="combobox"], [aria-haspopup]';
 
 export function EditPage({ onGoToVideo, active }: EditPageProps) {
+  const { onBay } = useCapabilities();
   const utils = trpc.useUtils();
   const project = trpc.edit.project.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -721,7 +724,7 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
             <SaveNote state={saveState} error={saveError} onRetry={retrySave} />
             {anyPending
               ? ' A cut is still re-rendering; export once it is done.'
-              : ` ${total}s, ${draft?.transition === 'fade' ? `${draft.fadeSeconds}s fades` : 'hard cuts'}. Exporting runs on your own Runway credits.`}
+              : ` ${total}s, ${draft?.transition === 'fade' ? `${draft.fadeSeconds}s fades` : 'hard cuts'}. ${onBay ? 'Exporting runs on your own Runway credits.' : 'Exporting runs on this computer.'}`}
           </>
         }
       />
@@ -952,6 +955,9 @@ const CutRow = memo(function CutRow({
   onRemove,
   flush,
 }: CutRowProps) {
+  const { caps, providerNote } = useCapabilities();
+  const alephOff = caps.aleph ? null : 'Grades and AI edits need the Runway API provider.';
+  const alephRate = providerNote('workflow_aleph_2');
   const utils = trpc.useUtils();
   const [instruction, setInstruction] = useState('');
   const [mode, setMode] = useState(currentGrade !== 'none' ? 'aleph' : 'builtin');
@@ -994,7 +1000,7 @@ const CutRow = memo(function CutRow({
   // lands while the first still waits on the save, before `isPending` shows.
   const alephGuard = useInFlight();
   const runEdit = async () => {
-    if (instruction.trim().length < 3 || !alephGuard.start()) return;
+    if (alephOff || instruction.trim().length < 3 || !alephGuard.start()) return;
     try {
       if (!(await flush())) return;
       await edit.mutateAsync({ key: cut.key, instruction });
@@ -1006,7 +1012,7 @@ const CutRow = memo(function CutRow({
   };
   const lookName = GRADES.find((g) => g.id === colour.gradeId)?.name;
   const runGrade = async (id: string) => {
-    if (!alephGuard.start()) return;
+    if (alephOff || !alephGuard.start()) return;
     try {
       if (!(await flush())) {
         setConfirmGrade(null);
@@ -1173,7 +1179,7 @@ const CutRow = memo(function CutRow({
                   label="Aleph 2.0 grade"
                   options={GRADE_OPTIONS}
                   value={currentGrade}
-                  disabled={pending || grade.isPending || locked}
+                  disabled={pending || grade.isPending || locked || alephOff !== null}
                   onChange={(id) => {
                     if (id === currentGrade) return;
                     // Taking a grade off leaves the cut on an earlier copy: ask first.
@@ -1183,7 +1189,7 @@ const CutRow = memo(function CutRow({
                 />
                 <RunwayErrorNotice error={grade.error} modelName="Aleph 2.0" />
                 <Text size="sm" tone="muted" as="p">
-                  Re-renders the clip with the grade baked in. It takes a few minutes and spends credits.
+                  {alephOff ?? 'Re-renders the clip with the grade baked in. It takes a few minutes and spends credits.'}
                 </Text>
               </>
             )}
@@ -1196,22 +1202,25 @@ const CutRow = memo(function CutRow({
               value={instruction}
               onChange={setInstruction}
               maxLength={600}
-              disabled={pending || locked}
+              disabled={pending || locked || alephOff !== null}
               onPressEnter={() => void runEdit()}
             />
-            <Button
-              icon={<WandSparkles size={16} />}
-              loading={edit.isPending}
-              disabled={pending || locked || instruction.trim().length < 3}
-              onPress={() => void runEdit()}
-            >
-              Edit
-            </Button>
+            <BlockedTip message={alephOff}>
+              <Button
+                icon={<WandSparkles size={16} />}
+                loading={edit.isPending}
+                disabled={pending || locked || instruction.trim().length < 3 || alephOff !== null}
+                onPress={() => void runEdit()}
+              >
+                Edit
+              </Button>
+            </BlockedTip>
           </div>
           <RunwayErrorNotice error={edit.error} modelName="Aleph 2.0" onRetry={() => void runEdit()} />
           <div className={styles.cutFoot}>
             <Text size="sm" tone="muted">
-              Edits and Aleph grades re-render the whole clip with Aleph 2.0, which costs more credits than a still.
+              {alephOff ?? 'Edits and Aleph grades re-render the whole clip with Aleph 2.0, which costs more credits than a still.'}
+              {!alephOff && alephRate ? ` ${alephRate}` : ''}
             </Text>
           </div>
           {canPick && (
@@ -1739,6 +1748,7 @@ function Transport({ video, inPoint, length, fallback, timeline, name, stage }: 
 }
 
 function EditorChat({ data, flush, loading }: { data: Project | undefined; flush: () => Promise<boolean>; loading: boolean }) {
+  const { onBay } = useCapabilities();
   const utils = trpc.useUtils();
   const [text, setText] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1842,7 +1852,7 @@ function EditorChat({ data, flush, loading }: { data: Project | undefined; flush
         )}
         <div className={styles.composerBar}>
           <Text size="sm" tone="muted">
-            Enter sends, Shift+Enter adds a line. Each message uses a few credits.
+            Enter sends, Shift+Enter adds a line.{onBay ? ' Each message uses a few credits.' : ''}
           </Text>
           <div className={styles.composerButtons}>
             {messages.length > 0 && (

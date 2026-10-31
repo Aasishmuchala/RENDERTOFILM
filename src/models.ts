@@ -740,7 +740,10 @@ export const UPSCALE_FACTORS = [
 
 export type UpscaleFactor = 2 | 4;
 
-/** Upscalers for a finished clip. */
+/**
+ * Upscalers for a finished clip. The last two run only in the desktop app
+ * (src/capabilities.ts), so bay.models.json does not list them.
+ */
 export const CLIP_UPSCALERS = [
   {
     id: 'runway',
@@ -753,6 +756,18 @@ export const CLIP_UPSCALERS = [
     name: 'FLUX Video Upscale',
     hint: '2×, keeps faces stable, paid plans only',
     alias: 'flux_video_upscale',
+  },
+  {
+    id: 'bytedance',
+    name: 'ByteDance Video Upscale',
+    hint: '4K, on Higgsfield',
+    alias: 'bytedance_video_upscale',
+  },
+  {
+    id: 'magnific-video',
+    name: 'Magnific Video Upscale',
+    hint: 'Creative, up to 4K, on the Runway API',
+    alias: 'magnific_video_upscaler_creative',
   },
 ] as const;
 

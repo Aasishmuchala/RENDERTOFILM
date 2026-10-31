@@ -1,0 +1,10 @@
+/* A select's notice spans its row, however many selects share it. */
+.notice {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+}
+
+/* The tooltip's holder takes no box, so the button keeps its place in the footer. */
+.tip {
+  display: contents;
+}

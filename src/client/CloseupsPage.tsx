@@ -20,6 +20,7 @@ import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { clipPosterUrl, libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
@@ -32,6 +33,7 @@ import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { ImagePicker } from './ui/ImagePicker.tsx';
 import { ImagePlaceholder } from './ui/ImagePlaceholder.tsx';
 import { Lightbox } from './ui/Lightbox.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -82,8 +84,10 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   const [uploadError, setUploadError] = useState<unknown>(null);
   const [shown, setShown] = useState(PAGE);
   const [count, setCount] = useState(4);
+  const { allowedImage, modelBlocked, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
+  const blocked = modelBlocked('image', imageModel);
   const [direction, setDirection] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ id: string; title: string } | null>(null);
@@ -256,7 +260,7 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   }
 
   async function run() {
-    if (!ready || working) return;
+    if (!ready || working || blocked) return;
     if (!findGuard.start()) return;
     analyze.reset();
     render.reset();
@@ -685,7 +689,7 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
               <div className={styles.selectRow}>
                 <Select
                   label="Image model"
-                  options={IMAGE_MODELS}
+                  options={allowedImage(IMAGE_MODELS)}
                   value={imageModel}
                   onChange={(id) => {
                     const m = id as ImageModelId;
@@ -704,35 +708,43 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
                     showHint={false}
                   />
                 )}
+                {blocked && <ModelUnavailable message={blocked} />}
               </div>
             </Section>
           </>
         }
         footer={
           <>
-            <Button
-              variant="primary"
-              size="lg"
-              icon={<Focus size={16} />}
-              loading={working}
-              disabled={!ready}
-              onPress={() => void run()}
-            >
-              {working
-                ? 'Finding close-ups…'
-                : uploading
-                  ? 'Uploading the image…'
-                  : ready
-                    ? 'Find close-ups'
-                    : kind === 'upload'
-                      ? 'Upload an image first'
-                      : kind === 'clip'
-                        ? 'Pick a video first'
-                        : 'Pick a still first'}
-            </Button>
+            <BlockedTip message={blocked}>
+              <Button
+                variant="primary"
+                size="lg"
+                icon={<Focus size={16} />}
+                loading={working}
+                disabled={!ready || blocked !== null}
+                onPress={() => void run()}
+              >
+                {working
+                  ? 'Finding close-ups…'
+                  : uploading
+                    ? 'Uploading the image…'
+                    : ready
+                      ? 'Find close-ups'
+                      : kind === 'upload'
+                        ? 'Upload an image first'
+                        : kind === 'clip'
+                          ? 'Pick a video first'
+                          : 'Pick a still first'}
+              </Button>
+            </BlockedTip>
             <CostLine
               summary={`Claude looks for the shots, then ${imageModelName(imageModel)} makes ${count} close-ups.`}
-              details="Billed to your own Runway credits: a few for the search, and each close-up costs the same as a still."
+              providerNote={providerNote(imageModel)}
+              details={
+                onBay
+                  ? 'Billed to your own Runway credits: a few for the search, and each close-up costs the same as a still.'
+                  : undefined
+              }
             />
             <RunwayErrorNotice
               error={stepError}

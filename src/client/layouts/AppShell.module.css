@@ -36,6 +36,19 @@
   }
 }
 
+/* The desktop app (the preload sets `data-desktop` to the platform). On macOS
+   the window has no title bar, so the top bar is what drags it and it clears
+   the traffic lights; its controls stay clickable. The bar's own class lives
+   in Nav.module.css, out of reach here: it is this shell's only `header`. */
+html[data-desktop='darwin'] .shell > header {
+  -webkit-app-region: drag;
+  padding-left: 84px;
+}
+
+html[data-desktop] .shell > header :is(a, button, input, [role='button']) {
+  -webkit-app-region: no-drag;
+}
+
 /* Above the ambient (z-index 0); the glass chrome sits above this. The top
    bar (and on a phone's Shoot page the modes row) is fixed, so the page
    starts under it. */

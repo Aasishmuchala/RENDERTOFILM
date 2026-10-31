@@ -5,6 +5,7 @@ import type { Still } from '../../api.ts';
 import { imageModelName } from '../../models.ts';
 import type { FrameChoice, FramePlan, StoryboardJob } from '../../storyboard-api.ts';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from '../lib/download.ts';
+import { useCapabilities } from '../lib/useCapabilities.ts';
 import { Alert } from '../ui/Alert.tsx';
 import { Button } from '../ui/Button.tsx';
 import { CompareSlider } from '../ui/CompareSlider.tsx';
@@ -76,6 +77,7 @@ export function FrameViewer({
   onChoose,
   onShoot,
 }: FrameViewerProps) {
+  const { caps } = useCapabilities();
   const [compare, setCompare] = useState(true);
   const saver = useDownload();
   const index = frames.findIndex((f) => f.image === image);
@@ -199,7 +201,7 @@ export function FrameViewer({
             </span>
           </div>
           <Text tone="muted" size="sm" as="p">
-            A reshoot with {imageModelName(job.imageModel)} costs the same as a still, billed to your own Runway credits.
+            A reshoot with {imageModelName(job.imageModel)} costs the same as a still, billed to your own {caps.desktop ? `${caps.providerName} account` : 'Runway credits'}.
             The earlier take stays under Takes.
           </Text>
           {save && typeof save === 'object' && <RunwayErrorNotice error={save.error} modelName="your storyboard" />}

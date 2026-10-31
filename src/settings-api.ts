@@ -10,7 +10,9 @@ import {
   verifyKey,
 } from './ai-text/providers.ts';
 import { readUsage } from './ai-text/usage.ts';
+import { type Capabilities, capabilitiesOf } from './capabilities.ts';
 import {
+  DEFAULT_GENERATION_BUDGET,
   isPresetId,
   maskKey,
   newServerId,
@@ -28,7 +30,8 @@ import { publicProcedure, router } from './trpc.ts';
 /**
  * The Settings tab: Runway sign-in status, Runway MCP, Higgsfield and other MCP servers
  * (sign in, test, run a tool), provider API keys (Seevio, Anthropic,
- * OmegaPlus) and who answers the app's text-and-vision calls. Every
+ * OmegaPlus, the Runway API) and who answers the app's text-and-vision calls;
+ * in the desktop app also who generates (Higgsfield or the Runway API). Every
  * credential stays on the server in the visitor's own `connections/`
  * document (src/connections.ts); answers carry only what the page shows.
  */
@@ -60,6 +63,38 @@ async function seevioKeyOrThrow(owner: string): Promise<string> {
   return key;
 }
 
+/** What the desktop app's client adds to `ctx.runway`; Bay's client has none of it. */
+interface DesktopClient {
+  account?: () => Promise<{
+    label: string;
+    email?: string | undefined;
+    credits?: number | undefined;
+    signedIn: boolean;
+  } | null>;
+  /** Rejects when the key does not work, with `status` 401 or 403 when Runway refused it. */
+  verifyRunwayKey?: (key: string) => Promise<unknown>;
+  higgsfield?: {
+    login: () => Promise<unknown>;
+    logout: () => Promise<unknown>;
+    status: () => Promise<
+      { path: string; version: string; bundled: boolean } | { missing: true; install: string }
+    >;
+  };
+}
+
+const desktopClient = (runway: unknown) => runway as DesktopClient | undefined;
+
+/** Who can generate here: nobody to choose on Bay; the simulator only when the server was started with it. */
+function generationOptions(caps: Capabilities) {
+  if (!caps.desktop) return [];
+  const options: { id: 'higgsfield' | 'runway' | 'simulator'; name: string }[] = [
+    { id: 'higgsfield', name: 'Higgsfield' },
+    { id: 'runway', name: 'Runway API' },
+  ];
+  if (process.env['RTF_SIMULATOR'] === '1') options.push({ id: 'simulator', name: 'Simulator' });
+  return options;
+}
+
 export const settingsRouter = router({
   /** Runway session state for the Runway card; `signInUrl` opens the popup. */
   runway: publicProcedure.query(({ ctx }) => ({
@@ -68,12 +103,79 @@ export const settingsRouter = router({
     signInUrl: ctx.signInUrl ?? null,
   })),
 
+  /** What this server offers; no `capabilities()` on the client means Bay, which offers everything. */
+  capabilities: publicProcedure.query(({ ctx }) => capabilitiesOf(ctx.runway)),
+
+  /** The Generation card: the provider, its daily budget, who to choose from and the account behind it. */
+  generation: publicProcedure.query(async ({ ctx }) => {
+    const owner = await ownerKey(ctx.req);
+    const caps = capabilitiesOf(ctx.runway);
+    const saved = (await readConnections(owner)).generation;
+    const account = await desktopClient(ctx.runway)?.account?.().catch(() => null);
+    return {
+      provider: saved?.provider ?? caps.provider,
+      budget: saved?.budget ?? DEFAULT_GENERATION_BUDGET,
+      options: generationOptions(caps),
+      account: account ?? null,
+    };
+  }),
+
+  /** Desktop only. Leaving `budget` out keeps the saved one. */
+  setGeneration: publicProcedure
+    .input(
+      z.object({
+        provider: z.enum(['higgsfield', 'runway', 'simulator']),
+        budget: z.number().int().min(0).max(100000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const caps = capabilitiesOf(ctx.runway);
+      if (!caps.desktop) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Choosing a provider is a desktop setting.' });
+      }
+      if (!generationOptions(caps).some((o) => o.id === input.provider)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That provider is not offered here.' });
+      }
+      const owner = await ownerKey(ctx.req);
+      const updatedAt = new Date().toISOString();
+      await updateConnections(owner, (doc) => ({
+        ...doc,
+        generation: { provider: input.provider, budget: input.budget ?? doc.generation?.budget, updatedAt },
+      }));
+    }),
+
+  /** Runs the CLI's own browser sign-in, which the app never sees; answers once it has finished. */
+  higgsfieldLogin: publicProcedure.mutation(async ({ ctx }) => {
+    const higgsfield = desktopClient(ctx.runway)?.higgsfield;
+    if (!higgsfield) return { supported: false as const };
+    try {
+      await higgsfield.login();
+    } catch {
+      throw new TRPCError({ code: 'UNPROCESSABLE_CONTENT', message: 'Higgsfield sign-in did not finish. Try again.' });
+    }
+    return { supported: true as const };
+  }),
+
+  higgsfieldLogout: publicProcedure.mutation(async ({ ctx }) => {
+    const higgsfield = desktopClient(ctx.runway)?.higgsfield;
+    if (!higgsfield) return { supported: false as const };
+    await higgsfield.logout();
+    return { supported: true as const };
+  }),
+
+  /** Which Higgsfield CLI the app would run, or how to install one. */
+  higgsfieldStatus: publicProcedure.query(async ({ ctx }) => {
+    const higgsfield = desktopClient(ctx.runway)?.higgsfield;
+    if (!higgsfield) return { supported: false as const };
+    return { supported: true as const, ...(await higgsfield.status()) };
+  }),
+
   connections: publicProcedure.query(async ({ ctx }) => {
     const owner = await ownerKey(ctx.req);
     const doc = await readConnections(owner);
     return {
       servers: doc.servers.map(publicView),
-      apiKeys: { seevio: maskKey(doc.apiKeys.seevio) },
+      apiKeys: { seevio: maskKey(doc.apiKeys.seevio), runwayapi: maskKey(doc.apiKeys.runwayapi) },
       /** Whether the app has a `SEEVIO_API_KEY` secret to fall back on. */
       seevioAppKey: !!seevioAppKey(),
     };
@@ -219,6 +321,40 @@ export const settingsRouter = router({
     const owner = await ownerKey(ctx.req);
     await updateConnections(owner, (doc) => {
       const { seevio: _removed, ...rest } = doc.apiKeys;
+      return { ...doc, apiKeys: rest };
+    });
+  }),
+
+  /** The desktop app's Runway API key; checked with Runway first when the client can. */
+  setRunwayApiKey: publicProcedure
+    .input(z.object({ key: z.string().trim().min(8, 'That looks too short to be a Runway API key.').max(512) }))
+    .mutation(async ({ ctx, input }) => {
+      const owner = await ownerKey(ctx.req);
+      const verify = desktopClient(ctx.runway)?.verifyRunwayKey;
+      try {
+        await verify?.call(ctx.runway, input.key);
+      } catch (err) {
+        // No `cause` and none of its text: nothing here may carry the key into a log line or an answer.
+        const { status } = err as { status?: number };
+        throw new TRPCError({
+          code: 'UNPROCESSABLE_CONTENT',
+          message:
+            status === 401 || status === 403
+              ? 'The Runway API refused that key. Check it and try again.'
+              : 'The Runway API could not check that key. Try again in a moment.',
+        });
+      }
+      const now = new Date().toISOString();
+      await updateConnections(owner, (doc) => ({
+        ...doc,
+        apiKeys: { ...doc.apiKeys, runwayapi: { key: input.key, savedAt: now, verifiedAt: verify ? now : undefined } },
+      }));
+    }),
+
+  clearRunwayApiKey: publicProcedure.mutation(async ({ ctx }) => {
+    const owner = await ownerKey(ctx.req);
+    await updateConnections(owner, (doc) => {
+      const { runwayapi: _removed, ...rest } = doc.apiKeys;
       return { ...doc, apiKeys: rest };
     });
   }),

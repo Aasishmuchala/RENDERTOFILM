@@ -43,6 +43,7 @@ import { LightReferenceField } from './LightReferenceField.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { exportMaskPng, maskCoverage, type MaskStroke } from './lib/mask.ts';
 import { loadStoredRender, saveStoredRender } from './lib/storedRender.ts';
 import { isUploadFailure, storeRenderCopy, uploadMask, uploadRender } from './lib/uploadRender.ts';
@@ -56,6 +57,7 @@ import { CompareSlider } from './ui/CompareSlider.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { MaskOverlay, MaskPainter } from './ui/MaskPainter.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -200,6 +202,8 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   const saver = useDownload();
   const utils = trpc.useUtils();
   const [source, setSource] = useState<Source>(SAMPLE);
+  /** The newest pick: a slower, earlier file must not land on top of it. */
+  const latestPick = useRef(0);
   const isSample = source.src === SAMPLE.src;
   // A reload or an app restart reopens the person's own render, never quietly the sample.
   useEffect(() => {
@@ -220,9 +224,11 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       live = false;
     };
   }, []);
+  const { allowedImage, modelBlocked, offeredImageNames, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
   const [aspectRatio, setAspectRatio] = useState<string>(MATCH_RENDER);
+  const blocked = modelBlocked('image', imageModel);
   // Kept in this browser, so a reload or an app restart never quietly resets the look to Golden hour.
   const [look, setLook] = useStoredChoice<LookId>('look', 'golden-hour', LOOKS.map((l) => l.id));
   const [direction, setDirection] = useStoredText('direction');
@@ -339,8 +345,14 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   async function onFile(file: File) {
     setError(null);
     const src = URL.createObjectURL(file);
+    const pick = ++latestPick.current;
     try {
       const bitmap = await createImageBitmap(file);
+      if (pick !== latestPick.current) {
+        bitmap.close();
+        URL.revokeObjectURL(src);
+        return;
+      }
       setSource((prev) => {
         // The finished take's compare slider may still show the old render.
         if (prev.src.startsWith('blob:') && prev.src !== shotRef.current?.source.src) {
@@ -356,6 +368,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       setMarking(false);
     } catch {
       URL.revokeObjectURL(src);
+      if (pick !== latestPick.current) return;
       setError(new Error('That file could not be read as an image. Try a PNG, JPEG or WebP.'));
     }
   }
@@ -795,7 +808,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
         <div className={styles.selectRow}>
           <Select
             label="Image model"
-            options={IMAGE_MODELS}
+            options={allowedImage(IMAGE_MODELS)}
             value={imageModel}
             onChange={(id) => {
               const next = id as ImageModelId;
@@ -814,6 +827,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
             onChange={setResolution}
             disabled={busy || imageResolutions(imageModel).length < 2}
           />
+          {blocked && <ModelUnavailable message={blocked} />}
         </div>
         <div className={styles.aspectField}>
           <Select
@@ -951,7 +965,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
                 error={castError}
                 supported={castSupported}
                 modelName={imageModelName(imageModel)}
-                alternatives={castSheetModelNames()}
+                alternatives={offeredImageNames(castSheetModelNames())}
                 disabled={busy}
                 onFile={(f) => void onCastFile(f)}
                 onRemove={removeCast}
@@ -990,34 +1004,47 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
 
   const footer = (
     <>
-      <Button
-        variant="primary"
-        size="lg"
-        icon={<Sparkles size={16} />}
-        className={styles.generate}
-        loading={busy}
-        disabled={busy || castUploading || lightUploading || planBlocked || unavailable || !maskFit.ok || directionTooLong}
-        onPress={() => void run()}
-      >
-        {phase === 'uploading'
-          ? 'Uploading…'
-          : phase === 'submitting'
-            ? 'Starting…'
-            : rendering
-              ? 'Rendering…'
-              : hasMark
-                ? 'Edit the marked area'
-                : resultUrl
-                  ? 'Make another take'
-                  : 'Make it cinematic'}
-      </Button>
+      <BlockedTip message={blocked}>
+        <Button
+          variant="primary"
+          size="lg"
+          icon={<Sparkles size={16} />}
+          className={styles.generate}
+          loading={busy}
+          disabled={
+            busy ||
+            castUploading ||
+            lightUploading ||
+            planBlocked ||
+            unavailable ||
+            !maskFit.ok ||
+            directionTooLong ||
+            blocked !== null
+          }
+          onPress={() => void run()}
+        >
+          {phase === 'uploading'
+            ? 'Uploading…'
+            : phase === 'submitting'
+              ? 'Starting…'
+              : rendering
+                ? 'Rendering…'
+                : hasMark
+                  ? 'Edit the marked area'
+                  : resultUrl
+                    ? 'Make another take'
+                    : 'Make it cinematic'}
+        </Button>
+      </BlockedTip>
       <CostLine
+        providerNote={providerNote(imageModel)}
         summary={
           <>
             Uses {imageModelName(imageModel)} at {imageResolutionName(imageModel, resolution)}
             {aspectRatio !== MATCH_RENDER && !hasMark ? `, ${aspectRatio}` : ''}
-            {hasMark ? ', changing only the marked area' : ''}. Each take is billed to your own Runway
-            credits{crowd !== 'none' ? ', and so is the automatic people check' : ''}.
+            {hasMark ? ', changing only the marked area' : ''}.
+            {onBay &&
+              ` Each take is billed to your own Runway credits${crowd !== 'none' ? ', and so is the automatic people check' : ''}.`}
             {crowd !== 'none' && cast?.hostedUrl && castSupported && ' The cast sheet is sent as a second reference image.'}
             {usingLightRef &&
               (matchedStill

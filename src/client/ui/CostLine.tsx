@@ -9,6 +9,8 @@ export type CostLineProps = {
   summary: ReactNode;
   /** The model-by-model breakdown, behind "What this costs". */
   details?: ReactNode | undefined;
+  /** The last sentence of the summary: how this provider prices the run. Unset on Bay. */
+  providerNote?: ReactNode | undefined;
 };
 
 /**
@@ -16,10 +18,13 @@ export type CostLineProps = {
  * (DESIGN.md 3.3). The summary always shows; a longer breakdown waits behind
  * a disclosure, collapsed each time the page loads.
  */
-export function CostLine({ summary, details }: CostLineProps) {
+export function CostLine({ summary, details, providerNote }: CostLineProps) {
   return (
     <div className={styles.cost}>
-      <p className={styles.summary}>{summary}</p>
+      <p className={styles.summary}>
+        {summary}
+        {providerNote ? <> {providerNote}</> : null}
+      </p>
       {details !== undefined && details !== null && details !== false && (
         <Disclosure className={styles.disclosure}>
           <Button slot="trigger" className={styles.trigger}>

@@ -1,0 +1,45 @@
+/* The Generation card's own parts; its cards, rows and dots are the sheet's
+   (SettingsPage.module.css). */
+
+/* The CLI's line can be a whole install sentence: on a narrow sheet the
+   button drops under it rather than squeezing it to a column. */
+.cliRow {
+  flex-wrap: wrap;
+}
+
+.cliRow > :first-child {
+  flex: 1 1 240px;
+}
+
+/* A number of credits, not a line of prose: the field keeps a small width. */
+.budget {
+  max-width: 220px;
+}
+
+/* The install command sits inline in a muted sentence, on the sunken fill the
+   sheet's code blocks use. */
+.command {
+  padding: 1px 6px;
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-bg-sunken);
+  color: var(--bay-text);
+  font: var(--text-footnote);
+  font-family: var(--font-mono);
+  letter-spacing: var(--track-footnote);
+  overflow-wrap: anywhere;
+}
+
+/* Under the last card, on the sheet's own glass; a phone wraps the actions
+   under the line. */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 0 4px;
+}
+
+.footer p {
+  margin: 0;
+}

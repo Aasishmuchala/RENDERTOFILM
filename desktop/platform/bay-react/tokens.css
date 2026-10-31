@@ -1,0 +1,24 @@
+/* @runway/bay-react/tokens.css — the shared radius/motion tokens and the
+   avatar palette. The app's own src/client/styles/tokens.css defines every
+   colour/surface token; these are the ones it expects from the package. */
+:root {
+  --bay-r-xs: 4px;
+  --bay-r-sm: 6px;
+  --bay-r-md: 8px;
+  --bay-r-lg: 10px;
+  --bay-r-pill: 999px;
+  --bay-dur-fast: 120ms;
+  --bay-dur: 160ms;
+  --bay-ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* Avatar palette: --bay-app-<key>-bg / -fg (src/client/ui/Avatar.tsx). */
+  --bay-app-mint-bg: #d4f5e6;   --bay-app-mint-fg: #0f5c3d;
+  --bay-app-pink-bg: #fbdce9;   --bay-app-pink-fg: #8a1f4f;
+  --bay-app-purple-bg: #e6defc; --bay-app-purple-fg: #4b2a9e;
+  --bay-app-sky-bg: #d8ecfc;    --bay-app-sky-fg: #13507f;
+  --bay-app-amber-bg: #fcecc8;  --bay-app-amber-fg: #7a4a05;
+  --bay-app-red-bg: #fbdad6;    --bay-app-red-fg: #8f1d12;
+  --bay-app-lime-bg: #e7f6c9;   --bay-app-lime-fg: #3f5c0b;
+  --bay-app-cyan-bg: #d3f3f6;   --bay-app-cyan-fg: #0d5961;
+  --bay-app-slate-bg: #e2e6ec;  --bay-app-slate-fg: #333d4a;
+}

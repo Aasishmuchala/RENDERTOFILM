@@ -1587,6 +1587,14 @@ export function buildLifestylePrompt(frame: LifestyleFrameInput, opts: Lifestyle
 const VEGETATION_TEXTURE =
   'VEGETATION: every plant reads as a living plant photographed outdoors, never CG foliage, keeping its species, size, shape and position: leaves of varied size, age and angle overlapping in depth, some curled, nicked or yellowing at the tips, with visible veins, a soft sheen only where the sun catches them and translucent glowing green where backlit; tree crowns with broken, irregular edges and gaps where sky and branches show through, never smooth solid domes or repeated clumps; twigs and branches visible inside the crowns; bark with real furrows and texture; blossom as loose clusters of individual flowers at different stages, with buds among them; lawn and groundcover as individual blades and leaves of varied length, spilling slightly over edges, with soil or mulch showing between bedding plants; no two plants identical, nothing plastic, painted or airbrushed.';
 
+/**
+ * The develop's skin: what a high-resolution photograph shows at full size.
+ * "Real skin texture with pores" alone still came back airbrushed on Nano
+ * Banana 2.1 (the 2026-10-30 Whispers of Trees stills), so it names what the
+ * eye reads as real and the retouch it must not do.
+ */
+const DEVELOP_SKIN = 'skin as a full-size photo shows it: pores, fine lines, uneven tone; not retouched or smoothed';
+
 /** VEGETATION_TEXTURE when a develop runs over its cap: the same living plants, fewer of the details. */
 const VEGETATION_TEXTURE_COMPACT =
   'VEGETATION: every plant a living plant photographed outdoors, never CG foliage, keeping its species, size, shape and position: individual leaves of varied size and angle, translucent where backlit; tree crowns with broken, irregular edges and gaps of sky; bark with real furrows; blossom as loose clusters of individual flowers; lawn as individual blades; no two plants identical, nothing plastic.';
@@ -1808,7 +1816,7 @@ export function buildDevelopPrompt(input: DevelopPromptInput): string {
       // Only the very last level, past every short form, drops it, so the closing line arrives whole.
       level > DEVELOP_STEPS + 2 * O ? '' : skyText(short(1) ? TEXTURE_DEPTH_COMPACT : TEXTURE_DEPTH),
       grammar.people
-        ? `PEOPLE: real skin texture with pores and small imperfections, natural asymmetric faces, correct hands with five fingers; no AI smoothing, no waxy or glossy skin; the same people, not new ones, with their footing and contact shadows, ${lit ? (sky ? LIT_PEOPLE_LIGHT_SKY : LIT_PEOPLE_LIGHT) : "lit by the chapter's light like everything around them"}, with the depth-of-field softness of their distance.`
+        ? `PEOPLE: ${DEVELOP_SKIN}, natural asymmetric faces, correct hands with five fingers; the same people, not new ones, with their footing and contact shadows, ${lit ? (sky ? LIT_PEOPLE_LIGHT_SKY : LIT_PEOPLE_LIGHT) : "lit by the chapter's light like everything around them"}, with the depth-of-field softness of their distance.`
         : '',
       realism ? `PHYSICAL REALISM: ${realism}` : '',
     ]

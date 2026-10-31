@@ -24,12 +24,14 @@ import { type ShotContext, type ShotPlanRaw, shotSummary } from '../../shot-dire
 import type { FramePlan, StoryboardJob } from '../../storyboard-api.ts';
 import { Section } from '../layouts/Section.tsx';
 import { libraryUrl, stillThumbUrl } from '../lib/download.ts';
+import { useCapabilities } from '../lib/useCapabilities.ts';
 import { useInFlight } from '../lib/useInFlight.ts';
 import { type ShotPlan, useShotPlan } from '../lib/useShotPlan.ts';
 import { ShotDirector } from '../ShotDirector.tsx';
 import { trpc } from '../trpc.ts';
 import { Alert } from '../ui/Alert.tsx';
 import { Button } from '../ui/Button.tsx';
+import { BlockedTip, ModelUnavailable } from '../ui/ModelUnavailable.tsx';
 import { RenderingStatus } from '../ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from '../ui/RunwayErrorNotice.tsx';
 import { Select } from '../ui/Select.tsx';
@@ -134,7 +136,19 @@ export function suggestedMove(frame: FramePlan, order: number, count: number): M
 /** The film's next step, which the page's footer offers once every frame is shot. */
 export type FilmNext =
   /** Clips to make for the frames chosen for the film, or a batch starting them. */
-  | { kind: 'make'; label: string; busy: boolean; cost: string; make: () => void; error: unknown; modelName: string }
+  | {
+      kind: 'make';
+      label: string;
+      busy: boolean;
+      cost: string;
+      make: () => void;
+      error: unknown;
+      modelName: string;
+      /** Why the clips can't be made on this provider, or null when they can. */
+      blocked: string | null;
+      /** `CostLine`'s last sentence. */
+      providerNote: string | undefined;
+    }
   /** Nothing to make: no frame is chosen yet, or every chosen frame has a clip (some may still render). */
   | { kind: 'edit'; film: number; rendering: number };
 
@@ -253,6 +267,9 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   const durations = videoDurations(s.videoModel);
   const resolutions = videoResolutions(s.videoModel);
   const resolution = resolutions.some((r) => r.id === s.resolution) ? s.resolution : defaultVideoResolution(s.videoModel);
+  const { allowedVideo, modelBlocked, onBay, providerNote } = useCapabilities();
+  const blocked = modelBlocked('video', s.videoModel);
+  const note = providerNote(s.videoModel);
   const seconds = snapVideoSeconds(s.videoModel, s.seconds);
   const moveOf = (frame: FramePlan, order: number) => s.moves[frame.image] ?? suggestedMove(frame, order, frames.length);
   /** The camera a frame's clip moves with: its plan's once directed, else its preset. */
@@ -350,6 +367,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
 
   /** The batch's next press: direct the frames that still need a plan, else make the clips. */
   function advance(list: typeof film) {
+    if (blocked) return;
     if (s.direct && list.some(({ frame }) => shots[frame.image]?.needsPlan ?? true)) void direct(list);
     else void make(list);
   }
@@ -369,7 +387,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                 ? `Make ${film.length} clip${film.length === 1 ? '' : 's'}`
                 : `Make the other ${missing.length} clip${missing.length === 1 ? '' : 's'}`;
   const directedAll = s.direct && missing.length > 0 && toDirect.length === 0;
-  const clipCost = `${film.length} clip${film.length === 1 ? '' : 's'} of ${seconds} seconds with ${videoModelName(s.videoModel)}${directedAll ? ', directed' : ''}. Each costs the same as one on the Video tab, billed to your own Runway credits.`;
+  const clipCost = `${film.length} clip${film.length === 1 ? '' : 's'} of ${seconds} seconds with ${videoModelName(s.videoModel)}${directedAll ? ', directed' : ''}. Each costs the same as one on the Video tab${onBay ? ', billed to your own Runway credits' : ''}.`;
   const cost =
     toDirect.length > 0
       ? `${clipCost} Directing is ${toDirect.length} text call${toDirect.length === 1 ? '' : 's'}; clips are billed only when you make them.`
@@ -390,10 +408,12 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
             make: () => makeMissing.current(),
             error: batchError,
             modelName: batchModel,
+            blocked,
+            providerNote: note,
           }
         : { kind: 'edit', film: film.length, rendering }
     );
-  }, [onNext, offersMake, makeLabel, working, cost, batchError, batchModel, film.length, rendering]);
+  }, [onNext, offersMake, makeLabel, working, cost, batchError, batchModel, blocked, note, film.length, rendering]);
   useLayoutEffect(() => () => onNext?.(null), [onNext]);
 
   const secondsOptions = durations.map((n) => ({ id: String(n), name: `${n} seconds` }));
@@ -426,7 +446,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
               <div className={own.filmRow}>
                 <Select
                   label="Video model"
-                  options={ANIMATE_VIDEO_MODELS}
+                  options={allowedVideo(ANIMATE_VIDEO_MODELS)}
                   value={s.videoModel}
                   onChange={(id) => {
                     const m = id as VideoModelId;
@@ -443,6 +463,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                   showHint={false}
                 />
               </div>
+              {blocked && <ModelUnavailable message={blocked} />}
               <div className={own.filmRow}>
                 <Select
                   label="Movement style"
@@ -511,20 +532,23 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
               />
               <div className={own.filmAction}>
                 {!actionInFooter && (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className={own.filmMake}
-                    icon={toDirect.length > 0 ? <ScanEye size={16} /> : <Clapperboard size={16} />}
-                    loading={working}
-                    disabled={missing.length === 0 && !busy}
-                    onPress={() => advance(missing)}
-                  >
-                    {makeLabel}
-                  </Button>
+                  <BlockedTip message={blocked}>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className={own.filmMake}
+                      icon={toDirect.length > 0 ? <ScanEye size={16} /> : <Clapperboard size={16} />}
+                      loading={working}
+                      disabled={(missing.length === 0 && !busy) || blocked !== null}
+                      onPress={() => advance(missing)}
+                    >
+                      {makeLabel}
+                    </Button>
+                  </BlockedTip>
                 )}
                 <Text tone="muted" size="sm" as="p">
                   {cost}
+                  {note ? ` ${note}` : ''}
                 </Text>
                 {/* Once the footer's next step is Edit, it is the way there. */}
                 {madeAny && !(actionInFooter && !offersMake) && (

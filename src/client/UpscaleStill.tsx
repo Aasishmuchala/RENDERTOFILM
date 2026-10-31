@@ -2,7 +2,6 @@ import { Download, ExternalLink, ImageUpscale, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
-  STILL_UPSCALERS,
   UPSCALE_FACTORS,
   upscalerName,
   type StillUpscalerId,
@@ -10,10 +9,12 @@ import {
 } from '../models.ts';
 import { libraryUrl, stillThumbUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
 import { Select } from './ui/Select.tsx';
@@ -46,8 +47,11 @@ export type UpscaleJob = {
 export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier = false }: UpscaleStillProps) {
   const saver = useDownload();
   const utils = trpc.useUtils();
+  const { allowedStillUpscalers, modelBlocked, noneOffered, onBay, providerNote } = useCapabilities();
   const [upscaler, setUpscaler] = useState<StillUpscalerId>('precision');
   const [factor, setFactor] = useState<UpscaleFactor>(2);
+  const canUpscale = allowedStillUpscalers.length > 0;
+  const blocked = canUpscale ? modelBlocked('stillUpscaler', upscaler) : noneOffered;
 
   const upscale = trpc.upscaleStill.useMutation();
   // A double-click's second press arrives before upscale.isPending shows.
@@ -85,7 +89,7 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
   const { planBlocked, unavailable } = classifyRunwayError(shownError);
 
   async function run() {
-    if (!guard.start()) return;
+    if (blocked || !guard.start()) return;
     try {
       const { id } = await upscale.mutateAsync({ stillId, upscaler, factor });
       onJob({ id, upscaler, factor, aspectRatio, name });
@@ -104,37 +108,46 @@ export function UpscaleStill({ stillId, aspectRatio, name, job, onJob, earlier =
           ? 'This upscale belongs to the take before your newest one. It is saved in the Library either way.'
           : 'Makes a larger copy for print or close crops. It is saved next to the original, so you can animate either one.'}
       </Text>
-      <div className={styles.upscaleRow}>
-        <Select
-          label="Upscaler"
-          options={STILL_UPSCALERS}
-          value={upscaler}
-          onChange={(id) => {
-            setUpscaler(id as StillUpscalerId);
-            upscale.reset();
-          }}
-          disabled={busy}
-          showHint={false}
-        />
-        <Select
-          label="Scale"
-          options={UPSCALE_FACTORS}
-          value={String(factor)}
-          onChange={(id) => setFactor(id === '4' ? 4 : 2)}
-          disabled={busy}
-        />
-        <Button
-          icon={<ImageUpscale size={16} />}
-          loading={busy}
-          disabled={busy || planBlocked || unavailable}
-          onPress={() => void run()}
-        >
-          {upscale.isPending ? 'Starting…' : rendering ? 'Upscaling…' : 'Upscale'}
-        </Button>
-      </div>
-      <Text tone="muted" size="sm" as="p" className={styles.meta}>
-        {STILL_UPSCALERS.find((u) => u.id === upscaler)?.hint}. Billed to your own Runway credits.
-      </Text>
+      {!canUpscale && <ModelUnavailable message={noneOffered} />}
+      {canUpscale && (
+        <div className={styles.upscaleRow}>
+          <Select
+            label="Upscaler"
+            options={allowedStillUpscalers}
+            value={upscaler}
+            onChange={(id) => {
+              setUpscaler(id as StillUpscalerId);
+              upscale.reset();
+            }}
+            disabled={busy}
+            showHint={false}
+          />
+          <Select
+            label="Scale"
+            options={UPSCALE_FACTORS}
+            value={String(factor)}
+            onChange={(id) => setFactor(id === '4' ? 4 : 2)}
+            disabled={busy}
+          />
+          <BlockedTip message={blocked}>
+            <Button
+              icon={<ImageUpscale size={16} />}
+              loading={busy}
+              disabled={busy || planBlocked || unavailable || blocked !== null}
+              onPress={() => void run()}
+            >
+              {upscale.isPending ? 'Starting…' : rendering ? 'Upscaling…' : 'Upscale'}
+            </Button>
+          </BlockedTip>
+          {blocked && <ModelUnavailable message={blocked} />}
+        </div>
+      )}
+      {!blocked && (
+        <Text tone="muted" size="sm" as="p" className={styles.meta}>
+          {allowedStillUpscalers.find((u) => u.id === upscaler)?.hint}.{' '}
+          {onBay ? 'Billed to your own Runway credits.' : providerNote(upscaler)}
+        </Text>
+      )}
 
       <RunwayErrorNotice
         error={shownError}

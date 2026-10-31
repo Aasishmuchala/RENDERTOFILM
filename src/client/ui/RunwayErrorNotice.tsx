@@ -2,6 +2,7 @@ import { OutOfCreditsPrompt } from '@runway/bay-react/credits';
 import { SignInPrompt } from '@runway/bay-react/runway-sign-in';
 
 import { classifyRunwayError } from '../lib/runwayErrors.ts';
+import { useCapabilities } from '../lib/useCapabilities.ts';
 import { useOnRunwaySignedIn } from '../lib/useOnRunwaySignedIn.ts';
 import { Alert } from './Alert.tsx';
 import { ConsentPrompt } from './ConsentPrompt.tsx';
@@ -21,6 +22,7 @@ export type RunwayErrorNoticeProps = {
  */
 export function RunwayErrorNotice({ error, modelName, onRetry }: RunwayErrorNoticeProps) {
   const onSignedIn = useOnRunwaySignedIn();
+  const { caps } = useCapabilities();
   if (!error) return null;
   const { signIn, credits, consent, message, unavailable, planBlocked } =
     classifyRunwayError(error);
@@ -29,7 +31,11 @@ export function RunwayErrorNotice({ error, modelName, onRetry }: RunwayErrorNoti
       <SignInPrompt
         reauth={signIn.reauth}
         title="Sign in to generate"
-        description="Generating uses your own Runway account and credits. Sign in with any Runway account to continue."
+        description={
+          caps.desktop
+            ? `Generating uses your own ${caps.providerName} account. Connect it in Settings to continue.`
+            : 'Generating uses your own Runway account and credits. Sign in with any Runway account to continue.'
+        }
         onSignedIn={() => onSignedIn(onRetry)}
       />
     );

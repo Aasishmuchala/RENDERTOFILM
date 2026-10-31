@@ -38,6 +38,7 @@ import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
@@ -46,6 +47,7 @@ import { Button } from './ui/Button.tsx';
 import { CompareSlider } from './ui/CompareSlider.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -130,7 +132,9 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const [storyline, setStoryline] = useState<StorylineId>('day-in-the-life');
   const [story, setStory] = useState('');
   const [directorStyle, setDirectorStyle] = useDirectionStyle('director');
+  const { allowedImage, modelBlocked, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
+  const blocked = modelBlocked('image', imageModel);
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
   const [jobId, setJobId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
@@ -232,7 +236,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const ready = uploads.length > 0 && pendingUploads === 0 && failedUploads === 0 && !storyTooLong;
 
   async function runPlan() {
-    if (!ready || planning || !planGuard.start()) return;
+    if (!ready || planning || blocked || !planGuard.start()) return;
     try {
       const { id } = await plan.mutateAsync({
         images: uploads.map((u) => ({ url: u.hostedUrl!, width: u.width, height: u.height, name: u.name })),
@@ -463,6 +467,8 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
             ? 'Shorten your story first'
             : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`;
   const planned = current?.status === 'planned' ? current : null;
+  // A storyboard keeps the model it was planned with, so a provider that hides it stops the shoot.
+  const shootBlocked = planned ? modelBlocked('image', planned.imageModel) : null;
   const directed = directedLine(planned?.directorStyle);
 
   // ---- The canvas.
@@ -780,18 +786,23 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     );
     footer = (
       <>
-        <Button
-          variant="primary"
-          size="lg"
-          className={styles.generate}
-          icon={<Clapperboard size={16} />}
-          loading={selRendering}
-          onPress={() => void shoot(selFrame.image)}
-        >
-          {selRendering ? 'Shooting…' : selDone || selTake?.status === 'failed' ? 'Shoot again' : 'Shoot this frame'}
-        </Button>
+        <BlockedTip message={shootBlocked}>
+          <Button
+            variant="primary"
+            size="lg"
+            className={styles.generate}
+            icon={<Clapperboard size={16} />}
+            loading={selRendering}
+            disabled={shootBlocked !== null}
+            onPress={() => void shoot(selFrame.image)}
+          >
+            {selRendering ? 'Shooting…' : selDone || selTake?.status === 'failed' ? 'Shoot again' : 'Shoot this frame'}
+          </Button>
+        </BlockedTip>
+        {shootBlocked && <ModelUnavailable message={shootBlocked} />}
         <CostLine
-          summary={`Each take with ${imageModelName(planned.imageModel)} costs the same as a still, billed to your own Runway credits. Earlier takes stay under Full screen.`}
+          summary={`Each take with ${imageModelName(planned.imageModel)} costs the same as a still${onBay ? ', billed to your own Runway credits' : ''}. Earlier takes stay under Full screen.`}
+          providerNote={providerNote(planned.imageModel)}
         />
       </>
     );
@@ -886,7 +897,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
             <div className={styles.selectRow}>
               <Select
                 label="Image model"
-                options={IMAGE_MODELS}
+                options={allowedImage(IMAGE_MODELS)}
                 value={imageModel}
                 onChange={(id) => {
                   const m = id as ImageModelId;
@@ -905,13 +916,21 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
                   showHint={false}
                 />
               )}
+              {blocked && <ModelUnavailable message={blocked} />}
             </div>
             {/* With a storyboard on the board, planning a new one is the secondary action here. */}
             {planned && uploads.length > 0 && (
               <div className={own.replan}>
-                <Button icon={<Projector size={16} />} loading={planning} disabled={!ready} onPress={() => void runPlan()}>
-                  {planLabel}
-                </Button>
+                <BlockedTip message={blocked}>
+                  <Button
+                    icon={<Projector size={16} />}
+                    loading={planning}
+                    disabled={!ready || blocked !== null}
+                    onPress={() => void runPlan()}
+                  >
+                    {planLabel}
+                  </Button>
+                </BlockedTip>
                 <Text tone="muted" size="sm" as="p">
                   Plans a new storyboard from these images; this one stays in your library.
                 </Text>
@@ -972,20 +991,27 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     if (!planned) {
       footer = (
         <>
-          <Button
-            variant="primary"
-            size="lg"
-            className={styles.generate}
-            icon={<Projector size={16} />}
-            loading={planning}
-            disabled={!ready}
-            onPress={() => void runPlan()}
-          >
-            {planLabel}
-          </Button>
+          <BlockedTip message={blocked}>
+            <Button
+              variant="primary"
+              size="lg"
+              className={styles.generate}
+              icon={<Projector size={16} />}
+              loading={planning}
+              disabled={!ready || blocked !== null}
+              onPress={() => void runPlan()}
+            >
+              {planLabel}
+            </Button>
+          </BlockedTip>
           <CostLine
-            summary="Claude plans the storyboard, a few credits for every six images. Nothing is shot until you say so."
-            details={`Each frame you shoot with ${imageModelName(imageModel)} costs the same as a still. Billed to your own Runway credits.`}
+            summary={
+              onBay
+                ? 'Claude plans the storyboard, a few credits for every six images. Nothing is shot until you say so.'
+                : 'Your AI text provider plans the storyboard. Nothing is shot until you say so.'
+            }
+            details={`Each frame you shoot with ${imageModelName(imageModel)} costs the same as a still.${onBay ? ' Billed to your own Runway credits.' : ''}`}
+            providerNote={providerNote(imageModel)}
           />
         </>
       );
@@ -993,17 +1019,24 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
       // Every frame is shot: the film's clips are the next step.
       footer = (
         <>
-          <Button
-            variant="primary"
-            size="lg"
-            className={styles.generate}
-            icon={<Clapperboard size={16} />}
-            loading={filmNext.busy}
-            onPress={filmNext.make}
-          >
-            {filmNext.label}
-          </Button>
-          <CostLine summary="Every frame is shot. Next, a clip of each frame chosen for the film." details={filmNext.cost} />
+          <BlockedTip message={filmNext.blocked}>
+            <Button
+              variant="primary"
+              size="lg"
+              className={styles.generate}
+              icon={<Clapperboard size={16} />}
+              loading={filmNext.busy}
+              disabled={filmNext.blocked !== null}
+              onPress={filmNext.make}
+            >
+              {filmNext.label}
+            </Button>
+          </BlockedTip>
+          <CostLine
+            summary="Every frame is shot. Next, a clip of each frame chosen for the film."
+            details={filmNext.cost}
+            providerNote={filmNext.providerNote}
+          />
           <RunwayErrorNotice
             error={filmNext.error}
             modelName={filmNext.modelName}
@@ -1031,25 +1064,30 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     } else {
       footer = (
         <>
-          <Button
-            variant="primary"
-            size="lg"
-            className={styles.generate}
-            icon={<Clapperboard size={16} />}
-            // Nothing is left to send while the last frames render: it waits for them.
-            loading={shootingAll || unshot.length === 0}
-            onPress={() => void shootAll()}
-          >
-            {shootingAll || unshot.length === 0
-              ? 'Shooting the frames…'
-              : unshot.length === frames.length
-                ? frames.length === 1
-                  ? 'Shoot the frame'
-                  : `Shoot all ${frames.length} frames`
-                : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
-          </Button>
+          <BlockedTip message={shootBlocked}>
+            <Button
+              variant="primary"
+              size="lg"
+              className={styles.generate}
+              icon={<Clapperboard size={16} />}
+              // Nothing is left to send while the last frames render: it waits for them.
+              loading={shootingAll || unshot.length === 0}
+              disabled={shootBlocked !== null}
+              onPress={() => void shootAll()}
+            >
+              {shootingAll || unshot.length === 0
+                ? 'Shooting the frames…'
+                : unshot.length === frames.length
+                  ? frames.length === 1
+                    ? 'Shoot the frame'
+                    : `Shoot all ${frames.length} frames`
+                  : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
+            </Button>
+          </BlockedTip>
+          {shootBlocked && <ModelUnavailable message={shootBlocked} />}
           <CostLine
-            summary={`Each frame with ${imageModelName(planned.imageModel)} costs the same as a still, billed to your own Runway credits.`}
+            summary={`Each frame with ${imageModelName(planned.imageModel)} costs the same as a still${onBay ? ', billed to your own Runway credits' : ''}.`}
+            providerNote={providerNote(planned.imageModel)}
           />
         </>
       );

@@ -4,6 +4,7 @@ import { snapAspectRatio } from '@runway/bay/runway';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { capabilitiesOf } from './capabilities.ts';
 import { artifactOf } from './edit-api.ts';
 import {
   type Clip,
@@ -15,7 +16,7 @@ import {
   recordClip,
   updateLibrary,
 } from './library.ts';
-import { clampPrompt, clipSeconds } from './models.ts';
+import { clampPrompt, CLIP_UPSCALERS, clipSeconds } from './models.ts';
 import {
   buildRecreatePrompt,
   RECREATE_NOTE_MAX,
@@ -121,10 +122,11 @@ function claimable(upscale: RecreateUpscale | undefined, mode: 'poll' | 'retry',
  * read-modify-write of the library takes the claim (`starting`, with this
  * call's own `by`) when no one holds it: never claimed, a claim gone stale,
  * or (a retry only) a start that failed. A call that does not hold the claim
- * gets the stored state back and sends nothing. The holder sends
- * `media_upscale` of the shot's artifact, records the new clip, then marks
- * the shot `started`, each in its own try, so what was paid for is never
- * sent again; a refusal is marked `failed` for `retryUpscale`.
+ * gets the stored state back and sends nothing. The holder sends its first
+ * clip upscaler (`media_upscale` of the shot's artifact on Bay), records the
+ * new clip, then marks the shot `started`, each in its own try, so what was
+ * paid for is never sent again; a refusal is marked `failed` for
+ * `retryUpscale`.
  */
 async function ensureUpscale(
   ctx: RunwayCtx,
@@ -178,6 +180,9 @@ async function ensureUpscale(
     return started;
   }
 
+  const upscaler = capabilitiesOf(ctx.runway).clipUpscalers[0] ?? 'runway';
+  const alias = CLIP_UPSCALERS.find((u) => u.id === upscaler)?.alias ?? 'media_upscale';
+  const name = 'render-to-film recreate upscale';
   let upId: string;
   try {
     const task = await ctx.runway.getTask(clip.id);
@@ -188,12 +193,21 @@ async function ensureUpscale(
         message: 'That shot has not finished, so there is nothing to upscale yet.',
       });
     }
-    ({ id: upId } = await ctx.runway.createTask('media_upscale', {
-      name: 'render-to-film recreate upscale',
-      task_artifact_id: artifactId,
-    }));
+    ({ id: upId } = await ctx.runway.createTask(
+      alias,
+      upscaler === 'magnific-video'
+        ? {
+            name,
+            video: {
+              url: await finishedUrl(ctx, clip.id),
+              durationSeconds: clipSeconds(shot.videoModel, shot.length, shot.seconds),
+            },
+            resolution: '4k',
+          }
+        : { name, task_artifact_id: artifactId }
+    ));
   } catch (err) {
-    logRejection('recreate upscale', 'media_upscale', err);
+    logRejection('recreate upscale', alias, err);
     const failed: RecreateUpscale = {
       state: 'failed',
       at: new Date().toISOString(),
@@ -211,7 +225,7 @@ async function ensureUpscale(
       status: 'pending',
       error: undefined,
       upscaleOf: clip.id,
-      upscaler: 'runway',
+      upscaler,
       scale: 4,
       recreate: { ...rec, step: 2, upscale: undefined },
     });

@@ -64,6 +64,10 @@ target/
 /core.[0-9][0-9][0-9][0-9][0-9][0-9]
 /core.[0-9][0-9][0-9][0-9][0-9][0-9][0-9]
 
+# Desktop app (Electron); never part of the Bay image
+desktop/
+.github/
+
 # bay-studio: internal session files, not part of the app
 events.jsonl
 /.events.jsonl.checkpoint-swap

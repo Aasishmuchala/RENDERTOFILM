@@ -1,0 +1,104 @@
+# Builds the desktop app on both platforms, then smoke-tests the packaged binary
+# on the simulator (nothing is billed). A desktop-v* tag also drafts a release.
+#
+# Everything here comes from the repo: `.router/` and `.localdev/` are
+# git-excluded, so their checks and fixtures do not exist on a runner, and the
+# root package is never installed (its `@runway/*` packages need the private
+# registry). The desktop build takes every package from desktop/node_modules, and
+# smoke.mjs makes its own image. `.router/` runs on a developer's machine.
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - desktop
+    tags:
+      - desktop-v*
+
+permissions:
+  contents: write
+
+env:
+  npm_config_fund: false
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --config electron-builder.yml --publish never
+      - name: Smoke the packaged app
+        run: |
+          "release/mac-arm64/Render to Film.app/Contents/MacOS/Render to Film" \
+            --simulate --port 3977 --token smoke --data-dir "$RUNNER_TEMP/rtf" > "$RUNNER_TEMP/app.log" 2>&1 &
+          app=$!
+          trap 'kill "$app" || true' EXIT
+          node scripts/smoke.mjs --base http://127.0.0.1:3977 --token smoke
+      - name: Server log
+        if: failure()
+        run: cat "$RUNNER_TEMP/app.log" "$RUNNER_TEMP/rtf/profile/logs/server.log" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-to-film-mac
+          if-no-files-found: error
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        with:
+          draft: true
+          files: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --config electron-builder.yml --publish never
+      # Stopped by image name: a Git Bash pid is not a Windows pid, and Electron has children.
+      - name: Smoke the packaged app
+        run: |
+          "release/win-unpacked/Render to Film.exe" \
+            --simulate --port 3977 --token smoke --data-dir "$RUNNER_TEMP/rtf" > "$RUNNER_TEMP/app.log" 2>&1 &
+          trap 'taskkill //F //T //IM "Render to Film.exe" || true' EXIT
+          node scripts/smoke.mjs --base http://127.0.0.1:3977 --token smoke
+      - name: Server log
+        if: failure()
+        run: cat "$RUNNER_TEMP/app.log" "$RUNNER_TEMP/rtf/profile/logs/server.log" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-to-film-windows
+          if-no-files-found: error
+          path: desktop/release/*Setup*.exe
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        with:
+          draft: true
+          files: desktop/release/*Setup*.exe

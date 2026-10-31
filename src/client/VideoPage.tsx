@@ -46,6 +46,7 @@ import { type CanvasState, usePhoneLayout, Workspace, type WorkspaceProps } from
 import { useAmbient } from './lib/ambient.tsx';
 import { clipPosterUrl, libraryUrl, NO_POSTER, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { useShotPlan } from './lib/useShotPlan.ts';
 import { useRecreateWorkspace } from './RecreatePanel.tsx';
@@ -58,6 +59,7 @@ import { EmptyState } from './ui/EmptyState.tsx';
 import { FilterChips } from './ui/FilterChips.tsx';
 import { ImagePicker } from './ui/ImagePicker.tsx';
 import { Lightbox } from './ui/Lightbox.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { Switch } from './ui/Switch.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
@@ -184,7 +186,9 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
         : false,
   });
 
+  const { allowedVideo, modelBlocked, offeredVideoNames, onBay, providerNote } = useCapabilities();
   const [videoModel, setVideoModel] = useState<VideoModelId>('seedance-2');
+  const blocked = modelBlocked('video', videoModel);
   const [resolution, setResolution] = useState(defaultVideoResolution('seedance-2'));
   const [motion, setMotion] = useState<MotionId>('push-in');
   const [moveStyle, setMoveStyle] = useState<MoveStyleId>('steady');
@@ -473,7 +477,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
 
   async function run() {
     // A first frame of your own needs no still picked in step 1.
-    if ((!selected && !frames.first) || handleProblem || directionTooLong || duplicateFrames || full) return;
+    if ((!selected && !frames.first) || handleProblem || directionTooLong || duplicateFrames || full || blocked) return;
     // With the director on, the video waits for a plan made for this picture.
     if (shot.needsPlan) return;
     if (!startGuard.start()) return;
@@ -694,7 +698,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
         <div className={styles.selectRow}>
           <Select
             label="Video model"
-            options={ANIMATE_VIDEO_MODELS}
+            options={allowedVideo(ANIMATE_VIDEO_MODELS)}
             value={videoModel}
             onChange={(id) => {
               const next = id as VideoModelId;
@@ -712,6 +716,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
             onChange={setResolution}
             disabled={videoResolutions(videoModel).length < 2}
           />
+          {blocked && <ModelUnavailable message={blocked} />}
         </div>
       </Section>
 
@@ -727,8 +732,8 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
           seconds={seconds}
           picked={selected ? { src: stillThumbUrl(selected.id), name: stillCaption(selected) } : null}
           items={pickerItems}
-          endModels={videoModelsWith('end')}
-          middleModels={videoModelsWith('middle')}
+          endModels={offeredVideoNames(videoModelsWith('end'))}
+          middleModels={offeredVideoNames(videoModelsWith('middle'))}
           lastBlockedByExtras={lastBlocked}
           disabled={false}
         />
@@ -807,7 +812,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
           modelName={videoModelName(videoModel)}
           limit={extraLimit}
           items={pickerItems}
-          extraModels={videoModelsWith('extra')}
+          extraModels={offeredVideoNames(videoModelsWith('extra'))}
           blockedReason={
             extrasBlocked
               ? `${videoModelName(videoModel)} can use a last frame or extra images, not both. Remove the last frame to add extra images.`
@@ -868,41 +873,45 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
             : 'Make the video';
   const animateFooter = (
     <>
-      <Button
-        variant="primary"
-        size="lg"
-        icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
-        loading={createVideo.isPending || directing}
-        disabled={
-          directing ||
-          (directFirst
-            ? shotFirst === null || frames.uploading
-            : createVideo.isPending ||
-              full ||
-              (!selected && !frames.first) ||
-              frames.uploading ||
-              handleProblem !== undefined ||
-              directionTooLong ||
-              duplicateFrames ||
-              planBlocked ||
-              unavailable)
-        }
-        onPress={directFirst ? () => void shot.direct() : () => void run()}
-      >
-        {createVideo.isPending
-          ? 'Starting…'
-          : directing
-            ? 'Directing the shot…'
-            : directFirst
-              ? directLabel
-              : makeLabel}
-      </Button>
+      <BlockedTip message={blocked}>
+        <Button
+          variant="primary"
+          size="lg"
+          icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
+          loading={createVideo.isPending || directing}
+          disabled={
+            blocked !== null ||
+            directing ||
+            (directFirst
+              ? shotFirst === null || frames.uploading
+              : createVideo.isPending ||
+                full ||
+                (!selected && !frames.first) ||
+                frames.uploading ||
+                handleProblem !== undefined ||
+                directionTooLong ||
+                duplicateFrames ||
+                planBlocked ||
+                unavailable)
+          }
+          onPress={directFirst ? () => void shot.direct() : () => void run()}
+        >
+          {createVideo.isPending
+            ? 'Starting…'
+            : directing
+              ? 'Directing the shot…'
+              : directFirst
+                ? directLabel
+                : makeLabel}
+        </Button>
+      </BlockedTip>
       <CostLine
         summary={
           directing || directFirst
             ? 'Directing is one text call on your AI text provider (Settings); the video is not billed until you make it.'
-            : `${videoModelName(videoModel)} at ${videoResolutionName(videoModel, resolution)}, ${seconds} seconds, ${motionText}${shot.sendable ? ', directed' : ''}. Billed to your own Runway credits; video costs more than a still.`
+            : `${videoModelName(videoModel)} at ${videoResolutionName(videoModel, resolution)}, ${seconds} seconds, ${motionText}${shot.sendable ? ', directed' : ''}.${onBay ? ' Billed to your own Runway credits; video costs more than a still.' : ''}`
         }
+        providerNote={directing || directFirst ? undefined : providerNote(videoModel)}
       />
       <p className={styles.queueNote} role="status" aria-live="polite">
         {full
@@ -1188,6 +1197,7 @@ function TakeCanvas({
   state: TakeState;
   onDismiss: () => void;
 }) {
+  const { caps } = useCapabilities();
   const pollFinal = FINAL_CODES.has(errorCode(status.error) ?? '');
   const special = status.error ? classifyRunwayError(status.error) : null;
   const needsPrompt = special && (special.signIn || special.credits || special.consent);
@@ -1212,7 +1222,7 @@ function TakeCanvas({
       <div className={styles.frameAlert}>
         <Alert tone="error" title="We lost touch with this video">
           {pollFinal
-            ? `${special?.message ?? 'Runway could not find it.'} It may still appear under Your clips.`
+            ? `${special?.message ?? `${caps.providerName} could not find it.`} It may still appear under Your clips.`
             : `${special?.message ?? 'The check failed.'} It may still be rendering, so check again.`}
         </Alert>
         {needsPrompt && (
@@ -1253,7 +1263,7 @@ function TakeCanvas({
     <RenderingStatus
       label={
         state === 'queued'
-          ? 'Waiting for a camera at Runway…'
+          ? `Waiting for a camera at ${caps.providerName}…`
           : 'Rolling camera. Video usually takes one to a few minutes…'
       }
       progress={status.data?.progress}

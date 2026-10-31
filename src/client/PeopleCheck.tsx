@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { PEOPLE_CHECKS } from '../checks.ts';
 import { trpc } from './trpc.ts';
 import { errorMessage } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -26,6 +27,7 @@ export type PeopleCheckProps = {
  * changed, with a re-take that carries the reviewer's fixes.
  */
 export function PeopleCheck({ stillId, autoRun, onFix, fixing = false }: PeopleCheckProps) {
+  const { caps } = useCapabilities();
   const utils = trpc.useUtils();
   const checkShot = trpc.checkShot.useMutation({
     onSuccess: () => utils.checkStatus.invalidate({ stillId }),
@@ -166,7 +168,7 @@ export function PeopleCheck({ stillId, autoRun, onFix, fixing = false }: PeopleC
         </div>
       )}
       <Text tone="muted" size="sm" as="p" className={styles.note}>
-        Reviewed by Claude Opus 5.5 on your Runway credits.
+        {caps.desktop ? 'Reviewed by Claude on your AI text key.' : 'Reviewed by Claude Opus 5.5 on your Runway credits.'}
       </Text>
     </section>
   );

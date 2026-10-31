@@ -66,7 +66,7 @@ export interface ApiKeyRecord {
   verifiedAt?: string | undefined;
 }
 
-export type ApiKeyProvider = 'seevio' | 'anthropic' | 'omegaplus';
+export type ApiKeyProvider = 'seevio' | 'anthropic' | 'omegaplus' | 'runwayapi';
 
 /** Who answers the app's text-and-vision (`claude_api`) calls. */
 export type AiTextProvider = 'runway' | 'anthropic' | 'omegaplus';
@@ -78,11 +78,22 @@ export interface AiTextChoice {
   updatedAt: string;
 }
 
+/** The desktop app's choice of who generates, and its daily Higgsfield credit budget. Never set on Bay. */
+export interface GenerationChoice {
+  provider: 'higgsfield' | 'runway' | 'simulator';
+  budget?: number | undefined;
+  updatedAt: string;
+}
+
+/** Credits a day until the owner sets their own. */
+export const DEFAULT_GENERATION_BUDGET = 300;
+
 export interface ConnectionsDoc {
   servers: McpServerRecord[];
   pending: PendingOAuth[];
   apiKeys: Partial<Record<ApiKeyProvider, ApiKeyRecord>>;
   aiText?: AiTextChoice | undefined;
+  generation?: GenerationChoice | undefined;
 }
 
 const store = documentStore<ConnectionsDoc>({ prefix: 'connections/' });
@@ -105,7 +116,7 @@ function withPresets(doc: Partial<ConnectionsDoc> | undefined): ConnectionsDoc {
   const apiKeys = doc?.apiKeys ?? {};
   const presets = PRESETS.map((p) => saved.find((s) => s.id === p.id) ?? { ...p });
   const others = saved.filter((s) => !isPresetId(s.id));
-  return { servers: [...presets, ...others], pending, apiKeys, aiText: doc?.aiText };
+  return { servers: [...presets, ...others], pending, apiKeys, aiText: doc?.aiText, generation: doc?.generation };
 }
 
 export async function readConnections(owner: string): Promise<ConnectionsDoc> {
@@ -124,6 +135,7 @@ export async function updateConnections(
       pending: next.pending.slice(-10),
       apiKeys: next.apiKeys,
       aiText: next.aiText,
+      generation: next.generation,
     };
   });
 }

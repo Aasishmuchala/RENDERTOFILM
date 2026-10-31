@@ -75,6 +75,7 @@ import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError, errorMessage } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { isUploadFailure, uploadRender } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { useProjectUploads } from './lib/useProjectUploads.ts';
@@ -88,6 +89,7 @@ import { CompareSlider } from './ui/CompareSlider.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { FullscreenDialog } from './ui/FullscreenDialog.tsx';
 import { ImageDropZone } from './ui/ImageDropZone.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -146,9 +148,9 @@ const PROVIDER_NAMES = { runway: 'Runway', anthropic: 'Anthropic', omegaplus: 'O
 /** Who writes the plan, as the page says it: "OmegaPlus · Claude Opus 5.5" and the model alone, or Claude through Runway. */
 type Planner = { provider: AiTextProvider; label: string; model: string };
 
-function plannerOf(ai: AiText | undefined): Planner {
+function plannerOf(ai: AiText | undefined, viaRunway: boolean): Planner {
   if (!ai || ai.provider === 'runway') {
-    return { provider: 'runway', label: 'Claude through your Runway account', model: 'Claude' };
+    return { provider: 'runway', label: viaRunway ? 'Claude through your Runway account' : 'your AI text provider', model: 'Claude' };
   }
   const list: readonly { id: string; name: string }[] = ai.provider === 'anthropic' ? ai.anthropicModels : ai.omegaModels;
   const model = list.find((m) => m.id === ai.model)?.name ?? ai.model ?? 'its default model';
@@ -428,11 +430,15 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const light = useReferenceUpload('lighting reference');
   // The person's own cast sheet; held here so it survives the inspector switching to a frame and back.
   const castUpload = useReferenceUpload('cast sheet');
+  const { allowedImage, caps, modelBlocked, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_MODEL);
   const [resolution, setResolution] = useState(() => fourK(DEFAULT_MODEL));
   const [twoPass, setTwoPass] = useState(true);
   const [pass2Model, setPass2Model] = useState<ImageModelId>(DEFAULT_PASS2_MODEL);
   const [pass2Resolution, setPass2Resolution] = useState(() => fourK(DEFAULT_PASS2_MODEL));
+  const pass1Off = modelBlocked('image', imageModel);
+  const pass2Off = twoPass ? modelBlocked('image', pass2Model) : null;
+  const jobBlocked = pass1Off ?? pass2Off;
   const [jobId, setJobId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
   /** What the inspector and the canvas are on: the film's setup, or one frame (its image index). */
@@ -450,7 +456,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const planGuard = useInFlight();
   // Who writes the plan: the Settings choice, which step 2 changes too.
   const aiText = trpc.settings.aiText.useQuery(undefined, { enabled: active });
-  const planner = plannerOf(aiText.data);
+  const planner = plannerOf(aiText.data, caps.textViaRunway);
   // A two-pass take on its way: only a poll of the job sends its second pass.
   const passesWaiting = useRef(false);
   // With no plan made here yet, this is the newest one, so a reload picks up where it was.
@@ -480,7 +486,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const uploadsKey = uploads.map((u) => u.key).join('|');
 
   async function runPlan() {
-    if (!ready || planning || !planGuard.start()) return;
+    if (!ready || planning || jobBlocked || !planGuard.start()) return;
     const sentKey = uploadsKey;
     try {
       const { id } = await plan.mutateAsync({
@@ -756,7 +762,14 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
       return state !== 'succeeded' && state !== 'failed';
     });
   passesWaiting.current = twoPassBoard && anyInFlight;
-  const canShoot = cast?.approved === true;
+  // A plan keeps the models it was made with, so a provider that hides one stops the shoot.
+  const boardBlocked = current
+    ? (modelBlocked('image', current.imageModel) ??
+      (current.pass2 ? modelBlocked('image', current.pass2.imageModel) : null))
+    : null;
+  const boardNote = current ? providerNote(current.imageModel, ...(current.pass2 ? [current.pass2.imageModel] : [])) : undefined;
+  const canShoot = cast?.approved === true && boardBlocked === null;
+  const whyNotShoot = boardBlocked ?? 'Approve the cast, or choose No cast, to start shooting.';
   const included = board.filter((f) => f.include);
   const unshot = included.filter((f) => {
     const state = views.get(f.image)?.state ?? 'none';
@@ -1387,7 +1400,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
             <div className={styles.selectRow}>
               <Select
                 label={twoPass ? 'Pass 1: the x-ray plate' : 'Image model'}
-                options={IMAGE_MODELS}
+                options={allowedImage(IMAGE_MODELS)}
                 value={imageModel}
                 onChange={(id) => {
                   const m = id as ImageModelId;
@@ -1406,12 +1419,13 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
                   showHint={false}
                 />
               )}
+              {pass1Off && <ModelUnavailable message={pass1Off} />}
             </div>
             {twoPass && (
               <div className={styles.selectRow}>
                 <Select
                   label="Pass 2: the develop"
-                  options={PASS2_MODELS}
+                  options={allowedImage(PASS2_MODELS)}
                   value={pass2Model}
                   onChange={(id) => {
                     const m = id as ImageModelId;
@@ -1430,6 +1444,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
                     showHint={false}
                   />
                 )}
+                {pass2Off && <ModelUnavailable message={pass2Off} />}
               </div>
             )}
           </div>
@@ -1555,70 +1570,78 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
     const blocked = notReady(f);
     footer = (
       <>
-        <Button
-          variant="primary"
-          size="lg"
-          className={own.primary}
-          icon={<Clapperboard size={18} />}
-          loading={selRendering}
-          disabled={!f.include || !canShoot || blocked !== undefined || shootingAll || Boolean(retrying[f.image])}
-          onPress={() => void shoot(f.image)}
-        >
-          {!f.include
-            ? 'Left out of the film'
-            : selRendering
-              ? 'Shooting…'
-              : selView.state !== 'none'
-                ? 'Shoot again'
-                : 'Shoot this frame'}
-        </Button>
+        <BlockedTip message={boardBlocked}>
+          <Button
+            variant="primary"
+            size="lg"
+            className={own.primary}
+            icon={<Clapperboard size={18} />}
+            loading={selRendering}
+            disabled={!f.include || !canShoot || blocked !== undefined || shootingAll || Boolean(retrying[f.image])}
+            onPress={() => void shoot(f.image)}
+          >
+            {!f.include
+              ? 'Left out of the film'
+              : selRendering
+                ? 'Shooting…'
+                : selView.state !== 'none'
+                  ? 'Shoot again'
+                  : 'Shoot this frame'}
+          </Button>
+        </BlockedTip>
         <CostLine
           summary={
             !f.include
               ? 'Put it back in the film to shoot it.'
               : (blocked ??
                 (canShoot
-                  ? `This frame is ${frameStills}, billed to your own Runway credits.`
-                  : 'Approve the cast, or choose No cast, to start shooting.'))
+                  ? `This frame is ${frameStills}${onBay ? ', billed to your own Runway credits' : ''}.`
+                  : whyNotShoot))
           }
+          providerNote={f.include && !blocked && canShoot ? boardNote : undefined}
         />
       </>
     );
   } else if (planMode) {
     footer = (
       <>
-        <Button
-          variant="primary"
-          size="lg"
-          className={own.primary}
-          icon={<Projector size={18} />}
-          loading={planning}
-          disabled={!ready}
-          onPress={() => void runPlan()}
-        >
-          {planning
-            ? 'Planning the film…'
-            : uploads.length === 0
-              ? 'Add project renders first'
-              : pending > 0
-                ? 'Uploading the renders…'
-                : failed > 0
-                  ? 'Retry or remove the failed upload'
-                  : householdTooLong
-                    ? 'Shorten the household note first'
-                    : light.uploading
-                      ? 'Uploading the lighting reference…'
-                      : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
-        </Button>
+        <BlockedTip message={jobBlocked}>
+          <Button
+            variant="primary"
+            size="lg"
+            className={own.primary}
+            icon={<Projector size={18} />}
+            loading={planning}
+            disabled={!ready || jobBlocked !== null}
+            onPress={() => void runPlan()}
+          >
+            {planning
+              ? 'Planning the film…'
+              : uploads.length === 0
+                ? 'Add project renders first'
+                : pending > 0
+                  ? 'Uploading the renders…'
+                  : failed > 0
+                    ? 'Retry or remove the failed upload'
+                    : householdTooLong
+                      ? 'Shorten the household note first'
+                      : light.uploading
+                        ? 'Uploading the lighting reference…'
+                        : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
+          </Button>
+        </BlockedTip>
         <CostLine
           summary={
             <>
-              {planner.provider === 'runway'
-                ? 'Claude plans the film, a few credits for every six renders.'
-                : `${planner.model} plans the film on your own ${PROVIDER_NAMES[planner.provider]} key.`}{' '}
+              {planner.provider !== 'runway'
+                ? `${planner.model} plans the film on your own ${PROVIDER_NAMES[planner.provider]} key.`
+                : caps.textViaRunway
+                  ? 'Claude plans the film, a few credits for every six renders.'
+                  : 'Choose Anthropic or OmegaPlus and add a key.'}{' '}
               Nothing is shot until you say so.
             </>
           }
+          providerNote={providerNote(imageModel, ...(twoPass ? [pass2Model] : []))}
           details={
             <>
               {imageModelTakesCastSheet(imageModel)
@@ -1628,8 +1651,8 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
                 ? pass2Model === imageModel
                   ? `two stills on ${modelName}, the x-ray plate and then the develop.`
                   : `two stills, an x-ray plate on ${modelName} and then the develop on ${pass2Name}.`
-                : `one ${modelName} still.`}{' '}
-              Billed to your own Runway credits at each model&rsquo;s own rate.
+                : `one ${modelName} still.`}
+              {onBay && ' Billed to your own Runway credits at each model’s own rate.'}
             </>
           }
         />
@@ -1670,35 +1693,38 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
     const stuckReason = stuck ? notReady(stuck) : undefined;
     footer = (
       <>
-        <Button
-          variant="primary"
-          size="lg"
-          className={own.primary}
-          icon={<Clapperboard size={18} />}
-          loading={shootingAll || waiting}
-          disabled={!stuck && (!canShoot || unshot.length === 0)}
-          onPress={() => (stuck ? selectFrame(stuck.image) : void shootAll())}
-        >
-          {shootingAll || waiting
-            ? 'Shooting the frames…'
-            : stuck
-              ? `Open frame ${board.indexOf(stuck) + 1} to finish it`
-              : unshot.length === 0
-                ? 'Nothing left to shoot'
-                : unshot.length === included.length
-                  ? unshot.length === 1
-                    ? 'Shoot the frame'
-                    : `Shoot all ${unshot.length} frames`
-                  : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
-        </Button>
+        <BlockedTip message={boardBlocked}>
+          <Button
+            variant="primary"
+            size="lg"
+            className={own.primary}
+            icon={<Clapperboard size={18} />}
+            loading={shootingAll || waiting}
+            disabled={!stuck && (!canShoot || unshot.length === 0)}
+            onPress={() => (stuck ? selectFrame(stuck.image) : void shootAll())}
+          >
+            {shootingAll || waiting
+              ? 'Shooting the frames…'
+              : stuck
+                ? `Open frame ${board.indexOf(stuck) + 1} to finish it`
+                : unshot.length === 0
+                  ? 'Nothing left to shoot'
+                  : unshot.length === included.length
+                    ? unshot.length === 1
+                      ? 'Shoot the frame'
+                      : `Shoot all ${unshot.length} frames`
+                    : `Shoot the other ${unshot.length} frame${unshot.length === 1 ? '' : 's'}`}
+          </Button>
+        </BlockedTip>
         <CostLine
           summary={
             !canShoot
-              ? 'Approve the cast, or choose No cast, to start shooting.'
+              ? whyNotShoot
               : stuck && stuckReason
                 ? `Frame ${board.indexOf(stuck) + 1}: ${stuckReason}`
-                : `Each frame is ${frameStills}, billed to your own Runway credits.`
+                : `Each frame is ${frameStills}${onBay ? ', billed to your own Runway credits' : ''}.`
           }
+          providerNote={canShoot && !(stuck && stuckReason) ? boardNote : undefined}
         />
       </>
     );
@@ -1765,6 +1791,7 @@ type PlannerRowProps = {
  * picked, and the server says to save one first.
  */
 function PlannerRow({ ai, error, planner, disabled }: PlannerRowProps) {
+  const { caps } = useCapabilities();
   const utils = trpc.useUtils();
   const choose = trpc.settings.setAiText.useMutation({ onSettled: () => utils.settings.aiText.invalidate() });
   const head = (
@@ -1787,7 +1814,7 @@ function PlannerRow({ ai, error, planner, disabled }: PlannerRowProps) {
 
   const { provider, model, keys } = ai;
   const providers = [
-    { id: 'runway', name: 'Runway' },
+    ...(caps.textViaRunway ? [{ id: 'runway', name: 'Runway' }] : []),
     { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ' (add a key in Settings)'}` },
     { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ' (add a key in Settings)'}` },
   ];
@@ -1827,9 +1854,11 @@ function PlannerRow({ ai, error, planner, disabled }: PlannerRowProps) {
         )}
       </div>
       <Text tone="muted" size="sm" as="p" className={own.aiRowNote}>
-        {provider === 'runway'
-          ? 'Claude through your Runway account.'
-          : `${planner.model} on your own ${PROVIDER_NAMES[provider]} key.`}{' '}
+        {provider !== 'runway'
+          ? `${planner.model} on your own ${PROVIDER_NAMES[provider]} key.`
+          : caps.textViaRunway
+            ? 'Claude through your Runway account.'
+            : 'Choose Anthropic or OmegaPlus and add a key.'}{' '}
         <TextLink href="#settings">Keys live in Settings</TextLink>
       </Text>
       {choose.error && <Alert tone="error" title={errorMessage(choose.error) ?? 'That choice was not saved.'} />}
@@ -1871,6 +1900,8 @@ function CastPanel({
   onApprove,
   upload,
 }: CastPanelProps) {
+  const { offeredImageNames } = useCapabilities();
+  const castModels = offeredImageNames(castSheetModelNames());
   const [big, setBig] = useState<string | null>(null);
   const supported = imageModelTakesCastSheet(imageModel);
   const modelName = imageModelName(imageModel);
@@ -1929,7 +1960,7 @@ function CastPanel({
         {!supported && (
           <Alert tone="warning" title="No cast sheet with this model">
             {modelName} takes only the render, so the frames are shot without a cast
-            {castSheetModelNames().length > 0 ? `; plan again with ${castSheetModelNames().join(' or ')} to use one` : ''}.
+            {castModels.length > 0 ? `; plan again with ${castModels.join(' or ')} to use one` : ''}.
           </Alert>
         )}
         <div className={own.castMode}>
@@ -2028,7 +2059,7 @@ function CastPanel({
               error={upload.error}
               supported={supported}
               modelName={modelName}
-              alternatives={castSheetModelNames()}
+              alternatives={castModels}
               disabled={busy !== null}
               onFile={(f) => void onSheet(f)}
               onRemove={removeSheet}

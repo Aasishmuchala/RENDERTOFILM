@@ -6,7 +6,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 
 import type { AppRouterType } from '../api.ts';
 import { litFromReference, lookLabel } from '../looks.ts';
-import { clipSeconds, videoModelName } from '../models.ts';
+import { clipSeconds, upscalerName, videoModelName } from '../models.ts';
 import {
   estimateRecreateCredits,
   RECREATE_NOTE_MAX,
@@ -24,6 +24,7 @@ import { Section } from './layouts/Section.tsx';
 import { type CanvasState, usePhoneLayout } from './layouts/Workspace.tsx';
 import { clipPosterUrl, libraryUrl, NO_POSTER, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError, errorMessage } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { isUploadFailure, uploadClip, uploadImageFull } from './lib/uploadRender.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { useShotPlan } from './lib/useShotPlan.ts';
@@ -34,6 +35,7 @@ import { Button } from './ui/Button.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { EmptyState } from './ui/EmptyState.tsx';
 import { ImagePicker } from './ui/ImagePicker.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
@@ -180,6 +182,7 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
   const [srcUpload, setSrcUpload] = useState<ImageUpload | null>(null);
   const [srcError, setSrcError] = useState<unknown>(null);
   const [srcShown, setSrcShown] = useState(PAGE);
+  const { allowedClipUpscalers, caps, modelBlocked, onBay, providerNote } = useCapabilities();
   const [route, setRoute] = useState<RecreateRouteId>(DEFAULT_RECREATE_ROUTE);
   const [note, setNote] = useState('');
   /** Every recreation started here, newest first; each polls on its own. */
@@ -294,6 +297,15 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
     : refUpload?.seconds;
   const seconds = recreateSeconds(route, referenceSeconds);
   const routeInfo = recreateRoute(route);
+  const recreateOff = caps.recreate ? null : 'Recreate in 4K needs Higgsfield. Switch in Settings.';
+  const modelOff = modelBlocked('video', routeInfo.model);
+  const blocked = recreateOff ?? modelOff;
+  // Its hint carries a credit guide for Bay; another provider prices the run itself.
+  const routes = OFFERED_RECREATE_ROUTES.filter((r) => !modelBlocked('video', r.model)).map((r) => {
+    const hint = onBay ? r.hint : r.hint.split(' About ')[0];
+    const note = caps.notes[r.model];
+    return { ...r, hint: note ? `${hint} ${note}.` : hint };
+  });
   const uploading = !!refUpload?.uploading || !!srcUpload?.uploading;
   const reference = refClip
     ? { clipId: refClip.id }
@@ -441,7 +453,7 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
   }
 
   async function run() {
-    if (!reference || !source || uploading || noteTooLong) return;
+    if (!reference || !source || uploading || noteTooLong || blocked) return;
     // With the director on, the recreation waits for a plan made for this still.
     if (shot.needsPlan) return;
     if (!startGuard.start()) return;
@@ -540,6 +552,7 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
         title="Recreate in 4K"
         description="Pick a clip to copy and a 4K still to shoot it from. The new clip repeats the reference's camera move and action, rendered from your still."
       />
+      {recreateOff && <ModelUnavailable message={recreateOff} />}
 
       <Section
         step={1}
@@ -705,7 +718,7 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
               context={shotContext}
               seconds={seconds}
               cameraLocked="The reference clip sets the camera."
-              disabled={start.isPending || uploading}
+              disabled={start.isPending || uploading || recreateOff !== null}
             />
           )}
         </div>
@@ -715,17 +728,20 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
         <div className={styles.stack}>
           <Select
             label="Route"
-            options={OFFERED_RECREATE_ROUTES}
+            options={routes}
             value={route}
             onChange={(id) => {
               setRoute(id as RecreateRouteId);
               start.reset();
             }}
           />
-          <Text tone="muted" size="sm" as="p" className={styles.frameNote}>
-            {routeInfo.name}: about {estimateRecreateCredits(route, seconds)} credits for {seconds} seconds
-            (Higgsfield quote).
-          </Text>
+          {modelOff && !recreateOff && <ModelUnavailable message={modelOff} />}
+          {onBay && (
+            <Text tone="muted" size="sm" as="p" className={styles.frameNote}>
+              {routeInfo.name}: about {estimateRecreateCredits(route, seconds)} credits for {seconds} seconds
+              (Higgsfield quote).
+            </Text>
+          )}
         </div>
       </Section>
 
@@ -751,41 +767,46 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
 
   const footer = (
     <>
-      <Button
-        variant="primary"
-        size="lg"
-        icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
-        loading={start.isPending || directing}
-        disabled={
-          directing ||
-          (directFirst
-            ? uploading || noteTooLong
-            : start.isPending || uploading || !reference || !source || noteTooLong || planBlocked || unavailable)
-        }
-        onPress={directFirst ? () => void shot.direct() : () => void run()}
-      >
-        {start.isPending
-          ? 'Starting…'
-          : uploading
-            ? 'Uploading…'
-            : directing
-              ? 'Directing the shot…'
-              : directFirst
-                ? 'Direct the shot'
-                : !reference
-                  ? 'Pick a reference clip'
-                  : !source
-                    ? 'Add a 4K still'
-                    : 'Recreate in 4K'}
-      </Button>
+      <BlockedTip message={blocked}>
+        <Button
+          variant="primary"
+          size="lg"
+          icon={directing || directFirst ? <ScanEye size={18} /> : <Clapperboard size={18} />}
+          loading={start.isPending || directing}
+          disabled={
+            blocked !== null ||
+            directing ||
+            (directFirst
+              ? uploading || noteTooLong
+              : start.isPending || uploading || !reference || !source || noteTooLong || planBlocked || unavailable)
+          }
+          onPress={directFirst ? () => void shot.direct() : () => void run()}
+        >
+          {start.isPending
+            ? 'Starting…'
+            : uploading
+              ? 'Uploading…'
+              : directing
+                ? 'Directing the shot…'
+                : directFirst
+                  ? 'Direct the shot'
+                  : !reference
+                    ? 'Pick a reference clip'
+                    : !source
+                      ? 'Add a 4K still'
+                      : 'Recreate in 4K'}
+        </Button>
+      </BlockedTip>
       <CostLine
         summary={
-          directing || directFirst
+          recreateOff ??
+          (directing || directFirst
             ? 'Directing is one text call on your AI text provider (Settings); the video is not billed until you make it.'
             : route === 'kling-upscale'
-              ? `Kling 4.0 at 1080p, then a 4K upscale, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`
-              : `Seedance 2.0 at 4K, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`
+              ? `Kling 4.0 at 1080p, then a 4K upscale${onBay ? '' : ` with ${upscalerName(allowedClipUpscalers[0]?.id)}`}, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`
+              : `Seedance 2.0 at 4K, ${seconds} seconds${shot.sendable ? ', directed' : ''}.`)
         }
+        providerNote={recreateOff || directing || directFirst ? undefined : providerNote(routeInfo.model)}
       />
       <p className={styles.queueNote} role="status" aria-live="polite">
         {inFlight > 0
@@ -1005,6 +1026,7 @@ function TakeCanvas({
   onRetryUpscale: (refetch: () => Promise<unknown>) => void;
   onDismiss: () => void;
 }) {
+  const { caps } = useCapabilities();
   const data = status.data;
   const twoSteps = take.route === 'kling-upscale';
   const title = recreateTitle({ route: take.route, step: twoSteps ? 2 : 1 });
@@ -1034,7 +1056,7 @@ function TakeCanvas({
       <div className={styles.frameAlert}>
         <Alert tone="error" title="We lost touch with this recreation">
           {pollFinal
-            ? `${special?.message ?? 'Runway could not find it.'} It may still appear under Your 4K recreations.`
+            ? `${special?.message ?? `${caps.providerName} could not find it.`} It may still appear under Your 4K recreations.`
             : `${special?.message ?? 'The check failed.'} It may still be rendering, so check again.`}
         </Alert>
         {needsPrompt && (

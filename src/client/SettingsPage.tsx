@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react';
 import type { AiTextProvider, PublicServer } from '../connections.ts';
 import { Section } from './layouts/Section.tsx';
 import { errorMessage } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { useOnRunwaySignedIn } from './lib/useOnRunwaySignedIn.ts';
+import { DesktopFooter, GenerationSection } from './settings/GenerationSection.tsx';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Avatar } from './ui/Avatar.tsx';
@@ -23,12 +25,14 @@ import styles from './SettingsPage.module.css';
 const OAUTH_MESSAGE = 'render-to-film:mcp-oauth';
 
 /**
- * Accounts and connections: the Runway sign-in that pays for generations,
- * Higgsfield (built-in MCP server, OAuth), any other MCP server, and API keys
+ * Accounts and connections: the Runway sign-in that pays for generations
+ * (in the desktop app, the Generation section instead), Higgsfield (built-in
+ * MCP server, OAuth), any other MCP server, and API keys
  * for other providers (Seevio, Anthropic, OmegaPlus). Credentials never come back to the browser;
  * the page only learns whether each one is connected. No Workspace: one glass sheet over the ambient.
  */
 export function SettingsPage({ active }: { active: boolean }) {
+  const { caps } = useCapabilities();
   const profile = trpc.profile.useQuery();
   const runway = trpc.settings.runway.useQuery();
   const signedIn = runway.data?.signedIn ?? false;
@@ -69,31 +73,35 @@ export function SettingsPage({ active }: { active: boolean }) {
           <Alert tone={notice.ok ? 'success' : 'error'} title={notice.message || (notice.ok ? 'Signed in.' : 'Sign-in failed.')} />
         )}
 
-        <Section title="Runway" description="Generations in every tab run on your own Runway account and credits.">
-          {runway.isLoading ? (
-            <SkeletonBlock height={64} />
-          ) : signedIn && profile.data ? (
-            <div className={styles.account}>
-              <Avatar name={profile.data.name} src={profile.data.avatarUrl} size={36} />
-              <div className={styles.accountText}>
-                <Text>{profile.data.name}</Text>
-                <Text tone="muted" size="sm">
-                  {profile.data.email} · signed in
-                </Text>
+        {caps.desktop ? (
+          <GenerationSection active={active} />
+        ) : (
+          <Section title="Runway" description="Generations in every tab run on your own Runway account and credits.">
+            {runway.isLoading ? (
+              <SkeletonBlock height={64} />
+            ) : signedIn && profile.data ? (
+              <div className={styles.account}>
+                <Avatar name={profile.data.name} src={profile.data.avatarUrl} size={36} />
+                <div className={styles.accountText}>
+                  <Text>{profile.data.name}</Text>
+                  <Text tone="muted" size="sm">
+                    {profile.data.email} · signed in
+                  </Text>
+                </div>
+                <TextLink external href="https://app.runwayml.com/settings">
+                  Manage account
+                </TextLink>
               </div>
-              <TextLink external href="https://app.runwayml.com/settings">
-                Manage account
-              </TextLink>
-            </div>
-          ) : (
-            <SignInPrompt
-              reauth={runway.data?.signInUrl ?? undefined}
-              title="Sign in to Runway"
-              description="Sign in with any Runway account. Your connections below are saved to it."
-              onSignedIn={() => onSignedIn()}
-            />
-          )}
-        </Section>
+            ) : (
+              <SignInPrompt
+                reauth={runway.data?.signInUrl ?? undefined}
+                title="Sign in to Runway"
+                description="Sign in with any Runway account. Your connections below are saved to it."
+                onSignedIn={() => onSignedIn()}
+              />
+            )}
+          </Section>
+        )}
 
         {!profile.data ? null : connections.isLoading ? (
           <SkeletonBlock height={160} />
@@ -103,13 +111,17 @@ export function SettingsPage({ active }: { active: boolean }) {
           <>
             <Section
               title="Runway MCP"
-              description="Runway's own MCP server: image and video generation, upscaling, edits and workflows as tools. Sign in with your Runway account; tool runs use your Runway credits."
+              description={
+                caps.desktop
+                  ? "Runway's own MCP server: image and video generation, upscaling, edits and workflows as tools. It has its own sign-in and bills its own account, separate from Generation above."
+                  : "Runway's own MCP server: image and video generation, upscaling, edits and workflows as tools. Sign in with your Runway account; tool runs use your Runway credits."
+              }
             >
               {runwayMcp && <ServerCard server={runwayMcp} />}
             </Section>
 
             <Section
-              title="Higgsfield"
+              title={caps.desktop ? 'Higgsfield MCP' : 'Higgsfield'}
               description="Higgsfield's MCP server. Sign in with your Higgsfield account; tool runs use your Higgsfield credits."
             >
               {higgsfield && <ServerCard server={higgsfield} />}
@@ -121,7 +133,7 @@ export function SettingsPage({ active }: { active: boolean }) {
 
             <Section
               title="AI text and vision"
-              description="The Storyboard and Lifestyle planners, the people check, the close-up finder and the editor read your images and write plans with this model. Runway bills Claude through your Runway account; Anthropic and OmegaPlus use your own key and your own choice of model."
+              description={`The Storyboard and Lifestyle planners, the people check, the close-up finder and the editor read your images and write plans with this model. ${caps.textViaRunway ? 'Runway bills Claude through your Runway account; Anthropic' : 'Anthropic'} and OmegaPlus use your own key and your own choice of model.`}
             >
               <AiTextCard active={active} />
             </Section>
@@ -139,6 +151,8 @@ export function SettingsPage({ active }: { active: boolean }) {
             </Section>
           </>
         )}
+
+        {caps.desktop && <DesktopFooter />}
       </div>
     </div>
   );
@@ -502,9 +516,11 @@ const MODEL_LIST_NOTE = {
  * Who answers the app's text-and-vision calls: Claude through Runway (the
  * default), or the visitor's own Anthropic or OmegaPlus key with a model of
  * their choosing. A provider without a saved key can be picked; the server
- * says to save one first.
+ * says to save one first. The desktop app has no Runway to answer, so it
+ * offers only the other two.
  */
 function AiTextCard({ active }: { active: boolean }) {
+  const { caps } = useCapabilities();
   const ai = trpc.settings.aiText.useQuery(undefined, { enabled: active });
   const utils = trpc.useUtils();
   const choose = trpc.settings.setAiText.useMutation({ onSettled: () => utils.settings.aiText.invalidate() });
@@ -514,10 +530,11 @@ function AiTextCard({ active }: { active: boolean }) {
   const { provider, model, keys, anthropicModels, omegaModels, omegaSource, usageByProvider } = ai.data;
 
   const providers = [
-    { id: 'runway', name: 'Runway (default)' },
+    ...(caps.textViaRunway ? [{ id: 'runway', name: 'Runway (default)' }] : []),
     { id: 'anthropic', name: `Anthropic${keys.anthropic ? '' : ': add a key below'}` },
     { id: 'omegaplus', name: `OmegaPlus${keys.omegaplus ? '' : ': add a key below'}` },
   ];
+  const noProvider = provider === 'runway' && !caps.textViaRunway;
   const models =
     provider === 'anthropic'
       ? anthropicModels.map((m) => ({ id: m.id, name: m.name }))
@@ -531,7 +548,7 @@ function AiTextCard({ active }: { active: boolean }) {
       <div className={styles.card}>
         <div className={styles.cardHead}>
           <div className={styles.cardTitle}>
-            <Text>Using {describe(provider, model)}</Text>
+            <Text>{noProvider ? 'No AI text provider yet' : `Using ${describe(provider, model)}`}</Text>
             {provider !== 'runway' && (
               <Text tone="muted" size="sm">
                 {usageLine(usageByProvider[provider])}
@@ -571,6 +588,7 @@ function AiTextCard({ active }: { active: boolean }) {
             {MODEL_LIST_NOTE[omegaSource]}
           </Text>
         )}
+        {noProvider && <Alert tone="warning" title="Choose Anthropic or OmegaPlus and add a key." />}
         {choose.error && <Alert tone="error" title={errorMessage(choose.error) ?? 'That choice was not saved.'} />}
       </div>
 

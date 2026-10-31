@@ -2,6 +2,7 @@ import { CircleAlert, CircleCheck, Clock, Plus } from 'lucide-react';
 import { memo } from 'react';
 import { Label, Radio, RadioGroup } from 'react-aria-components';
 
+import { useCapabilities } from '../lib/useCapabilities.ts';
 import { Elapsed } from './RenderingStatus.tsx';
 import styles from './TakeStrip.module.css';
 
@@ -43,6 +44,8 @@ const STATE_TEXT: Record<TakeState, string> = {
 /** Every video in flight or just made, as a row of cards to put on the big
  * screen. A radio group: arrow keys move, the chosen card is the one shown. */
 export const TakeStrip = memo(function TakeStrip({ label, items, value, onChange, next }: TakeStripProps) {
+  const { caps } = useCapabilities();
+  const stateText = (state: TakeState) => (state === 'queued' && caps.desktop ? `Waiting at ${caps.providerName}` : STATE_TEXT[state]);
   return (
     <RadioGroup
       className={styles.group}
@@ -70,7 +73,7 @@ export const TakeStrip = memo(function TakeStrip({ label, items, value, onChange
               value={item.id}
               className={styles.card}
               data-state={item.state}
-              aria-label={`${item.title}, ${STATE_TEXT[item.state].toLowerCase()}`}
+              aria-label={`${item.title}, ${stateText(item.state).toLowerCase()}`}
             >
               <span className={styles.frame}>
                 <img className={styles.thumb} src={item.thumb} alt="" loading="lazy" />
@@ -91,7 +94,7 @@ export const TakeStrip = memo(function TakeStrip({ label, items, value, onChange
                   ) : (
                     <Clock size={12} />
                   )}
-                  {STATE_TEXT[item.state]}
+                  {stateText(item.state)}
                   {item.state === 'rendering' && item.progress !== undefined && item.progress > 0
                     ? ` ${Math.round(item.progress * 100)}%`
                     : ''}

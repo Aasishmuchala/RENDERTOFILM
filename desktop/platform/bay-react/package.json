@@ -1,0 +1,16 @@
+{
+  "name": "@runway/bay-react",
+  "version": "0.0.0-mock",
+  "description": "Local stand-in for Runway's private @runway/bay-react UI kit.",
+  "private": true,
+  "type": "module",
+  "sideEffects": ["*.css"],
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./credits": { "types": "./credits.d.ts", "default": "./credits.js" },
+    "./runway-sign-in": { "types": "./runway-sign-in.d.ts", "default": "./runway-sign-in.js" },
+    "./preview-bridge": { "types": "./preview-bridge.d.ts", "default": "./preview-bridge.js" },
+    "./theme": { "types": "./theme.d.ts", "default": "./theme.js" }
+  },
+  "peerDependencies": { "react": ">=18" }
+}

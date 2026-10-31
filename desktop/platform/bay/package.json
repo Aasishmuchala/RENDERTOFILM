@@ -1,0 +1,16 @@
+{
+  "name": "@runway/bay",
+  "version": "0.0.0-mock",
+  "description": "Local stand-in for Runway's private @runway/bay SDK. Simulates sign-in, tasks, uploads and storage on disk.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./runway": { "types": "./runway.d.ts", "default": "./runway.js" },
+    "./runway/cookie": { "types": "./cookie.d.ts", "default": "./cookie.js" },
+    "./storage": { "types": "./storage.d.ts", "default": "./storage.js" },
+    "./client": { "types": "./client.d.ts", "default": "./client.js" },
+    "./logging": { "types": "./logging.d.ts", "default": "./logging.js" },
+    "./testing": { "types": "./testing.d.ts", "default": "./testing.js" }
+  }
+}

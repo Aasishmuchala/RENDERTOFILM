@@ -15,6 +15,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTextTask, textTaskSnapshot } from './ai-text.ts';
+import { capabilitiesOf } from './capabilities.ts';
 import {
   buildCheckPrompt,
   CHECK_SYSTEM_PROMPT,
@@ -123,6 +124,7 @@ import {
   type SpeedId,
   STILL_UPSCALER_IDS,
   type StillUpscalerId,
+  upscalerName,
   VIDEO_MODEL_IDS,
   type VideoModelId,
   videoResolutions,
@@ -1311,8 +1313,9 @@ export const AppRouter = router({
 
   /**
    * Upscale a finished clip: Runway's Video Upscale (4×) or FLUX Video
-   * Upscale (2×, precise). Recorded as its own clip and polled with
-   * `videoStatus`.
+   * Upscale (2×, precise); in the desktop app ByteDance Video Upscale or
+   * Magnific Video Upscale (both 4×). Recorded as its own clip and polled
+   * with `videoStatus`.
    */
   upscaleClip: signedInProcedure
     .input(
@@ -1322,6 +1325,13 @@ export const AppRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const caps = capabilitiesOf(ctx.runway);
+      if (!caps.clipUpscalers.includes(input.upscaler)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `${upscalerName(input.upscaler)} is not offered by ${caps.providerName}. Pick another upscaler.`,
+        });
+      }
       const owner = await ownerKey(ctx.req);
       const parent = (await readLibrary(owner)).clips.find(
         (c) => c.id === input.clipId
@@ -1335,7 +1345,7 @@ export const AppRouter = router({
       let id: string;
       let scale: number;
       try {
-        if (input.upscaler === 'runway') {
+        if (input.upscaler === 'runway' || input.upscaler === 'bytedance') {
           const task = await ctx.runway.getTask(parent.id);
           const artifactId = task.artifacts[0]?.id;
           if (task.status !== 'SUCCEEDED' || !artifactId) {
@@ -1345,9 +1355,21 @@ export const AppRouter = router({
                 'That clip has not finished, so there is nothing to upscale yet.',
             });
           }
-          ({ id } = await ctx.runway.createTask('media_upscale', {
+          const type = input.upscaler === 'runway' ? 'media_upscale' : 'bytedance_video_upscale';
+          ({ id } = await ctx.runway.createTask(type, {
             name: 'render-to-film clip upscale',
             task_artifact_id: artifactId,
+          }));
+          scale = 4;
+        } else if (input.upscaler === 'magnific-video') {
+          const url = await finishedUrl(ctx, parent.id);
+          ({ id } = await ctx.runway.createTask('magnific_video_upscaler_creative', {
+            name: 'render-to-film clip upscale',
+            video: {
+              url,
+              durationSeconds: clipSeconds(parent.videoModel, parent.length, parent.seconds),
+            },
+            resolution: '4k',
           }));
           scale = 4;
         } else {

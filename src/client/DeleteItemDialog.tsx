@@ -1,3 +1,4 @@
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { ConfirmDialog } from './ui/ConfirmDialog.tsx';
@@ -13,6 +14,7 @@ export type DeleteItemDialogProps = {
 
 /** Confirms and deletes one still or clip from the visitor's library. */
 export function DeleteItemDialog({ target, onClose, onDeleted }: DeleteItemDialogProps) {
+  const { caps } = useCapabilities();
   const utils = trpc.useUtils();
   const library = trpc.library.useQuery(undefined, { enabled: target !== null });
   const remove = trpc.deleteItem.useMutation();
@@ -70,7 +72,7 @@ export function DeleteItemDialog({ target, onClose, onDeleted }: DeleteItemDialo
           The {clips === 1 ? 'video' : `${clips} videos`} you made from it stay in your library.
         </p>
       )}
-      <p>It stays in your Runway account history.</p>
+      {!caps.desktop && <p>It stays in your Runway account history.</p>}
     </ConfirmDialog>
   );
 }

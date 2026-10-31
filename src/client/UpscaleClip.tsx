@@ -1,13 +1,15 @@
 import { Download, ExternalLink, Scaling } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { CLIP_UPSCALERS, upscalerName, type ClipUpscalerId } from '../models.ts';
+import { upscalerName, type ClipUpscalerId } from '../models.ts';
 import { libraryUrl, useDownload } from './lib/download.ts';
 import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Button } from './ui/Button.tsx';
+import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
 import { Select } from './ui/Select.tsx';
@@ -38,7 +40,10 @@ const FINAL_CODES = new Set(['UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND']);
 export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job, onJob }: UpscaleClipProps) {
   const saver = useDownload();
   const utils = trpc.useUtils();
-  const [upscaler, setUpscaler] = useState<ClipUpscalerId>('runway');
+  const { allowedClipUpscalers, modelBlocked, noneOffered, onBay, providerNote } = useCapabilities();
+  // Nothing picked yet follows the provider's first; a pick stays, offered or not.
+  const [picked, setUpscaler] = useState<ClipUpscalerId | null>(null);
+  const upscaler: ClipUpscalerId = picked ?? allowedClipUpscalers[0]?.id ?? 'runway';
 
   const upscale = trpc.upscaleClip.useMutation();
   // A double-click's second press arrives before upscale.isPending shows.
@@ -68,8 +73,11 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
   const rendering = job !== null && !status.data?.done;
   const lostTrack = rendering && status.error !== null;
   const busy = upscale.isPending || rendering;
-  const fluxBlocked = fluxBlock !== undefined;
+  const fluxOffered = allowedClipUpscalers.some((u) => u.id === 'flux');
+  const fluxBlocked = fluxBlock !== undefined && fluxOffered;
   const chosen: ClipUpscalerId = fluxBlocked && upscaler === 'flux' ? 'runway' : upscaler;
+  const canUpscale = allowedClipUpscalers.length > 0;
+  const blocked = canUpscale ? modelBlocked('clipUpscaler', chosen) : noneOffered;
   const done = status.data?.done && status.data.url && job ? job : null;
   const taskError =
     status.data?.done && !status.data.url
@@ -84,7 +92,7 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
   const { planBlocked, unavailable } = classifyRunwayError(shownError);
 
   async function run() {
-    if (!guard.start()) return;
+    if (blocked || !guard.start()) return;
     try {
       const { id } = await upscale.mutateAsync({ clipId, upscaler: chosen });
       // Reaches the page even if this view was left while the upscale started.
@@ -102,34 +110,43 @@ export function UpscaleClip({ clipId, aspectRatio, name, active, fluxBlock, job,
       <Text tone="muted" size="sm" as="p">
         Makes a sharper, larger copy of this clip. It is saved under Your clips.
       </Text>
-      <div className={`${styles.upscaleRow} ${styles.upscaleRowClip}`}>
-        <Select
-          label="Upscaler"
-          options={CLIP_UPSCALERS.map((u) =>
-            u.id === 'flux' && fluxBlocked
-              ? { id: u.id, name: u.name, hint: 'Not available for this clip' }
-              : { id: u.id, name: u.name, hint: u.hint }
-          )}
-          value={chosen}
-          onChange={(id) => {
-            setUpscaler(id as ClipUpscalerId);
-            upscale.reset();
-          }}
-          disabled={busy}
-          showHint={false}
-        />
-        <Button
-          icon={<Scaling size={16} />}
-          loading={busy}
-          disabled={busy || planBlocked || unavailable}
-          onPress={() => void run()}
-        >
-          {upscale.isPending ? 'Starting…' : rendering ? 'Upscaling…' : 'Upscale clip'}
-        </Button>
-      </div>
-      <Text tone="muted" size="sm" as="p" className={styles.meta}>
-        {CLIP_UPSCALERS.find((u) => u.id === chosen)?.hint}. Billed to your own Runway credits.
-      </Text>
+      {!canUpscale && <ModelUnavailable message={noneOffered} />}
+      {canUpscale && (
+        <div className={`${styles.upscaleRow} ${styles.upscaleRowClip}`}>
+          <Select
+            label="Upscaler"
+            options={allowedClipUpscalers.map((u) =>
+              u.id === 'flux' && fluxBlocked
+                ? { id: u.id, name: u.name, hint: 'Not available for this clip' }
+                : { id: u.id, name: u.name, hint: u.hint }
+            )}
+            value={chosen}
+            onChange={(id) => {
+              setUpscaler(id as ClipUpscalerId);
+              upscale.reset();
+            }}
+            disabled={busy}
+            showHint={false}
+          />
+          <BlockedTip message={blocked}>
+            <Button
+              icon={<Scaling size={16} />}
+              loading={busy}
+              disabled={busy || planBlocked || unavailable || blocked !== null}
+              onPress={() => void run()}
+            >
+              {upscale.isPending ? 'Starting…' : rendering ? 'Upscaling…' : 'Upscale clip'}
+            </Button>
+          </BlockedTip>
+          {blocked && <ModelUnavailable message={blocked} />}
+        </div>
+      )}
+      {!blocked && (
+        <Text tone="muted" size="sm" as="p" className={styles.meta}>
+          {allowedClipUpscalers.find((u) => u.id === chosen)?.hint}.{' '}
+          {onBay ? 'Billed to your own Runway credits.' : providerNote(chosen)}
+        </Text>
+      )}
       {fluxBlocked && (
         <Text tone="muted" size="sm" as="p" className={styles.meta}>
           FLUX Video Upscale is off for this clip. {fluxBlock}
