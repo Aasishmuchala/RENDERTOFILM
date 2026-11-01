@@ -17,7 +17,7 @@ import type {
   ThreadView,
   Unit,
 } from './chat/domain.ts';
-import { parseYes } from './chat/domain.ts';
+import { CHAT_MODES, parseYes } from './chat/domain.ts';
 import { threadQuoteIds } from './chat/gate.ts';
 import { runView } from './chat/pipeline.ts';
 import { createStore } from './chat/store.ts';
@@ -244,6 +244,7 @@ const sendInput = z.object({
   // Trimmed here: the yes grammar is anchored and a trailing newline is not a yes.
   text: z.string().trim().min(1, 'Say what you need.').max(4000, 'That message is too long.'),
   assets: z.array(assetInput).max(24, 'A message takes 24 files at most.'),
+  mode: z.enum(CHAT_MODES).optional(),
 });
 
 function releaseError(reason: Exclude<ReleaseRefused, 'repriced'>): TRPCError {
@@ -296,6 +297,7 @@ export const chatRouter = router({
         threadId = (await store.createThread(owner, input.text.slice(0, 60))).id;
         hold = holdThread(owner, threadId);
       }
+      if (input.mode && input.mode !== existing?.mode) await store.setMode(owner, threadId, input.mode);
       for (const { asset } of read) await store.addAsset(owner, threadId, asset);
       const messageSeq = await store.appendMessage(owner, threadId, {
         role: 'user',

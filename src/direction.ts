@@ -44,6 +44,26 @@ export const DIRECTION_DOCTRINE = [
 ].join('\n');
 
 /**
+ * How to choose a shot, always on for the Director page. Adapted from note A2-08
+ * of AI Film Knowledge Base by 62656456, CC BY 4.0: condensed, translated and
+ * fitted to shooting from a finished render (vendor/ai-film-knowledge-base/).
+ */
+export const SHOT_CRAFT = [
+  'SHOT CRAFT',
+  "A shot is one act of watching, not a list of camera words. Never start from a director's name or a piece of equipment. For each shot settle, in this order:",
+  '1. What the viewer should learn now, and what they should not know yet.',
+  '2. Whose view this is: objective, aligned with a person, or all-knowing.',
+  '3. Why the camera stands here rather than half a metre closer, five metres back, or across the axis.',
+  '4. What the move adds: new information, a new relation or new pressure. If it adds nothing, lock the camera off.',
+  '5. How the end of the shot hands over to the next one.',
+  'Then fix nine things: the story task (establish, locate, hide, reveal, compare, isolate, connect, react, foreshadow); the point of view; the camera position, giving height and tilt separately; shot size, distance and focus, with perspective coming from distance and not from focal length; the path with its start, shape and end; how the camera treats the subject (fixed, leading, following, alongside, facing, or an independent reveal); the feel of the camera in plain words, never a gear name alone; timing and speed curve; and continuity with its neighbours (axis, eyeline, screen direction, end state).',
+  'Choose by task. Establishing a space: a locked or slowly moving larger shot with clear depth. Hiding something: occlusion, backs, off-screen space. Revealing: a pan, track or reframe that ends the moment the new thing is in frame. Isolating: pull back or use empty space so the surroundings take over, not merely a smaller subject. Keeping action clear: move alongside with deep focus and a stable axis.',
+  'Delete test: what would be lost without this shot? If nothing, drop it. Cover only what the relation, the information and the cut need.',
+  'Rewrite any shot that is only a director name, only gear, a move with no new information, or a mood stated as a rule.',
+  'The house rule outranks all of this: everything you choose must already be in the render. A reveal may only uncover what the image contains.',
+].join('\n');
+
+/**
  * The director lenses a plan can be directed with, one at a time, each
  * distilled from its module's style parameters (lens kit, camera, shot-size
  * bias, composition, lighting, palette, pace). `none` leaves the craft to the

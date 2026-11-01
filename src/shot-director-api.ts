@@ -115,6 +115,8 @@ export const shotRouter = router({
         motion: z.enum(MOTION_IDS).default('still-life'),
         direction: z.string().max(600).default(''),
         directorStyle: z.enum(DIRECTOR_LENS_IDS).optional(),
+        /** The Director page's clips also follow SHOT_CRAFT. */
+        craft: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ taskId: string }> => {
@@ -182,6 +184,7 @@ export const shotRouter = router({
             presetMove: input.motion,
             direction: input.direction,
             directorStyle: input.directorStyle,
+            craft: input.craft,
             people,
           }),
           images: images.map((url) => ({ url })),

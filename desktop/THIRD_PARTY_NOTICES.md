@@ -655,6 +655,10 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+## AI Film Knowledge Base
+
+The Director's shot craft is adapted from note A2-08 of AI Film Knowledge Base by 62656456 (https://github.com/62656456/ai-film-knowledge-base), used under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The text was condensed, translated into English and fitted to shooting from a finished render.
+
 ## FFmpeg
 
 FFmpeg does the app's exports, trims and frame captures. It is bundled through the `ffmpeg-static` npm package (5.3.0, declared `GPL-3.0-or-later`, <https://github.com/eugeneware/ffmpeg-static>) and runs as a separate process.

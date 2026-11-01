@@ -10,6 +10,7 @@ import type {
   ThreadView,
   Turn,
   TurnState,
+  ChatMode,
 } from '../../chat/domain.ts';
 import type { ResultKind } from '../chat/ResultCard.tsx';
 import { trpc } from '../trpc.ts';
@@ -598,13 +599,15 @@ export function useChat() {
 
   const removeAttachment = useCallback((id: string) => removeAttachments(new Set([id])), [removeAttachments]);
 
+  const [pickedMode, setPickedMode] = useState<ChatMode | null>(null);
+  const mode = pickedMode ?? thread?.mode ?? 'lifestyle';
   const sendMutation = trpc.chat.send.useMutation();
   const post = useCallback(
     async (text: string, assets: { key: string; width: number; height: number; name: string }[]): Promise<boolean> => {
       setSending(true);
       setSendError(null);
       try {
-        const sent = await sendMutation.mutateAsync({ ...(selected ? { threadId: selected } : {}), text, assets });
+        const sent = await sendMutation.mutateAsync({ ...(selected ? { threadId: selected } : {}), text, assets, mode });
         setSelected(sent.threadId);
         void utils.chat.threads.invalidate();
         refresh();
@@ -616,7 +619,7 @@ export function useChat() {
         setSending(false);
       }
     },
-    [refresh, selected, sendMutation, utils]
+    [mode, refresh, selected, sendMutation, utils]
   );
 
   const send = useCallback(
@@ -681,11 +684,14 @@ export function useChat() {
 
   const select = useCallback((id: string | null) => {
     setSelected(id);
+    setPickedMode(null);
     setSendError(null);
     setDecideNote(null);
   }, []);
 
   return {
+    mode,
+    setMode: setPickedMode,
     /** The conversation showing; null for a new chat, or before the first answer. */
     thread,
     threadId,

@@ -23,7 +23,7 @@ import {
   type TurnEvent,
   type TurnPatch,
 } from './domain.ts';
-import { SYSTEM_PROMPT } from './system-prompt.ts';
+import { MODE_BRIEF, SYSTEM_PROMPT } from './system-prompt.ts';
 
 const MODEL = 'claude-opus-5-5';
 const MAX_TOKENS = 32000;
@@ -159,9 +159,10 @@ async function threadMessages(t: Live): Promise<Message[]> {
 }
 
 async function request(t: Live, maxTokens: number): Promise<ModelRequest> {
+  const mode = (await t.deps.store.thread(t.owner, t.threadId))?.mode;
   return {
     model: MODEL,
-    system: [{ type: 'text', text: SYSTEM_PROMPT }],
+    system: [{ type: 'text', text: SYSTEM_PROMPT }, ...(mode ? [{ type: 'text' as const, text: MODE_BRIEF[mode] }] : [])],
     tools: t.deps.tools.defs,
     messages: await threadMessages(t),
     maxTokens,

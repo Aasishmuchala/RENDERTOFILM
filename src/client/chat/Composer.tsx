@@ -1,3 +1,5 @@
+import type { ChatMode } from '../../chat/domain.ts';
+import { ToggleButton } from '../ui/ToggleButton.tsx';
 import { ArrowUp, CircleAlert, LoaderCircle, Music, Paperclip, RotateCw, Square, X } from 'lucide-react';
 import { type KeyboardEvent, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button as AriaButton } from 'react-aria-components';
@@ -6,7 +8,14 @@ import type { Attachment } from '../lib/useChat.ts';
 import { Button } from '../ui/Button.tsx';
 import styles from './Composer.module.css';
 
+const MODES: { id: ChatMode; label: string; note: string }[] = [
+  { id: 'director', label: 'Director', note: 'Finds the best way to shoot each image.' },
+  { id: 'lifestyle', label: 'Lifestyle', note: 'Shows the architecture naturally, with real people.' },
+];
+
 export type ComposerProps = {
+  mode: ChatMode;
+  onMode: (mode: ChatMode) => void;
   attachments: Attachment[];
   /** Why files were refused. */
   notes: string[];
@@ -80,6 +89,8 @@ function Tile({ attachment, sending, onRemove, onRetry }: TileProps) {
  * sends and Shift+Enter starts a new line.
  */
 export function Composer({
+  mode,
+  onMode,
   attachments,
   notes,
   error,
@@ -165,6 +176,14 @@ export function Composer({
           {problem}
         </p>
       ))}
+      <div className={styles.modes} role="group" aria-label="What to make">
+        {MODES.map(({ id, label }) => (
+          <ToggleButton key={id} selected={mode === id} onChange={() => onMode(id)}>
+            {label}
+          </ToggleButton>
+        ))}
+        <span className={styles.modeNote}>{MODES.find((m) => m.id === mode)?.note}</span>
+      </div>
       <div className={styles.row}>
         <Button
           variant="ghost"

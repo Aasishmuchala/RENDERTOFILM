@@ -99,6 +99,7 @@ function usePinnedEnd() {
 
 function Conversation({ active }: { active: boolean }) {
   const chat = useChat();
+  const directorPlan = chat.thread?.turns.flatMap((t) => t.directorJobIds ?? []).at(-1);
   const { addFiles, turnLive, threadId } = chat;
   const settings = trpc.settings.chat.useQuery();
   const { refetch: refetchSettings } = settings;
@@ -224,7 +225,14 @@ function Conversation({ active }: { active: boolean }) {
             <p role="status" className={styles.reconnecting}>
               {chat.reconnecting ? 'Reconnecting…' : ''}
             </p>
+            {directorPlan && (
+              <Button variant="ghost" size="sm" onPress={() => open({ page: 'director', params: { job: directorPlan } })}>
+                Open in Director
+              </Button>
+            )}
             <Composer
+              mode={chat.mode}
+              onMode={chat.setMode}
               attachments={chat.attachments}
               notes={chat.notes}
               error={chat.sendError}

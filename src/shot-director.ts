@@ -27,7 +27,7 @@
  * client resolves a plan for its editor with the code the server runs.
  * .router/shot-director.ts holds the vectors.
  */
-import { lensBlock } from './direction.ts';
+import { lensBlock, SHOT_CRAFT } from './direction.ts';
 import {
   frameSentences,
   MOTION_IDS,
@@ -808,6 +808,8 @@ export function shotDirectorPrompt(input: {
   presetMove: MotionId;
   direction: string;
   directorStyle?: string | undefined;
+  /** The Director page's clips: SHOT_CRAFT goes in the prompt. */
+  craft?: boolean | undefined;
   people: boolean;
 }): string {
   const allowed = grammarMoves(input.canEndFrame, input.userKeyframes);
@@ -830,6 +832,7 @@ export function shotDirectorPrompt(input: {
       : `The person's preset is ${preset}, which this clip cannot use without showing what the photograph does not; use ${motionName(DOWNGRADE[input.presetMove])} unless the picture argues for another allowed move.`,
     direction ? `The person asks: ${direction}. Follow it as far as the photograph allows.` : '',
     lensBlock(input.directorStyle),
+    input.craft ? SHOT_CRAFT : '',
     input.people
       ? 'Any people already in the photograph stay the same people and may make one small action; add no one.'
       : 'There are no people in this photograph and none may be added.',

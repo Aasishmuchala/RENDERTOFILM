@@ -227,6 +227,7 @@ export function useShotPlan(args: UseShotPlanArgs): ShotPlan {
         motion,
         direction: direction.slice(0, DIRECTION_MAX),
         ...(directorStyle ? { directorStyle } : {}),
+        ...(page === 'director' ? { craft: true } : {}),
       });
       set({ kind: 'planning', taskId: id, forKey: currentKey });
     } catch {

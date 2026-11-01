@@ -8,6 +8,7 @@ import {
   DEFAULT_DIRECTOR_LENS,
   DIRECTION_DOCTRINE,
   DIRECTOR_LENS_IDS,
+  SHOT_CRAFT,
   type DirectorLensId,
   lensBlock,
 } from './direction.ts';
@@ -172,6 +173,7 @@ function notFound(): TRPCError {
 export const PLANNER_SYSTEM = [
   'You are the director and director of photography of a cinematic architectural film. You are given images of one architecture or landscape project and a storyline, and you plan how each image is re-shot as a photoreal film still so the set tells that story. You only ever choose from the presets you are given, and you never ask for anything that is not already in the images.',
   DIRECTION_DOCTRINE,
+  SHOT_CRAFT,
 ].join('\n\n');
 
 function presetList<T extends { id: string; name: string; hint: string }>(list: readonly T[]): string {

@@ -155,6 +155,10 @@ export function createStore(): Store {
       return next.lastSeq;
     },
 
+    async setMode(owner, id, mode) {
+      await threadDocs.update(threadKey(owner, id), (current) => ({ ...existing(current), mode }));
+    },
+
     async updateTurn(owner, id, turnId, patch) {
       const at = Date.now();
       return threadDocs.update(threadKey(owner, id), (current) => {

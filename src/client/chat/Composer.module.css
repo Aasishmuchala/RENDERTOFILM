@@ -193,3 +193,17 @@
     animation: none;
   }
 }
+
+/* Director or Lifestyle, and what the chosen one does. */
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 2px;
+}
+
+.modeNote {
+  color: var(--bay-text-2);
+  font-size: 12px;
+}

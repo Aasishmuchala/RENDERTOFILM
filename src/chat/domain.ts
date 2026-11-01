@@ -138,6 +138,8 @@ export type Turn = {
   draft?: string;
   /** Planner jobs this Turn started (Lifestyle, Director), so the thread can point at them. */
   jobIds?: string[];
+  /** Those of them that are Director plans, which the chat opens on the Director page. */
+  directorJobIds?: string[];
 };
 
 /** Token counts as the API reports them; kept as received. */
@@ -166,6 +168,10 @@ export type Asset = {
   addedAt: number;
 };
 
+/** What a chat makes: Director finds the best way to shoot each image, Lifestyle films the architecture with real people. */
+export const CHAT_MODES = ['director', 'lifestyle'] as const;
+export type ChatMode = (typeof CHAT_MODES)[number];
+
 export type Thread = {
   id: string;
   owner: string;
@@ -178,6 +184,7 @@ export type Thread = {
   turns: Turn[];
   runIds: string[];
   assets: Asset[];
+  mode?: ChatMode;
 };
 
 export type ThreadSummary = { id: string; title: string; createdAt: number; updatedAt: number };
@@ -244,6 +251,7 @@ export type Store = {
   /** The store gives the Message its `seq`; the one passed in is not used. */
   appendMessage(owner: string, threadId: string, msg: Omit<Message, 'seq'>): Promise<number>; // returns seq
   /** Patches the Turn with this id; a Turn the thread does not have yet is created from the patch. */
+  setMode(owner: string, threadId: string, mode: ChatMode): Promise<void>;
   updateTurn(owner: string, threadId: string, turnId: string, patch: TurnPatch): Promise<Thread>;
   /** Adds to `Thread.assets`; the same key twice keeps one. */
   addAsset(owner: string, threadId: string, asset: Asset): Promise<Thread>;

@@ -131,10 +131,13 @@ function imageModelFor(ctx: ToolRunCtx): ImageModelId {
 }
 
 /** Puts a planner job on this Turn, so the thread can follow it. */
-async function noteJob(id: string, ctx: ToolRunCtx): Promise<void> {
+async function noteJob(id: string, ctx: ToolRunCtx, director = false): Promise<void> {
   const thread = await ctx.store.thread(ctx.owner, ctx.threadId);
-  const jobIds = thread?.turns.find((t) => t.id === ctx.turnId)?.jobIds ?? [];
-  await ctx.store.updateTurn(ctx.owner, ctx.threadId, ctx.turnId, { jobIds: [...jobIds, id] });
+  const turn = thread?.turns.find((t) => t.id === ctx.turnId);
+  await ctx.store.updateTurn(ctx.owner, ctx.threadId, ctx.turnId, {
+    jobIds: [...(turn?.jobIds ?? []), id],
+    ...(director ? { directorJobIds: [...(turn?.directorJobIds ?? []), id] } : {}),
+  });
 }
 
 const planLifestyle = tool('plan_lifestyle', async (input, ctx) => {
@@ -157,7 +160,7 @@ const planFilm = tool('plan_film', async (input, ctx) => {
     story: input.story,
     imageModel: imageModelFor(ctx),
   });
-  await noteJob(id, ctx);
+  await noteJob(id, ctx, true);
   return { storyboardJobId: id, status: 'planning' };
 });
 
