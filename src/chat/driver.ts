@@ -55,7 +55,7 @@ import { createGate, threadQuoteIds } from './gate.ts';
 import { runTurn } from './loop.ts';
 import { createAnthropicClient } from './model-client.ts';
 import { type FilmShape, QUOTE_LINES, runView, shapeOf, shortNote } from './pipeline.ts';
-import { createRunEngine, filmFrames, sheetsOf } from './runs.ts';
+import { createRunEngine, directorFrames, filmFrames, sheetsOf } from './runs.ts';
 import { createStore } from './store.ts';
 import { actionTools, assetHost } from './tools/actions.ts';
 import { createRegistry } from './tools/index.ts';
@@ -185,6 +185,18 @@ async function linesOf(ctx: Context, owner: string, spec: RunSpec): Promise<{ li
           { label: QUOTE_LINES.cast, count: sheetsOf(job), task: imageTask(CAST_SHEET_MODEL.imageModel, CAST_SHEET_MODEL.resolution) },
           clipLine(video(), shape),
         ],
+        ...(note ? { note } : {}),
+      };
+    }
+    case 'director_film': {
+      const job = (await storyboardJobs(owner)).find((j) => j.id === spec.storyboardJobId);
+      if (!job) throw refusal('BAD_REQUEST', 'There is no Director plan with that id in this chat.');
+      if (job.status === 'planning') throw refusal('PRECONDITION_FAILED', 'That plan is still being made. Price it once it is ready.');
+      if (job.status !== 'planned') throw refusal('PRECONDITION_FAILED', job.error ?? 'That plan failed.');
+      const shape = shapeOf(spec, directorFrames(job).length, durations());
+      const note = shortNote(spec, shape, durations());
+      return {
+        lines: [{ label: QUOTE_LINES.stills, count: shape.clips, task: imageTask(job.imageModel, job.resolution) }, clipLine(video(), shape)],
         ...(note ? { note } : {}),
       };
     }

@@ -24,7 +24,7 @@ export type TurnState =
 export type RunState = 'queued' | 'running' | 'awaiting_user' | 'done' | 'failed' | 'stopped' | 'submit_unknown';
 export type StepId = 'plan' | 'cast' | 'stills' | 'direct' | 'clips' | 'cut' | 'master' | 'qc';
 export type StepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'submit_unknown';
-export type RunKind = 'lifestyle_film' | 'stills' | 'clips' | 'cut' | 'master';
+export type RunKind = 'lifestyle_film' | 'director_film' | 'stills' | 'clips' | 'cut' | 'master';
 export type ApprovalSource = 'click' | 'text' | 'allowance' | 'free';
 /** The provider's own unit: Runway and the simulator count credits, a USD-billed provider counts dollars. */
 export type Unit = 'credits' | 'usd';

@@ -21,6 +21,7 @@ export type QuoteCardProps = {
 };
 
 export const KIND_TITLE: Record<RunKind, string> = {
+  director_film: 'Director film',
   lifestyle_film: 'Lifestyle film',
   stills: 'Stills',
   clips: 'Clips',

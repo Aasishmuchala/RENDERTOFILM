@@ -5,6 +5,7 @@
 // the tools import no concrete adapter. A text answer is one JSON block under 4000
 // characters and carries ids and keys, never a URL; an image answer is one JPEG block and a
 // caption.
+import { ACT_NAMES, actOf, plannedShot } from '../../direction.ts';
 import sharp from 'sharp';
 
 import type { Capabilities } from '../../capabilities.ts';
@@ -332,7 +333,30 @@ async function shotPlanOf(taskId: string, ctx: ToolRunCtx) {
   return answer(status.status === 'done' ? { status: 'done', plan: status.raw } : { status: 'running' });
 }
 
+/** A Director plan in film order, each shot in its movement, for the user to read and change before a quote. */
+async function sequenceOf(id: string, ctx: ToolRunCtx) {
+  const job = await Promise.resolve().then(() => ctx.trpc.storyboard.job({ id })).catch(() => null);
+  if (!job) return null;
+  if (job.status !== 'planned') return { status: job.status, error: job.error };
+  const frames = job.plan ?? [];
+  return {
+    status: 'planned',
+    sequence: frames.map((f, i) => ({
+      shot: i + 1,
+      act: ACT_NAMES[actOf(i + 1, frames.length)],
+      title: f.title,
+      beat: f.beat,
+      plan: plannedShot(f, job.choices?.[f.image]),
+      look: f.look,
+      people: f.crowd === 'none' ? '' : f.people,
+      space: f.space,
+    })),
+  };
+}
+
 const runGet = tool('run_get', async (input, ctx) => {
+  const sequence = await sequenceOf(input.runId, ctx);
+  if (sequence) return answer(sequence);
   const v = await ctx.runs.snapshot(ctx.owner, input.runId);
   if (!v) return shotPlanOf(input.runId, ctx);
   return answer({

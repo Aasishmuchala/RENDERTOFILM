@@ -35,7 +35,7 @@ const ONE_IMAGE = { message: 'Give exactly one of assetKey or stillId.', path: [
 
 /** PLAN-13 RunSpec, as the model proposes it. */
 export const runSpecSchema = z.strictObject({
-  kind: z.enum(['lifestyle_film', 'stills', 'clips', 'cut', 'master']).describe('What the run makes.'),
+  kind: z.enum(['lifestyle_film', 'director_film', 'stills', 'clips', 'cut', 'master']).describe('What the run makes.'),
   lifestyleJobId: id.optional().describe('A lifestyle plan made earlier in this chat.'),
   storyboardJobId: id.optional().describe('A storyboard plan made earlier in this chat.'),
   stillIds: z.array(id).max(60).optional().describe('Library stills to start from instead of making new ones.'),
@@ -84,7 +84,7 @@ const DEFS = {
   run_get: {
     class: 'read',
     description:
-      'Returns the state of one run: its steps, what each made and any failure. Also reads the plan a direct_shot call asked for, by its taskId. Free. Never changes the run.',
+      'Returns the state of one run: its steps, what each made and any failure. Also reads the plan a direct_shot call asked for, by its taskId, and the shot sequence of a plan_film plan, by its storyboardJobId. Free. Never changes the run.',
     schema: z.strictObject({ runId: id.describe('The run to read, or the taskId direct_shot answered.') }),
   },
   capabilities_get: {

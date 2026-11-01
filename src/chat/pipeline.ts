@@ -12,6 +12,7 @@ export const DEFAULT_CLIP_SECONDS = 5;
 
 const STEPS: Record<RunKind, StepId[]> = {
   lifestyle_film: ['plan', 'cast', 'stills', 'direct', 'clips', 'cut', 'master', 'qc'],
+  director_film: ['plan', 'stills', 'direct', 'clips', 'cut', 'master', 'qc'],
   stills: ['stills'],
   clips: ['direct', 'clips'],
   cut: ['cut'],
@@ -183,7 +184,7 @@ function askedLength(spec: RunSpec, durations: readonly number[]): number {
 export function shapeOf(spec: RunSpec, frames: number, durations: readonly number[]): FilmShape {
   const clipSeconds = askedLength(spec, durations);
   const fade = overlapOf(spec);
-  if (spec.kind !== 'lifestyle_film' && spec.kind !== 'stills') {
+  if (spec.kind !== 'lifestyle_film' && spec.kind !== 'director_film' && spec.kind !== 'stills') {
     return { clips: frames, clipSeconds, filmSeconds: filmSeconds(frames, clipSeconds, fade) };
   }
   return filmShape({ seconds: spec.seconds ?? DEFAULT_SECONDS, clipSeconds, frames, fade, durations });

@@ -924,3 +924,12 @@
     padding: 16px;
   }
 }
+
+/* Where a shot falls in the sequence: Opening, Build or Reveal, and its place. */
+.clipAct {
+  margin: 0;
+  color: var(--bay-text-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

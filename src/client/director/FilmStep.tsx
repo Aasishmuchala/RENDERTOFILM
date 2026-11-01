@@ -1,3 +1,4 @@
+import { ACT_NAMES, actDirection, actOf, plannedShot } from '../../direction.ts';
 import { Clapperboard, Film, ScanEye, Scissors, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -99,7 +100,7 @@ function useFilmSettings(jobId: string) {
             direction: typeof saved.direction === 'string' ? saved.direction.slice(0, DIRECTION_MAX) : '',
             onlyInImage: typeof saved.onlyInImage === 'boolean' ? saved.onlyInImage : d.onlyInImage,
             archviz: typeof saved.archviz === 'boolean' ? saved.archviz : d.archviz,
-            direct: typeof saved.direct === 'boolean' ? saved.direct : d.direct,
+            direct: true,
             moves,
           };
         }
@@ -462,8 +463,8 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   // A section of the inspector; its layout follows its own width (the film class), not the window's.
   return (
     <Section
-      title="Make the film"
-      description="Each frame you chose becomes one clip, in story order, with the same camera presets as the Video tab."
+      title="The sequence"
+      description="Each shot was planned first, its still was shot to open that way, and its clip follows the same plan."
     >
       <div className={own.film}>
         {film.length === 0 ? (
@@ -524,17 +525,6 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
                 onChange={(id) => set({ seconds: Number(id) })}
                 disabled={busy || durations.length < 2}
                 showHint={false}
-              />
-              <Switch
-                label="Direct each shot"
-                hint={
-                  s.direct
-                    ? 'An AI director reads each frame and plans its camera, what moves and the timing from what is really there. Nothing new is added.'
-                    : 'Off: each clip uses its camera move and your direction as they are.'
-                }
-                checked={s.direct}
-                onChange={(direct) => set({ direct })}
-                disabled={busy}
               />
               <Switch
                 label="Architectural film style"
@@ -607,6 +597,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
             <ol className={own.clips} aria-label="Clips in story order">
               {film.map(({ frame, order }) => (
                 <FilmFrameRow
+                  count={ordered.length}
                   key={frame.image}
                   job={job}
                   frame={frame}
@@ -636,6 +627,7 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
 }
 
 type FilmFrameRowProps = {
+  count: number;
   job: StoryboardJob;
   frame: FramePlan;
   order: number;
@@ -671,6 +663,7 @@ function FilmFrameRow({
   job,
   frame,
   order,
+  count,
   take,
   clip,
   settings: s,
@@ -702,7 +695,7 @@ function FilmFrameRow({
     videoModel: s.videoModel,
     seconds,
     motion: move,
-    direction: s.direction,
+    direction: [s.direction, plannedShot(frame, job.choices?.[frame.image]), actDirection(order, count)].filter(Boolean).join(' ').slice(0, 600),
     directorStyle: job.directorStyle,
     context,
   });
@@ -766,6 +759,7 @@ function FilmFrameRow({
         )}
       </div>
       <div className={own.clipBody}>
+        <p className={own.clipAct}>{`${ACT_NAMES[actOf(order, count)]} · Shot ${order} of ${count}`}</p>
         <h3 className={own.clipTitle}>
           <span className={own.cardNo}>{order}</span>
           {frame.title}

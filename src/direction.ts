@@ -59,9 +59,42 @@ export const SHOT_CRAFT = [
   'Then fix nine things: the story task (establish, locate, hide, reveal, compare, isolate, connect, react, foreshadow); the point of view; the camera position, giving height and tilt separately; shot size, distance and focus, with perspective coming from distance and not from focal length; the path with its start, shape and end; how the camera treats the subject (fixed, leading, following, alongside, facing, or an independent reveal); the feel of the camera in plain words, never a gear name alone; timing and speed curve; and continuity with its neighbours (axis, eyeline, screen direction, end state).',
   'Choose by task. Establishing a space: a locked or slowly moving larger shot with clear depth. Hiding something: occlusion, backs, off-screen space. Revealing: a pan, track or reframe that ends the moment the new thing is in frame. Isolating: pull back or use empty space so the surroundings take over, not merely a smaller subject. Keeping action clear: move alongside with deep focus and a stable axis.',
   'Delete test: what would be lost without this shot? If nothing, drop it. Cover only what the relation, the information and the cut need.',
+  'Pacing comes from contrast. A slow shot earns its length only while something stays unanswered, and a key piece of information is delayed only if the answer is worth the wait.',
+  'Join shots with a reason: continuity to keep the space clear, a match on shape or movement to carry the eye, a hard cut only for impact.',
   'Rewrite any shot that is only a director name, only gear, a move with no new information, or a mood stated as a rule.',
   'The house rule outranks all of this: everything you choose must already be in the render. A reveal may only uncover what the image contains.',
 ].join('\n');
+
+/** How a Director film is built: slow, rising, and paid off by one reveal. Same sources as SHOT_CRAFT. */
+export const REVEAL_ARC = [
+  'THE REVEAL ARC',
+  'Every film builds to one reveal. Use "position" to order the set in three movements, and make the last frame the best thing in it.',
+  'Opening, the first third: slow and withheld. Start close or partial: a detail, a threshold, a reflection, light on a surface, a fragment of the place. Show something and hold back what it belongs to, so the viewer wants to see more.',
+  'Build, the middle: the place assembles. Each frame shows more than the last, widening step by step and adding one new piece of geography, scale or life, with rising energy. Never repeat a viewpoint.',
+  'Reveal, the last frame or two: the payoff. Save the single most complete, most striking view of the project for here and do not use it earlier. It must answer what the opening withheld.',
+  'If two images could be the finale, put the stronger one last and use the other in the build. All of this is the order and framing of what the images already show: nothing is added.',
+].join('\n');
+
+/** The shot a Director frame was planned as, the person's edit first. It shapes the still, then the clip. */
+export const plannedShot = (frame: { shot?: string | undefined }, choice?: { shot?: string | undefined }): string =>
+  (choice?.shot ?? frame.shot ?? '').trim();
+
+export type Act = 'opening' | 'build' | 'reveal';
+export const ACT_NAMES: Record<Act, string> = { opening: 'Opening', build: 'Build', reveal: 'Reveal' };
+
+/** Which movement shot `order` (from 1) of `count` falls in: a fifth at the end for the reveal, a third at the start. */
+export function actOf(order: number, count: number): Act {
+  if (order > count - Math.max(1, Math.round(count / 5))) return 'reveal';
+  return order <= Math.max(1, Math.round(count / 3)) ? 'opening' : 'build';
+}
+
+const ACT_DIRECTION: Record<Act, string> = {
+  opening: 'This shot is in the opening of the film: slow and restrained. Keep the move minimal and hold back the full view.',
+  build: 'This shot is in the build of the film: a little more energy and scale than the shot before, showing more of the place as it goes.',
+  reveal: 'This is the final reveal of the film: let the move open up the most complete view and end on it, confident and unhurried, holding the last moment.',
+};
+
+export const actDirection = (order: number, count: number): string => ACT_DIRECTION[actOf(order, count)];
 
 /**
  * The director lenses a plan can be directed with, one at a time, each

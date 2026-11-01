@@ -8,6 +8,8 @@ import {
   DEFAULT_DIRECTOR_LENS,
   DIRECTION_DOCTRINE,
   DIRECTOR_LENS_IDS,
+  plannedShot,
+  REVEAL_ARC,
   SHOT_CRAFT,
   type DirectorLensId,
   lensBlock,
@@ -75,6 +77,8 @@ export type FramePlan = {
   title: string;
   /** What this frame says in the story. */
   beat: string;
+  /** The shot, planned first: how it opens, its one move, what it ends on. The still and the clip both follow it. */
+  shot?: string | undefined;
   look: LookId;
   lookWhy: string;
   angle: AngleId;
@@ -91,6 +95,8 @@ export type FrameChoice = {
   angle?: AngleId | undefined;
   crowd?: CrowdId | undefined;
   note?: string | undefined;
+  /** The person's edit of the planned shot. */
+  shot?: string | undefined;
   /** Chosen for the film: the Director's video step animates these. */
   selected?: boolean | undefined;
   /** The take used for this frame, when not its newest (a still id). */
@@ -174,6 +180,7 @@ export const PLANNER_SYSTEM = [
   'You are the director and director of photography of a cinematic architectural film. You are given images of one architecture or landscape project and a storyline, and you plan how each image is re-shot as a photoreal film still so the set tells that story. You only ever choose from the presets you are given, and you never ask for anything that is not already in the images.',
   DIRECTION_DOCTRINE,
   SHOT_CRAFT,
+  REVEAL_ARC,
 ].join('\n\n');
 
 function presetList<T extends { id: string; name: string; hint: string }>(list: readonly T[]): string {
@@ -205,7 +212,7 @@ export function plannerPrompt(job: StoryboardJob, from: number, count: number, p
     '- Every image gets a frame; never drop or merge images.',
     '- "position" places the frame on the whole story arc from 1 (the very first shot) to 100 (the last), so frames from different batches can be cut in order. Give different frames different positions.',
     '- Choose the light from the lighting presets. Use the interior presets ("interior-lit", "interior-luxury") only for interiors, and choose a light the image can plausibly be photographed in. Follow the storyline’s time of day and mood across the set.',
-    '- The camera never moves: every frame is shot from exactly the image’s own viewpoint, so do not plan a camera.',
+    '- Plan the shot first. "shot" says in one or two plain sentences how this frame opens (the image’s own viewpoint, or a tighter framing inside it, never a new angle), the one camera move of its clip, and what it ends on. The still is then re-shot to open exactly that way and the clip follows the same plan, so plan only what the image really shows.',
     '- Choose the people from the people presets, matching the storyline and the space. Choose "none" where people would crowd the architecture, where the image has no believable place for them, or where the storyline wants the place empty. In "people", say in a few words who they are and what they are doing, ordinary and believable for that place (e.g. "a couple reading on the terrace loungers"). Leave it empty for "none".',
     '- Nothing new may be added to an image except those people: never suggest new objects, furniture, plants, buildings, vehicles, animals or light sources, and never describe the beat in terms of things that are not visible.',
     '',
@@ -216,9 +223,9 @@ export function plannerPrompt(job: StoryboardJob, from: number, count: number, p
     presetList(CROWDS),
     '',
     lensBlock(job.directorStyle),
-    'For each image give: "image" (its number here), "space" ("exterior" or "interior"), "position", "title" (two to five words, e.g. "Arrival at the gate"), "beat" (one sentence: what this frame says in the story), "look", "look_why", "crowd", "people", "crowd_why" (each why is one short sentence).',
+    'For each image give: "image" (its number here), "space" ("exterior" or "interior"), "position", "title" (two to five words, e.g. "Arrival at the gate"), "beat" (one sentence: what this frame says in the story), "shot", "look", "look_why", "crowd", "people", "crowd_why" (each why is one short sentence).',
     'Answer with one JSON object and nothing else, in exactly this shape:',
-    '{"frames":[{"image":1,"space":"exterior","position":10,"title":"...","beat":"...","look":"golden-hour","look_why":"...","crowd":"few","people":"...","crowd_why":"..."}]}',
+    '{"frames":[{"image":1,"space":"exterior","position":10,"title":"...","beat":"...","shot":"...","look":"golden-hour","look_why":"...","crowd":"few","people":"...","crowd_why":"..."}]}',
   ]
     .filter(Boolean)
     .join('\n');
@@ -239,6 +246,7 @@ const planSchema = z.object({
       position: z.coerce.number().catch(50),
       title: text(80),
       beat: text(300),
+      shot: text(400).optional(),
       look: z.enum(LOOK_IDS).catch('none'),
       look_why: text(300),
       crowd: z.enum(CROWD_IDS).catch('none'),
@@ -286,6 +294,7 @@ function parseBatch(answer: string, from: number, count: number): FramePlan[] | 
         space: f.space,
         title: f.title || `Frame ${image + 1}`,
         beat: f.beat,
+        shot: f.shot,
         look,
         lookWhy: f.look_why,
         // Like Stills, a frame keeps the image's own camera unless the
@@ -511,8 +520,10 @@ const choiceInput = frameInput.extend({
   crowd: z.enum(CROWD_IDS).optional(),
   note: z.string().max(400, 'The direction is over 400 characters. Shorten it and try again.').optional(),
   selected: z.boolean().optional(),
+  shot: z.string().max(400).optional(),
   take: z.string().max(200).optional(),
 });
+
 
 export const storyboardRouter = router({
   /** Start planning: Claude looks at the images (in batches of six, one after another) against the storyline. */
@@ -669,9 +680,12 @@ export const storyboardRouter = router({
     const angle = choice.angle ?? 'as-rendered';
     const crowd = choice.crowd ?? plan.crowd;
     const note = choice.note?.trim() ?? '';
+    // The planned shot comes first: this still is the opening frame of it.
+    const shotPlan = plannedShot(plan, choice);
+    const direction = [shotPlan && `Frame this still as the opening of the planned shot: ${shotPlan}`, note].filter(Boolean).join(' ');
     // The planner's "who" only fits the crowd it chose it for.
     const who = crowd === 'none' ? '' : [crowd === plan.crowd ? plan.people : '', PHOTOREAL_PEOPLE].filter(Boolean).join('; ');
-    const prompt = buildCinematicPrompt(look, note, crowd, who, angle, '', {
+    const prompt = buildCinematicPrompt(look, direction, crowd, who, angle, '', {
       strict: true,
       maxLength: imageModelPromptLimit(job.imageModel) ?? 4000,
       // The physical realism this frame's own words switch on (src/realism.ts); Stills never asks for it.

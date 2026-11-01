@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { plannedShot } from '../../direction.ts';
 import { ANGLES, type AngleId, CROWDS, type CrowdId, LOOKS, type LookId } from '../../looks.ts';
 import type { FrameChoice, FramePlan } from '../../storyboard-api.ts';
 import { Select } from '../ui/Select.tsx';
@@ -29,6 +30,14 @@ export function FrameControls({ frame, choice, disabled, onChoose, onShoot }: Fr
   const crowdOptions = useMemo(() => withPick(CROWDS, frame.crowd, frame.crowdWhy, 'All people'), [frame.crowd, frame.crowdWhy]);
   return (
     <div className={own.options}>
+      <TextInput
+        label="Shot plan"
+        value={plannedShot(frame, choice)}
+        onChange={(v) => onChoose(frame.image, { shot: v })}
+        maxLength={NOTE_MAX}
+        disabled={disabled}
+        placeholder="How it opens, its one move, what it ends on"
+      />
       <Select label="Lighting" options={lookOptions} value={look} onChange={(id) => onChoose(frame.image, { look: id as LookId })} disabled={disabled} />
       <Select label="Camera" options={ANGLES} value={angle} onChange={(id) => onChoose(frame.image, { angle: id as AngleId })} disabled={disabled} />
       <Select label="People" options={crowdOptions} value={crowd} onChange={(id) => onChoose(frame.image, { crowd: id as CrowdId })} disabled={disabled} />

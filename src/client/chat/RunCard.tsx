@@ -82,13 +82,14 @@ const ACTIVE: RunState[] = ['queued', 'running', 'awaiting_user'];
 export function runExits(run: RunView): { label: string; handoff: Handoff }[] {
   if (run.state !== 'done') return [];
   const { exportId } = run.outputs;
-  const { lifestyleJobId } = run.spec;
+  const { lifestyleJobId, storyboardJobId } = run.spec;
   return [
     ...(exportId
       ? [{ label: 'Open in Editing', handoff: { page: 'edit' as const, params: { export: exportId } } }]
       : run.kind === 'cut'
         ? [{ label: 'Open in Editing', handoff: { page: 'edit' as const, params: {} } }]
         : []),
+    ...(storyboardJobId ? [{ label: 'Open in Director', handoff: { page: 'director' as const, params: { job: storyboardJobId } } }] : []),
     ...(lifestyleJobId
       ? [{ label: 'Open in Lifestyle', handoff: { page: 'lifestyle' as const, params: { job: lifestyleJobId } } }]
       : []),

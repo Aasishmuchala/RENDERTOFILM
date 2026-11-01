@@ -10,6 +10,8 @@
 // app's own routers (createCaller), so what a Run sends a provider is what the
 // pages send, byte for byte. The Store and the Gate come in by injection;
 // nothing here imports a sibling's implementation.
+import { actDirection, plannedShot } from '../direction.ts';
+import type { StoryboardJob } from '../storyboard-api.ts';
 import { randomUUID } from 'node:crypto';
 
 import type { inferRouterInputs } from '@trpc/server';
@@ -393,7 +395,97 @@ async function refusePastQuote(t: Tick, job: LifestyleJob): Promise<void> {
   if (why) throw new Error(why);
 }
 
+/** The Director plan this Run shoots from. Polling it sends the planner's next batch. */
+async function storyboardJob(t: Tick): Promise<StoryboardJob> {
+  const id = t.run.spec.storyboardJobId;
+  if (!id) throw new Error('This film has no Director plan to shoot from.');
+  const job = await free(() => t.trpc.storyboard.job({ id }));
+  if (!job) throw new Error('The Director plan is no longer there.');
+  return job;
+}
+
+/** The frames of a Director plan in its own order, without any the page has left out. */
+export function directorFrames(job: Pick<StoryboardJob, 'plan' | 'choices'>) {
+  return (job.plan ?? []).filter((f) => job.choices?.[f.image]?.selected !== false);
+}
+
+/** `n` frames spread across the plan, first and last kept: the reveal never falls off the end. */
+export function acrossPlan<T>(frames: T[], n: number): T[] {
+  if (n >= frames.length) return frames;
+  if (n <= 1) return frames.slice(-1);
+  return Array.from({ length: n }, (_, i) => frames[Math.round((i * (frames.length - 1)) / (n - 1))]!);
+}
+
+/** What a Director clip was planned to be, in the shot's own words and its place in the arc. */
+async function plannedDirection(t: Tick, index: number, count: number): Promise<string> {
+  const job = await storyboardJob(t);
+  const shot = t.run.steps.find((s) => s.id === 'stills');
+  const image = shot ? metaOf<StillsMeta>(shot).frames?.[index] : undefined;
+  const frame = job.plan?.find((f) => f.image === image);
+  return [frame ? plannedShot(frame, job.choices?.[frame.image]) : '', actDirection(index + 1, count)].filter(Boolean).join(' ').slice(0, 600);
+}
+
+async function refuseDirectorPastQuote(t: Tick, frames: number): Promise<void> {
+  const why = pastQuote(await t.quote(), shapedBy(t.run, t.caps, frames));
+  if (why) throw new Error(why);
+}
+
+const directorPlan: Action = async (t) => {
+  const job = await storyboardJob(t);
+  t.step.jobId = job.id;
+  if (job.status === 'failed') throw new Error(job.error ?? 'The plan could not be made.');
+  if (job.status !== 'planned') return;
+  refuseUnoffered(t, directorFrames(job).length);
+  await refuseDirectorPastQuote(t, directorFrames(job).length);
+  close(t.step, 'done', t.now);
+};
+
+/** The stills of `ids` once all are in; a failed one ends the Run. */
+async function settledStills(t: Tick, ids: string[]): Promise<string[] | null> {
+  if (ids.length === 0) return [];
+  const lib = await free(() => t.trpc.library());
+  let waiting = false;
+  for (const id of ids) {
+    const still = lib.stills.find((s) => s.id === id);
+    if (!still) throw new Error('A still of this film was deleted from the Library.');
+    if (still.status === 'failed') throw new Error(still.error ?? 'A still could not be made.');
+    if (still.status !== 'succeeded') waiting = true;
+  }
+  return waiting ? null : ids;
+}
+
+const directorStills: Action = async (t) => {
+  const job = await storyboardJob(t);
+  if (job.status !== 'planned') throw new Error(job.error ?? 'The plan is not ready to shoot.');
+  const meta = metaOf<StillsMeta>(t.step);
+  if (meta.frames === undefined) {
+    // Chosen once, before the first is paid for, on what the plan holds now.
+    const frames = directorFrames(job);
+    const chosen = acrossPlan(frames, shapedBy(t.run, t.caps, frames.length).clips);
+    refuseUnoffered(t, chosen.length);
+    await refuseDirectorPastQuote(t, frames.length);
+    meta.frames = chosen.map((f) => f.image);
+  }
+  const { frames } = meta;
+  const shots = (meta.shots ??= {});
+  if (frames.length === 0) throw new Error('The plan has no frame in the film to shoot.');
+  const finals = await settledStills(t, frames.flatMap((i) => shots[String(i)] ?? []));
+  // One frame a tick, so one tick is one submission.
+  const next = frames.find((i) => shots[String(i)] === undefined);
+  if (next !== undefined) {
+    const made = await paid(t, () => t.trpc.storyboard.shoot({ id: job.id, image: next }));
+    if (!made) return;
+    t.step.ids.push(made.id);
+    shots[String(next)] = made.id;
+    return;
+  }
+  if (!finals) return;
+  t.run.outputs.stillIds = finals;
+  close(t.step, 'done', t.now);
+};
+
 const plan: Action = async (t) => {
+  if (t.run.kind === 'director_film') return directorPlan(t);
   const job = await lifestyleJob(t);
   t.step.jobId = job.id;
   if (job.status === 'failed') throw new Error(job.error ?? 'The plan could not be made.');
@@ -515,6 +607,7 @@ const passSent = (shot: NonNullable<LifestyleJob['shots']>[number] | undefined) 
   shot?.pass2 !== undefined && shot.pass2.state !== 'failed' && shot.pass2.state !== 'skipped';
 
 const stills: Action = async (t) => {
+  if (t.run.kind === 'director_film') return directorStills(t);
   const job = await lifestyleJob(t);
   if (job.status !== 'planned') throw new Error(job.error ?? 'The plan is not ready to shoot.');
   const meta = metaOf<StillsMeta>(t.step);
@@ -566,16 +659,18 @@ const direct: Action = async (t) => {
   }
   const next = ids.find((id) => tasks[id] === undefined);
   if (next !== undefined) {
-    const planned = await paid(t, () =>
+    const planned = t.run.kind === 'director_film' ? { craft: true, direction: await plannedDirection(t, ids.indexOf(next), ids.length) } : {};
+    const asked = await paid(t, () =>
       t.trpc.shot.plan({
         first: { stillId: next },
         videoModel: videoModelOf(t.run, t.caps),
         seconds: clipSecondsOf(t.run, t.caps),
+        ...planned,
       })
     );
-    if (!planned) return;
-    t.step.ids.push(planned.taskId);
-    tasks[next] = planned.taskId;
+    if (!asked) return;
+    t.step.ids.push(asked.taskId);
+    tasks[next] = asked.taskId;
     return;
   }
   if (ids.every((id) => raw[id] !== undefined)) close(t.step, 'done', t.now);
@@ -832,6 +927,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
    * A job that cannot be read leaves the count the Run kept, and the log says so.
    */
   async function withPassesNow(owner: string, run: Run): Promise<Run> {
+    if (run.kind === 'director_film') return run;
     const stills = run.steps.find((s) => s.id === 'stills');
     const taken = Object.values((stills?.meta as StillsMeta | undefined)?.shots ?? {});
     if (taken.length === 0) return run;
