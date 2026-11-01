@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { resolveTextProvider } from './ai-text.ts';
+import { resolveChatTarget } from './ai-text.ts';
 import type {
   Asset,
   AuditRow,
@@ -42,7 +42,7 @@ import { type Context, publicProcedure, router, signedInProcedure } from './trpc
  * AppRouter itself.
  */
 
-const NEEDS_KEY = 'Chat needs an Anthropic key. Add one in Settings.';
+const NEEDS_KEY = 'Chat needs an Anthropic or OmegaPlus key. Add one in Settings.';
 const BUSY = 'The assistant is still answering.';
 const DECIDED = 'That quote has already been decided.';
 /** What a card says when a click found the work dearer than the Quote it pressed. */
@@ -277,8 +277,8 @@ export const chatRouter = router({
   /** Keeps the message and starts a Turn in the background. A Turn already running in the thread refuses it. */
   send: signedInProcedure.input(sendInput).mutation(async ({ ctx, input }): Promise<{ threadId: string; turnId: string }> => {
     const owner = await ownerKey(ctx.req);
-    const target = await resolveTextProvider(owner);
-    if (target.provider !== 'anthropic') throw refuse('PRECONDITION_FAILED', NEEDS_KEY);
+    const target = await resolveChatTarget(owner);
+    if (!target) throw refuse('PRECONDITION_FAILED', NEEDS_KEY);
     if (!input.assets.every((a) => ownsAsset(owner, a.key))) {
       throw refuse('BAD_REQUEST', 'That file is not one of your uploads.');
     }
@@ -305,7 +305,7 @@ export const chatRouter = router({
         at: Date.now(),
       });
       await answerQuote(ctx, owner, threadId, input.text);
-      const turnId = await startTurn(ctx, owner, threadId, { kind: 'user', messageSeq }, hold!, target.apiKey);
+      const turnId = await startTurn(ctx, owner, threadId, { kind: 'user', messageSeq }, hold!, target);
       return { threadId, turnId };
     } catch (err) {
       if (threadId && hold) letGo(owner, threadId, hold);

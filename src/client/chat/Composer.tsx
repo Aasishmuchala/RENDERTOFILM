@@ -24,7 +24,7 @@ export type ComposerProps = {
   sending: boolean;
   /** A Turn is live: the server takes no message now, so the button stops it instead. */
   live: boolean;
-  /** Chat can answer: the owner has an Anthropic key. */
+  /** Chat can answer: the owner has an Anthropic or OmegaPlus key. */
   ready: boolean;
   /** The page is showing. Hidden, the field has no size to measure. */
   active?: boolean | undefined;

@@ -29,7 +29,7 @@ function goToAiText() {
 }
 
 /**
- * The chat agent: whether it can run (it needs a direct Anthropic key, whatever
+ * The chat agent: whether it can run (it needs an Anthropic or OmegaPlus key, whatever
  * the planners use), its model, and the Allowance that lets a Run start without
  * a click. On Bay the Allowance stays off, because a Run's price is not known
  * there before it starts.
@@ -77,7 +77,7 @@ export function ChatCard({ active }: { active: boolean }) {
           <div className={`${styles.cardHead} ${own.head}`}>
             <Glyph className={own.glyph} size={16} aria-hidden />
             <div className={`${styles.cardTitle} ${own.title}`}>
-              <Text>{data.ready ? 'Chat is ready' : 'Chat needs an Anthropic key'}</Text>
+              <Text>{data.ready ? 'Chat is ready' : 'Chat needs an Anthropic or OmegaPlus key'}</Text>
             </div>
             {!data.ready && (
               <Button size="sm" variant="ghost" onPress={goToAiText}>

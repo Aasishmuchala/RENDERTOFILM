@@ -97,6 +97,22 @@ export function isTextTaskId(id: string): boolean {
   return /^ai_[0-9a-f-]{36}$/.test(id);
 }
 
+/** What the chat agent runs on. */
+export type ChatTarget = { provider: TextProvider; apiKey: string; model: string };
+
+/**
+ * The chat needs a key, not a Settings choice: the provider chosen for AI text
+ * when it has one, else whichever key is saved, Anthropic first. Null with none.
+ */
+export async function resolveChatTarget(owner: string): Promise<ChatTarget | null> {
+  const chosen = await resolveTextProvider(owner);
+  if (chosen.provider !== 'runway') return chosen;
+  const { anthropic, omegaplus } = (await readConnections(owner)).apiKeys;
+  if (anthropic) return { provider: 'anthropic', apiKey: anthropic.key, model: defaultModelFor('anthropic') };
+  if (!omegaplus) return null;
+  return { provider: 'omegaplus', apiKey: omegaplus.key, model: defaultModelFor('omegaplus', (await listOmegaModels()).models) };
+}
+
 /**
  * The owner's Settings choice with the model a call will actually use: the
  * saved one while the provider still lists it (any, when OmegaPlus did not

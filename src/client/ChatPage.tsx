@@ -37,7 +37,7 @@ function hasFiles(e: DragEvent) {
 function SetupCard() {
   return (
     <div className={styles.setup} role="group" aria-label="Setup">
-      <p className={styles.setupTitle}>Chat needs an Anthropic key</p>
+      <p className={styles.setupTitle}>Chat needs an Anthropic or OmegaPlus key</p>
       <p className={styles.setupLine}>Add your own key in Settings, then come back here.</p>
       <Link href={formatHash('settings')} className={`${buttonStyles.button} ${buttonStyles.primary} ${buttonStyles.md}`}>
         Open Settings

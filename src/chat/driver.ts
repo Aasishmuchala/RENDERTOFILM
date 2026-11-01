@@ -14,7 +14,8 @@ import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 
 import { AppRouter } from '../api.ts';
-import { resolveTextProvider } from '../ai-text.ts';
+import { type ChatTarget, resolveChatTarget } from '../ai-text.ts';
+import { OMEGA_BASE_URL } from '../ai-text/providers.ts';
 import { capabilitiesOf } from '../capabilities.ts';
 import type { CloseupJob } from '../closeups-api.ts';
 import { readChatSettings } from '../connections.ts';
@@ -565,10 +566,11 @@ function bindTools(ctx: Context, services: Services) {
 }
 
 /** The loop's seams for one Turn. The model comes from Settings: the loop names a default and this replaces it. */
-async function loopDeps(ctx: Context, owner: string, apiKey: string): Promise<LoopDeps> {
+async function loopDeps(ctx: Context, owner: string, target: ChatTarget): Promise<LoopDeps> {
   const { model, effort } = await readChatSettings(owner);
-  const client = createAnthropicClient({ apiKey });
-  const tuned: ModelClient = { stream: (req, signal) => client.stream({ ...req, model, effort }, signal) };
+  const omega = target.provider === 'omegaplus';
+  const client = createAnthropicClient({ apiKey: target.apiKey, ...(omega ? { baseURL: OMEGA_BASE_URL, plain: true } : {}) });
+  const tuned: ModelClient = { stream: (req, signal) => client.stream({ ...req, model: omega ? target.model : model, effort }, signal) };
   const services = servicesFor(ctx);
   return {
     model: tuned,
@@ -591,9 +593,9 @@ export async function startTurn(
   threadId: string,
   trigger: Trigger,
   controller: AbortController,
-  apiKey: string
+  target: ChatTarget
 ): Promise<string> {
-  const deps = await loopDeps(ctx, owner, apiKey);
+  const deps = await loopDeps(ctx, owner, target);
   const turnId = randomUUID();
   await store.updateTurn(owner, threadId, turnId, { state: 'queued', trigger, startedAt: Date.now(), iterations: 0 });
   void runTurn(deps, owner, threadId, trigger, controller.signal, turnId)
@@ -743,9 +745,9 @@ async function wakeThreads(ctx: Context, owner: string): Promise<number> {
     if (held.has(heldKey(owner, id))) continue;
     const event = (await store.eventsSince(owner, id, seqs[id] ?? 0)).find((e) => WAKES.has(e.type));
     if (!event) continue;
-    const target = await resolveTextProvider(owner);
+    const target = await resolveChatTarget(owner);
     // Without a key the Events wait: the model hears them once there is one.
-    if (target.provider !== 'anthropic') return woken;
+    if (!target) return woken;
     const controller = tryHold(owner, id);
     if (!controller) continue;
     try {
@@ -754,7 +756,7 @@ async function wakeThreads(ctx: Context, owner: string): Promise<number> {
         letGo(owner, id, controller);
         continue;
       }
-      await startTurn(ctx, owner, id, { kind: 'event', eventSeq: event.seq }, controller, target.apiKey);
+      await startTurn(ctx, owner, id, { kind: 'event', eventSeq: event.seq }, controller, target);
       woken++;
     } catch (err) {
       letGo(owner, id, controller);

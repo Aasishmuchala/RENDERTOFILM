@@ -3,7 +3,7 @@ import type { IncomingMessage } from 'node:http';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { resolveTextProvider } from './ai-text.ts';
+import { resolveChatTarget } from './ai-text.ts';
 import {
   ANTHROPIC_MODELS,
   AiTextError,
@@ -245,11 +245,11 @@ export const settingsRouter = router({
       }));
     }),
 
-  /** The Chat card: what the agent runs on, and whether it can run. It needs a direct Anthropic key. */
+  /** The Chat card: what the agent runs on, and whether it can run. It needs an Anthropic or OmegaPlus key. */
   chat: publicProcedure.query(async ({ ctx }) => {
     const owner = await ownerKey(ctx.req);
-    const [settings, { provider }] = await Promise.all([readChatSettings(owner), resolveTextProvider(owner)]);
-    return { ...settings, provider, ready: provider === 'anthropic', models: ANTHROPIC_MODELS };
+    const [settings, target] = await Promise.all([readChatSettings(owner), resolveChatTarget(owner)]);
+    return { ...settings, provider: target?.provider ?? ('runway' as const), ready: target !== null, models: ANTHROPIC_MODELS };
   }),
 
   /** Saves the fields sent; the others keep what they were. */

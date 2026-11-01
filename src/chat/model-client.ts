@@ -22,7 +22,20 @@ function cacheLast<T extends object>(blocks: T[]): T[] {
   return blocks.map((block, index) => (index === blocks.length - 1 ? { ...block, cache_control: CACHE_1H } : block));
 }
 
-function requestBody(req: ModelRequest, direct: boolean): BetaMessageStreamParams {
+/** The standard Messages fields only: OmegaPlus takes no betas, thinking, output_config or strict tools. */
+function plainBody(req: ModelRequest): BetaMessageStreamParams {
+  return {
+    model: req.model,
+    max_tokens: req.maxTokens,
+    system: req.system,
+    tools: [...req.tools].sort(byName).map(({ name, description, input_schema }) => ({ name, description, input_schema })) as BetaMessageStreamParams['tools'],
+    tool_choice: { type: 'auto' },
+    messages: req.messages.map(({ role, content }) => ({ role, content })) as BetaMessageStreamParams['messages'],
+  };
+}
+
+export function requestBody(req: ModelRequest, direct: boolean, plain = false): BetaMessageStreamParams {
+  if (plain) return plainBody(req);
   const betas = [...new Set([...(direct ? DIRECT_BETAS : []), ...req.betas])];
   const tools = [...req.tools]
     .sort(byName)
@@ -73,7 +86,7 @@ function errorEvent(err: unknown, apiKey: string): ModelEvent {
 }
 
 /** `stream` never throws: a failure is one `error` event, and an abort just ends the iterable. */
-export function createAnthropicClient(opts: { apiKey: string; baseURL?: string }): ModelClient {
+export function createAnthropicClient(opts: { apiKey: string; baseURL?: string; plain?: boolean }): ModelClient {
   const baseURL = opts.baseURL || process.env['RTF_ANTHROPIC_BASE_URL'] || undefined;
   const client = new Anthropic({
     apiKey: opts.apiKey,
@@ -88,7 +101,8 @@ export function createAnthropicClient(opts: { apiKey: string; baseURL?: string }
   return {
     async *stream(req, signal) {
       try {
-        const stream = client.beta.messages.stream(requestBody(req, !baseURL), { signal });
+        const messages = (opts.plain ? client.messages : client.beta.messages) as typeof client.beta.messages;
+        const stream = messages.stream(requestBody(req, !baseURL, opts.plain), { signal });
         for await (const event of stream) {
           const mapped = toModelEvent(event);
           if (mapped) yield mapped;
