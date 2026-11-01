@@ -1,6 +1,6 @@
 /* The line under the primary action (DESIGN 3.3): footnote, ink 2 because
-   it sits on the inspector's glass. The breakdown opens under a small accent
-   trigger whose chevron turns as it opens. */
+   it sits on the inspector's glass. The breakdown opens under a small
+   underlined trigger whose chevron turns as it opens. */
 .cost {
   display: flex;
   flex-direction: column;
@@ -32,10 +32,12 @@
   border: 0;
   border-radius: var(--bay-r-xs);
   background: transparent;
-  color: var(--bay-accent-fg);
+  color: var(--bay-text);
   font: var(--text-footnote);
   font-weight: 500;
   letter-spacing: var(--track-footnote);
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
   transition:
     background-color var(--dur-1) var(--ease-out),
@@ -55,6 +57,7 @@
 .trigger[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 .chevron {

@@ -132,6 +132,8 @@ export type RecreateWorkspaceProps = {
   active: boolean;
   /** The 4K source as a thumbnail (null with none), so the page can light the room with it. */
   onSourceThumb?: ((url: string | null) => void) | undefined;
+  /** A clip the address named: it becomes the reference once, when the library has it. */
+  referenceClipId?: string | undefined;
 };
 
 /** What the Recreate in 4K mode puts in the Video page's Workspace slots. */
@@ -162,7 +164,7 @@ export type RecreateSlots = {
  * polls and guards run whichever mode is open, and it hands back the
  * Workspace slots for when Recreate is.
  */
-export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspaceProps): RecreateSlots {
+export function useRecreateWorkspace({ active, onSourceThumb, referenceClipId }: RecreateWorkspaceProps): RecreateSlots {
   // On a phone the steps wait in the sheet under the picture, so the copy points there.
   const phone = usePhoneLayout();
   const utils = trpc.useUtils();
@@ -379,6 +381,16 @@ export function useRecreateWorkspace({ active, onSourceThumb }: RecreateWorkspac
     setFocusId(null);
     start.reset();
   }
+
+  const adopted = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!referenceClipId || adopted.current === referenceClipId) return;
+    const at = finishedClips.findIndex((c) => c.id === referenceClipId);
+    if (at < 0) return;
+    adopted.current = referenceClipId;
+    pickReference(referenceClipId);
+    setRefShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE));
+  }, [referenceClipId, finishedClips]);
 
   function clearReferenceUpload() {
     if (live.current.ref) URL.revokeObjectURL(live.current.ref.src);

@@ -20,6 +20,20 @@ const SERVER_OUT = path.join(DESKTOP, 'dist', 'server', 'index.mjs');
 const MAIN_OUT = path.join(DESKTOP, 'main', 'dist', 'main.js');
 const PRELOAD_OUT = path.join(DESKTOP, 'preload', 'dist', 'preload.js');
 
+// 0. ffmpeg licence, on `npm run dist` only, before any of the work: npm names the
+// script it runs in npm_lifecycle_event, so `build` and `dev` never get here and
+// package.json needs no change. `--check-licence` asks for it by hand. --warn only
+// while the macOS binary is the nonfree one: once the GPL build from
+// .github/workflows/ffmpeg.yml is bundled, drop it and a nonfree binary stops the
+// dist here.
+if (process.argv.includes('--check-licence') || process.env.npm_lifecycle_event === 'dist') {
+  execFileSync(
+    process.execPath,
+    [path.join(DESKTOP, 'scripts', 'check-ffmpeg-licence.mjs'), '--warn'],
+    { stdio: 'inherit' }
+  );
+}
+
 // 1. Renderer. vite's package exports do not list bin/vite.js, so find it
 // beside package.json.
 const viteBin = path.join(

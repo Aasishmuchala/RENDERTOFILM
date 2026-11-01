@@ -15,6 +15,7 @@ import {
   videoModelName,
   type ImageModelId,
 } from '../models.ts';
+import { type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
@@ -68,9 +69,17 @@ export type CloseupsPageProps = {
   onGoToStills: () => void;
   /** Animate a finished close-up on the Video tab. */
   onAnimate: (stillId: string) => void;
+  /** What the address opened the page with (`#stills?mode=closeups&job=abc`); read from the address itself when not given. */
+  handoff?: Handoff | undefined;
 };
 
-export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPageProps) {
+export function CloseupsPage({ active, onGoToStills, onAnimate, handoff }: CloseupsPageProps) {
+  const address = handoff ?? parseHash(window.location.hash);
+  const addressed = address.page === 'stills' && address.params['mode'] === 'closeups';
+  const addressedJob = addressed ? address.params['job'] : undefined;
+  // A job in the address wins over a source to pick.
+  const addressedClip = addressed && !addressedJob ? address.params['clip'] : undefined;
+  const addressedStill = addressed && !addressedJob ? address.params['still'] : undefined;
   const utils = trpc.useUtils();
   const library = trpc.library.useQuery(undefined, {
     refetchInterval: (q) => (active && q.state.data?.stills.some((s) => s.status === 'pending') ? 8_000 : false),
@@ -90,6 +99,8 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
   const blocked = modelBlocked('image', imageModel);
   const [direction, setDirection] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
+  /** The search the address named, shown until one of this page's own takes over. */
+  const [openedId, setOpenedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ id: string; title: string } | null>(null);
   /** The close-up on the canvas, per search; the first until one is picked in the strip. */
   const [picked, setPicked] = useState<{ job: string; index: number } | null>(null);
@@ -105,7 +116,7 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
 
   const stalledRef = useRef(false);
   // With no search started here yet, this is the newest one, so a reload picks up where it was.
-  const job = trpc.closeups.job.useQuery(jobId ? { id: jobId } : {}, {
+  const job = trpc.closeups.job.useQuery(jobId ? { id: jobId } : openedId ? { id: openedId } : {}, {
     // Hidden, it still checks in now and then so the next step starts on time.
     refetchInterval: (q) =>
       q.state.data && WORKING.has(q.state.data.status) && !stalledRef.current ? (active ? 4000 : 15_000) : false,
@@ -134,6 +145,30 @@ export function CloseupsPage({ active, onGoToStills, onAnimate }: CloseupsPagePr
       setJobId(currentId);
     }
   }, [jobId, currentId, currentStatus]);
+  // A search the address names is looked at the same way, so it joins the page
+  // once per arrival; one paused before a paid step still waits for "Continue".
+  const openedJob = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (openedJob.current === addressedJob) return;
+    openedJob.current = addressedJob;
+    if (!addressedJob) return;
+    setOpenedId(addressedJob);
+    setJobId(null);
+  }, [addressedJob]);
+  // A clip or still the address names is the source to search, once per arrival.
+  const openedSource = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const key = addressedClip ? `clip:${addressedClip}` : addressedStill ? `still:${addressedStill}` : undefined;
+    if (openedSource.current === key) return;
+    openedSource.current = key;
+    if (addressedClip) {
+      setKind('clip');
+      setClipId(addressedClip);
+    } else if (addressedStill) {
+      setKind('still');
+      setStillId(addressedStill);
+    }
+  }, [addressedClip, addressedStill]);
   const startStep = useCallback(
     (id: string, status: CloseupJob['status'] | undefined) => {
       if (status === 'captured') {

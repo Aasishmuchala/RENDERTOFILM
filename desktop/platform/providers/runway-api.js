@@ -9,6 +9,8 @@
 // reply is, and a restart only ever follows that id with `tasks.retrieve`. The
 // client retries reads, but `create` goes out with `maxRetries: 0`: the API has
 // no idempotency key, so a retried timeout could bill the same run twice.
+// A run with a remote id never fails for want of a key: it waits, says so in its
+// snapshot, and carries on when a key that can read it is back.
 //
 // The SDK is imported on first use, and `sdk` injects a stand-in, so the harness
 // and the tests load this file without it. Keys never reach task.real, a file
@@ -19,9 +21,10 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import { artifactDetails, probe, probeSync, videoFields } from '../ffmpeg.js';
 import { localFileForUrl, resultPathFor, sha1 } from '../realgen/files.js';
 import { mapRunway } from './runway-mapping.js';
-import { RUNWAY_RATES, RUNWAY_RATES_BY_ALIAS } from './runway-rates.js';
+import { RUNWAY_RATES, RUNWAY_RATES_BY_ALIAS, quoteRunway } from './runway-rates.js';
 
 const LABEL = 'Runway API';
 export const KEY_REFUSED = 'Your Runway API key was refused. Check it in Settings.';
@@ -30,6 +33,10 @@ const RESTART_BEFORE_ID =
   'The server restarted before Runway returned a task id; not resubmitting. Check your tasks at dev.runwayml.com before running again.';
 const MAY_HAVE_STARTED = 'Runway may have started this run. Check your tasks at dev.runwayml.com before running again.';
 const followHint = (id) => `Runway task ${id} may still finish; it is on your dev.runwayml.com account.`;
+const NEEDS_KEY = 'This was started on the Runway API and has to finish there, so add your Runway API key in Settings and try again.';
+const WAIT_NO_KEY = 'Waiting for your Runway API key: add it in Settings and this run will carry on.';
+const WAIT_BAD_KEY = 'Waiting for a working Runway API key: Runway refused the saved one, so check it in Settings and this run will carry on.';
+const WAIT_OTHER_KEY = 'Waiting for the Runway API key that started this run: put it back in Settings and it will carry on.';
 
 const POLL_MS = 5000; // the docs ask for no more than one read every five seconds
 /** How long a dropped connection is waited out (polling is free, the run goes on at Runway). */
@@ -101,7 +108,31 @@ function transient(err) {
   return TRANSIENT.test(String(err?.message ?? err)) || TRANSIENT.test(String(err?.name ?? ''));
 }
 
+/** Which account a key is, for comparing; a task or uploads.json keeps this, never the key. */
+const fingerprint = (key) => sha1(Buffer.from(key)).slice(0, 12);
+
+/** The sentence to wait under when a read failed because of the key, not the run; null otherwise. */
+function keyWait(err, task, key) {
+  if (err?.status === 401 || err?.status === 403) return WAIT_BAD_KEY;
+  // Another account's key cannot see the run, so its 404 says nothing about it.
+  if (err?.status === 404 && task.real.keyPrint && task.real.keyPrint !== fingerprint(key)) return WAIT_OTHER_KEY;
+  return null;
+}
+
 let sharpModule; // undefined: not tried yet; null: not installed
+
+/** The fields ffmpeg could read: a zero never replaces the length that was asked for. */
+const known = (fields) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value > 0));
+
+/** What a downloaded clip really is, as `task.real` keeps it; null when ffmpeg cannot say. */
+async function videoFacts(file, read) {
+  try {
+    return known(videoFields(await read(file)));
+  } catch (err) {
+    console.warn(`[runway-api] could not read ${path.basename(file)}: ${err?.message ?? err}`);
+    return null;
+  }
+}
 
 async function imageSize(file) {
   if (sharpModule === undefined) {
@@ -126,7 +157,7 @@ async function imageSize(file) {
  * The Runway provider. `getKey(owner)` reads the owner's sealed key; `dirs` is
  * { ASSETS_DIR, UPLOADS_DIR, STORAGE_DIR, storagePath? }. `mockOrigin()` gives a
  * result's absolute URL; `fetchImpl` carries every request, `sdk` is `{ RunwayML,
- * toFile }`. `pollMs` and `sleep` are test seams.
+ * toFile }`. `pollMs`, `sleep` and `probeVideo` are test seams.
  */
 export function createRunwayProvider({
   getKey,
@@ -137,10 +168,12 @@ export function createRunwayProvider({
   mockOrigin,
   pollMs = POLL_MS,
   sleep = defaultSleep,
+  probeVideo = probe,
 }) {
   const running = new Map(); // taskId -> this process's pipeline for it
   const uploading = new Map(); // key fingerprint + sha1 -> an upload in flight
   const uploadsFile = path.join(dirs.STORAGE_DIR, 'runwayapi', 'uploads.json');
+  const probed = new Set(); // finished clips read in this process
   let sdkLoaded;
   let clientFor = { key: undefined, client: undefined };
 
@@ -190,7 +223,7 @@ export function createRunwayProvider({
   async function uploadOnce(file, client, key) {
     const bytes = await fsp.readFile(file);
     const hash = sha1(bytes);
-    const owner = sha1(Buffer.from(key)).slice(0, 12); // a fingerprint: uris belong to one account
+    const owner = fingerprint(key); // uris belong to one account
     const hit = readUploads()[hash];
     if (hit?.uri && hit.owner === owner && Date.now() - hit.at < UPLOAD_TTL_MS) return hit.uri;
     const slot = `${owner}:${hash}`;
@@ -275,6 +308,7 @@ export function createRunwayProvider({
     patch(task, env, {
       state: 'waiting',
       remoteId: created.id,
+      keyPrint: fingerprint(key),
       credits: created.estimatedCost?.credits,
       remoteStatus: 'PENDING',
       progress: PROGRESS.waiting,
@@ -282,26 +316,48 @@ export function createRunwayProvider({
     await follow(task, env);
   }
 
-  /** Polls a submitted task (free) and fetches its result; the only path a restart takes. */
+  /**
+   * Polls a submitted task (free) and fetches its result; the only path a
+   * restart takes. The key is read on every turn, so a run whose key was
+   * removed or refused waits here for one that works and never ends over it.
+   */
   async function follow(task, env) {
     const id = task.real.remoteId;
-    const key = keyOf(task, env);
-    if (!key) return fail(task, env, KEY_REFUSED, followHint(id));
+    let refused = null; // { key, wait }: not asked with again until the key changes
+    let downSince = null;
+    const hold = async (wait) => {
+      if (task.real.keyWait !== wait) patch(task, env, { state: 'waiting', keyWait: wait });
+      await sleep(pollMs);
+    };
     try {
-      const client = await clientOf(key);
-      let downSince = null;
       for (;;) {
+        const key = keyOf(task, env);
+        if (!key) {
+          await hold(WAIT_NO_KEY);
+          continue;
+        }
+        if (key === refused?.key) {
+          await hold(refused.wait);
+          continue;
+        }
         let t;
         try {
+          const client = await clientOf(key);
           t = await client.tasks.retrieve(id);
           downSince = null;
         } catch (err) {
+          const wait = keyWait(err, task, key);
+          if (wait) {
+            refused = { key, wait };
+            continue;
+          }
           if (!transient(err)) throw err;
           downSince ??= Date.now();
           if (Date.now() - downSince > OUTAGE_MS) throw err;
           await sleep(pollMs);
           continue;
         }
+        if (task.real.keyWait) patch(task, env, { keyWait: undefined });
         if (t.status === 'SUCCEEDED') {
           const url = t.output?.[0];
           if (typeof url !== 'string') return fail(task, env, 'Runway finished the run but returned no result.', followHint(id));
@@ -320,7 +376,7 @@ export function createRunwayProvider({
         await sleep(pollMs);
       }
     } catch (err) {
-      fail(task, env, err?.status === 401 ? KEY_REFUSED : redact(err?.message ?? err, key), followHint(id));
+      fail(task, env, redact(err?.message ?? err, keyOf(task, env)), followHint(id));
     }
   }
 
@@ -354,14 +410,24 @@ export function createRunwayProvider({
           throw Object.assign(new Error(`Downloading the Runway result failed (${res.status}).`), { status: res.status });
         }
         const target = await saveResult(task, res);
-        const size = task.real.family === 'image' ? await imageSize(target.file) : null;
-        patch(task, env, { state: 'succeeded', ...(size ?? {}) }, { path: target.path });
+        const facts = task.real.family === 'image' ? await imageSize(target.file) : await videoFacts(target.file, probeVideo);
+        patch(task, env, { state: 'succeeded', ...(facts ?? {}) }, { path: target.path });
         return;
       } catch (err) {
         if (attempt >= DOWNLOAD_ATTEMPTS || !transient(err)) throw err;
         await sleep(Math.min(pollMs * attempt, 60_000));
       }
     }
+  }
+
+  /** A finished clip from before its details were kept reads them now, once; the caller cannot wait. */
+  function backfill(task) {
+    const r = task?.real;
+    if (r?.state !== 'succeeded' || r.family !== 'video' || r.frameRate > 0 || !task.path || probed.has(task.id)) return;
+    probed.add(task.id);
+    const file = localFileForUrl(task.path, dirs);
+    const info = file ? probeSync(file) : null;
+    if (info) patch(task, undefined, known(videoFields(info)));
   }
 
   /** Runs `work` once per task in this process; never rejects. */
@@ -393,6 +459,7 @@ export function createRunwayProvider({
         clipUpscalers: ['magnific-video'],
         aleph: true,
         export: true,
+        master: true,
         // The API cannot pin the still as the first frame beside a reference video, and there is no upscale route.
         recreate: false,
         textViaRunway: false,
@@ -401,9 +468,21 @@ export function createRunwayProvider({
       };
     },
 
+    /** The rate card's line for this task: its number when it is one, and always the line as said. */
+    async quote(type, options) {
+      const line = quoteRunway(type, options);
+      const credits = /^(?:about )?(\d+) credits$/.exec(line ?? '')?.[1];
+      return { unit: 'credits', amount: credits ? Number(credits) : null, ...(line ? { note: line } : {}) };
+    },
+
     supports(type, options) {
       const d = mapRunway(type, options);
       return d.kind === 'runway' ? { ok: true, notes: d.notes } : { ok: false, reason: d.reason };
+    },
+
+    /** The sentence that stops a later step of work started here, once there is no key to run it with; else nothing. */
+    unavailable(owner) {
+      return getKey(owner) ? undefined : NEEDS_KEY;
     },
 
     start(task, options, env) {
@@ -428,20 +507,17 @@ export function createRunwayProvider({
         };
       }
       const progress = r.state === 'waiting' ? r.progress ?? PROGRESS.waiting : PROGRESS[r.state] ?? 0;
+      // `error` on a live task: the status polls hand it to the page, which shows it as the wait it is.
+      if (r.keyWait) return { id: task.id, done: false, status: 'PENDING', progress, error: r.keyWait };
       return { id: task.id, done: false, status: r.remoteStatus === 'RUNNING' ? 'RUNNING' : 'PENDING', progress };
     },
 
     artifactMeta(task) {
-      const r = task?.real;
-      const metadata = {
-        ...(r?.width > 0 && r?.height > 0 ? { size: { width: r.width, height: r.height } } : {}),
-        ...(r?.duration > 0 ? { duration: r.duration } : {}),
-        ...(r?.frameRate > 0 ? { frameRate: r.frameRate } : {}),
-      };
-      return Object.keys(metadata).length > 0 ? { metadata } : {};
+      backfill(task);
+      return artifactDetails(task?.real);
     },
 
-    /** After a restart: follow a known remote id, else fail the task. Never resubmits. */
+    /** After a restart: follow a known remote id, with or without a key yet, else fail the task. Never resubmits. */
     resume(task, env) {
       if (!task.real?.remoteId) {
         fail(task, env, RESTART_BEFORE_ID, MAY_HAVE_STARTED);

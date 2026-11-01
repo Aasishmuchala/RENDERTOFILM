@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto';
 
 import { readConnections, updateConnections, updateServer } from './connections.ts';
 import { compositeUrl, ensureComposite, maskPrefix, renderKeyFor } from './composite.ts';
-import { editOwns, readEdit } from './edits.ts';
+import { editOwns, ownsAsset, readEdit } from './edits.ts';
+import { MAX_INPUT_PIXELS, sharp } from './imaging.ts';
 import { ownerFromRequest, readLibrary } from './library.ts';
 import {
   authorizationUrl,
@@ -15,7 +16,7 @@ import {
   exchangeCode,
   registerClient,
 } from './mcp.ts';
-import { putObject } from './storage.ts';
+import { getObject, putObject } from './storage.ts';
 import { posterUrl, thumbUrl, viewUrl } from './thumbs.ts';
 
 /**
@@ -82,6 +83,45 @@ const CLIP_ATOMS = new Set(['ftyp', 'moov', 'mdat', 'wide', 'free', 'skip', 'pno
 /** Whether these first bytes begin a real MP4 or MOV (ISO base media: a 4-byte size, then the box type). */
 function looksLikeClip(head: Buffer): boolean {
   return head.length >= 8 && CLIP_ATOMS.has(head.toString('latin1', 4, 8));
+}
+
+/** The audio a music bed can be, and the extension each is kept under. */
+const AUDIO_EXTENSIONS = new Map([
+  ['audio/mpeg', 'mp3'],
+  ['audio/wav', 'wav'],
+  ['audio/x-wav', 'wav'],
+  ['audio/mp4', 'm4a'],
+  ['audio/x-m4a', 'm4a'],
+  ['audio/aac', 'aac'],
+  ['audio/flac', 'flac'],
+]);
+
+/** What `chat-assets/` holds, by extension. A file of any other kind goes out as plain bytes. */
+const ASSET_TYPES = new Map([
+  ['mp3', 'audio/mpeg'],
+  ['wav', 'audio/wav'],
+  ['m4a', 'audio/mp4'],
+  ['aac', 'audio/aac'],
+  ['flac', 'audio/flac'],
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['png', 'image/png'],
+  ['webp', 'image/webp'],
+]);
+
+/** The name an upload is shown under: the file's own, with no folder or control characters. */
+function audioName(given: unknown, ext: string): string {
+  const base = typeof given === 'string' ? (given.split(/[\\/]/).pop() ?? '') : '';
+  return base.replace(/\p{Cc}/gu, '').trim().slice(0, 200) || `music.${ext}`;
+}
+
+/** The one range a `Range` header asks of `size` bytes: null for none or several, 'past' beyond the end. */
+function byteRange(header: string, size: number): { start: number; end: number } | 'past' | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (!m[1] && !m[2])) return null;
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  return start > end ? 'past' : { start, end };
 }
 
 export function isApiPath(path: string): boolean {
@@ -387,6 +427,94 @@ export function mountApi(app: Koa) {
     ctx.body = { key };
   });
 
+  // Keep a render sent to the chat under the visitor's own `chat-assets/` prefix and
+  // answer its upright size, which the thread lists it with.
+  api.post('/chat/asset', requireRunwayUser(), async (ctx) => {
+    const type = ctx.request.type.trim().toLowerCase();
+    if (type !== 'image/jpeg' && type !== 'image/png' && type !== 'image/webp') {
+      ctx.throw(415, 'Send a PNG, JPEG or WebP image.');
+    }
+    const owner = await ownerFromRequest(ctx.req);
+    if (!owner) ctx.throw(401, 'Sign in to Runway to send a picture.');
+    const limit = 25 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const chunk of ctx.req) {
+      const buf: Buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      total += buf.length;
+      if (total > limit) ctx.throw(413, 'That image is over 25 MB.');
+      chunks.push(buf);
+    }
+    if (total === 0) ctx.throw(400, 'The upload was empty.');
+    const bytes = Buffer.concat(chunks);
+    const size = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
+      .metadata()
+      .then((m) => m.autoOrient)
+      .catch(() => null);
+    if (!size) ctx.throw(415, 'That file is not a picture that can be read.');
+    const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+    const key = `chat-assets/${owner!}/${randomUUID()}.${ext}`;
+    await putObject(key, bytes, { contentType: type });
+    ctx.body = { key, width: size!.width, height: size!.height };
+  });
+
+  // Keep a music bed (raw audio bytes, the file's name in `?name=`) under the
+  // visitor's own `chat-assets/` prefix: `edit.setMusic` takes the key, and the
+  // desktop app's master reads the file from there.
+  api.post('/upload-audio', requireRunwayUser(), async (ctx) => {
+    const type = ctx.request.type.trim().toLowerCase();
+    const ext = AUDIO_EXTENSIONS.get(type);
+    if (!ext) ctx.throw(415, 'Upload an MP3, WAV, M4A, AAC or FLAC file.');
+    const owner = await ownerFromRequest(ctx.req);
+    if (!owner) ctx.throw(401, 'Sign in to Runway to add music.');
+    const limit = 50 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const chunk of ctx.req) {
+      const buf: Buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      total += buf.length;
+      if (total > limit) ctx.throw(413, 'That file is over 50 MB.');
+      chunks.push(buf);
+    }
+    if (total === 0) ctx.throw(400, 'The upload was empty.');
+    const key = `chat-assets/${owner!}/${randomUUID()}.${ext}`;
+    await putObject(key, Buffer.concat(chunks), { contentType: type });
+    ctx.body = { key, name: audioName(ctx.query['name'], ext!) };
+  });
+
+  // One of the visitor's own `chat-assets/` files: a music bed, a render. A key
+  // has slashes, hence `*key`; a page may send it raw or encoded. A range is
+  // answered because an <audio> element cannot seek without one.
+  api.get('/asset/*key', requireRunwayUser(), async (ctx) => {
+    const owner = await ownerFromRequest(ctx.req);
+    if (!owner) ctx.throw(401, 'Sign in to Runway to open this file.');
+    const key = ctx.params['key'] ?? '';
+    const file = ownsAsset(owner!, key) ? await getObject(key) : null;
+    if (!file) {
+      ctx.status = 404;
+      ctx.body = { error: 'That file is not available.' };
+      return;
+    }
+    const bytes = Buffer.from(file);
+    ctx.set('Accept-Ranges', 'bytes');
+    ctx.set('Cache-Control', 'private, max-age=300');
+    // The type comes from the key, never the upload: nothing here can answer as a page.
+    ctx.set('Content-Type', ASSET_TYPES.get(key.split('.').pop()!.toLowerCase()) ?? 'application/octet-stream');
+    ctx.set('X-Content-Type-Options', 'nosniff');
+    const range = byteRange(ctx.get('Range'), bytes.length);
+    if (range === 'past') {
+      ctx.status = 416;
+      ctx.set('Content-Range', `bytes */${bytes.length}`);
+      ctx.body = '';
+      return;
+    }
+    if (range) {
+      ctx.status = 206;
+      ctx.set('Content-Range', `bytes ${range.start}-${range.end}/${bytes.length}`);
+    }
+    ctx.body = range ? bytes.subarray(range.start, range.end + 1) : bytes;
+  });
+
   // A stable URL for one of the visitor's stills or clips. The media stays in
   // their Runway account; this checks it is theirs and 302s to a freshly
   // signed artifact URL, so the bytes go Runway -> browser (seeking included)
@@ -673,7 +801,7 @@ function oauthDonePage(ok: boolean, message: string): string {
   const safe = message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const payload = JSON.stringify({ type: 'render-to-film:mcp-oauth', ok, message }).replaceAll('<', '\\u003c');
   return `<!doctype html><meta charset="utf-8"><title>${ok ? 'Signed in' : 'Sign-in failed'}</title>
-<body style="font:14px system-ui;padding:32px;color:#222">
+<body style="font:14px system-ui;padding:32px;background:#0b0b0b;color:#f5f5f5">
 <p>${safe}</p><p>You can close this window.</p>
 <script>
 try { window.opener && window.opener.postMessage(${payload}, location.origin); } catch (e) {}

@@ -1,6 +1,9 @@
+import type { IncomingMessage } from 'node:http';
+
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { resolveTextProvider } from './ai-text.ts';
 import {
   ANTHROPIC_MODELS,
   AiTextError,
@@ -17,27 +20,46 @@ import {
   maskKey,
   newServerId,
   publicView,
+  readChatSettings,
   readConnections,
   summarizeTools,
   updateConnections,
   updateServer,
   withSession,
+  writeChatSettings,
 } from './connections.ts';
-import { ownerKey } from './library.ts';
+import { ownerKey, readLibrary } from './library.ts';
 import { createSeevioVideo, getSeevioTask, verifySeevioKey } from './seevio.ts';
+import { SIDECAR_LABELS, type SidecarId, type SidecarStatus } from './sidecars.ts';
 import { publicProcedure, router } from './trpc.ts';
 
 /**
  * The Settings tab: Runway sign-in status, Runway MCP, Higgsfield and other MCP servers
  * (sign in, test, run a tool), provider API keys (Seevio, Anthropic,
- * OmegaPlus, the Runway API) and who answers the app's text-and-vision calls;
- * in the desktop app also who generates (Higgsfield or the Runway API). Every
+ * OmegaPlus, the Runway API), who answers the app's text-and-vision calls and
+ * the chat agent's model and Allowance; in the desktop app also who generates
+ * (Higgsfield or the Runway API) and the power tools (sidecars). Every
  * credential stays on the server in the visitor's own `connections/`
  * document (src/connections.ts); answers carry only what the page shows.
  */
 
 const serverId = z.string().min(1).max(64);
 const aiTextProvider = z.enum(['anthropic', 'omegaplus']);
+const sidecarId = z.enum(['filmcraft', 'lightcraft']);
+
+/** The server's bound for the Allowance, per day in its own unit. */
+const ALLOWANCE_MAX = 100_000;
+
+/** What a chat setting may be. `ChatSettings.effort` has one value, so that is the only one taken. */
+const chatSettings = z.object({
+  model: z
+    .string()
+    .refine((id) => ANTHROPIC_MODELS.some((m) => m.id === id), 'That model is not available on Anthropic.')
+    .optional(),
+  effort: z.literal('high').optional(),
+  allowancePerDay: z.number().min(0).max(ALLOWANCE_MAX).optional(),
+  unit: z.enum(['credits', 'usd']).optional(),
+});
 
 const providerName = (provider: TextProvider) => (provider === 'anthropic' ? 'Anthropic' : 'OmegaPlus');
 const keyMissing = (provider: TextProvider) =>
@@ -95,6 +117,71 @@ function generationOptions(caps: Capabilities) {
   return options;
 }
 
+type SidecarProgress = { received: number; total: number | null };
+
+/** What this router calls in desktop/platform/sidecars.js. */
+interface SidecarsModule {
+  status: (id: SidecarId) => Promise<SidecarStatus>;
+  setPath: (id: SidecarId, file: string) => Promise<SidecarStatus>;
+  download: (id: SidecarId, options: { onProgress: (progress: SidecarProgress) => void }) => Promise<string>;
+  remove: (id: SidecarId) => Promise<void>;
+}
+
+/** A sidecar's status, with the download this server is running or last lost. */
+export type SidecarRow = SidecarStatus & { download: SidecarProgress | null; downloadError: string | null };
+
+/**
+ * The downloads by tool: `progress` while one runs, the sentence when the last
+ * one failed. The desktop server is one process for one person, so memory is
+ * enough: a restart loses a sentence, and sidecars.js sweeps its own work folder.
+ */
+const sidecarDownloads = new Map<SidecarId, { progress: SidecarProgress | null; error: string | null }>();
+
+const sidecarIds = Object.keys(SIDECAR_LABELS) as SidecarId[];
+const sidecarBusy = () => new TRPCError({ code: 'CONFLICT', message: 'This tool is already downloading.' });
+
+/**
+ * desktop/platform/sidecars.js, which `bay deploy` never sees: desktop/ is left
+ * out of the Bay image, where `pnpm run build` runs tsc and esbuild. So the
+ * compiler is told to expect the missing file, and the `try` is what lets
+ * esbuild leave an import it cannot find; the desktop build bundles this one.
+ */
+async function sidecarsModule(): Promise<SidecarsModule> {
+  try {
+    // @ts-expect-error No types here either way: untyped JS on desktop, no file at all on Bay.
+    return (await import('../desktop/platform/sidecars.js')) as SidecarsModule;
+  } catch (cause) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Power tools did not load.', cause });
+  }
+}
+
+/** Signed in and in the desktop app, like every write on the Generation card. */
+async function sidecarsOrThrow(ctx: { req: IncomingMessage; runway: unknown }) {
+  if (!capabilitiesOf(ctx.runway).desktop) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Power tools are a desktop setting.' });
+  }
+  await ownerKey(ctx.req);
+  return sidecarsModule();
+}
+
+/**
+ * The download state is read before the status, so a row never says the
+ * download is over while its status is from before the install.
+ */
+async function sidecarRow(sidecars: SidecarsModule, id: SidecarId): Promise<SidecarRow> {
+  const running = sidecarDownloads.get(id);
+  const status = await sidecars.status(id);
+  // A tool that works ends the last failure for good, however it came to work.
+  if (status.ok && !sidecarDownloads.get(id)?.progress) sidecarDownloads.delete(id);
+  return { ...status, download: running?.progress ?? null, downloadError: status.ok ? null : (running?.error ?? null) };
+}
+
+/** sidecars.js refuses in one sentence with no path in it, so that sentence is the answer. */
+function sidecarRefusal(err: unknown) {
+  const message = err instanceof Error ? err.message : 'That did not work. Try it again.';
+  return new TRPCError({ code: 'UNPROCESSABLE_CONTENT', message });
+}
+
 export const settingsRouter = router({
   /** Runway session state for the Runway card; `signInUrl` opens the popup. */
   runway: publicProcedure.query(({ ctx }) => ({
@@ -105,6 +192,20 @@ export const settingsRouter = router({
 
   /** What this server offers; no `capabilities()` on the client means Bay, which offers everything. */
   capabilities: publicProcedure.query(({ ctx }) => capabilitiesOf(ctx.runway)),
+
+  /**
+   * The desktop app's paid runs held up for a key, for the shell's notice: a
+   * live task says why in its `error`. The sentence comes from the provider,
+   * the count from the library's pending takes.
+   */
+  waitingRuns: publicProcedure.query(async ({ ctx }): Promise<{ count: number; message?: string | undefined }> => {
+    if (!capabilitiesOf(ctx.runway).desktop) return { count: 0 };
+    const lib = await readLibrary(await ownerKey(ctx.req));
+    const pending = [...lib.stills, ...lib.clips].filter((item) => item.status === 'pending');
+    const snaps = await Promise.all(pending.map((item) => ctx.runway?.taskSnapshot(item.id).catch(() => null)));
+    const waits = snaps.flatMap((snap) => (snap && !snap.done && snap.error ? [snap.error] : []));
+    return { count: waits.length, message: waits[0] };
+  }),
 
   /** The Generation card: the provider, its daily budget, who to choose from and the account behind it. */
   generation: publicProcedure.query(async ({ ctx }) => {
@@ -142,6 +243,74 @@ export const settingsRouter = router({
         ...doc,
         generation: { provider: input.provider, budget: input.budget ?? doc.generation?.budget, updatedAt },
       }));
+    }),
+
+  /** The Chat card: what the agent runs on, and whether it can run. It needs a direct Anthropic key. */
+  chat: publicProcedure.query(async ({ ctx }) => {
+    const owner = await ownerKey(ctx.req);
+    const [settings, { provider }] = await Promise.all([readChatSettings(owner), resolveTextProvider(owner)]);
+    return { ...settings, provider, ready: provider === 'anthropic', models: ANTHROPIC_MODELS };
+  }),
+
+  /** Saves the fields sent; the others keep what they were. */
+  setChat: publicProcedure
+    .input(chatSettings)
+    .mutation(async ({ ctx, input }) => writeChatSettings(await ownerKey(ctx.req), input)),
+
+  /** The Power tools card; nothing on Bay, where the module is not even in the image. */
+  sidecars: publicProcedure.query(async ({ ctx }): Promise<SidecarRow[]> => {
+    if (!capabilitiesOf(ctx.runway).desktop) return [];
+    const sidecars = await sidecarsOrThrow(ctx);
+    return Promise.all(sidecarIds.map((id) => sidecarRow(sidecars, id)));
+  }),
+
+  /** Starts the user's download and answers at once; `sidecars` shows how it goes. */
+  sidecarDownload: publicProcedure.input(z.object({ id: sidecarId })).mutation(async ({ ctx, input }) => {
+    const sidecars = await sidecarsOrThrow(ctx);
+    const { id } = input;
+    if (sidecarDownloads.get(id)?.progress) throw sidecarBusy();
+    const state = { progress: { received: 0, total: null } as SidecarProgress, error: null };
+    sidecarDownloads.set(id, state);
+    // Not awaited: it can take minutes, and its end is reported through `sidecars`.
+    void sidecars
+      .download(id, {
+        onProgress: (progress) => {
+          state.progress = progress;
+        },
+      })
+      .then(
+        () => sidecarDownloads.delete(id),
+        (err: unknown) => {
+          const error = err instanceof Error ? err.message : 'The download failed. Try it again.';
+          sidecarDownloads.set(id, { progress: null, error });
+        }
+      );
+    return { started: true as const };
+  }),
+
+  /** Deletes our download and forgets a saved path; a file the user keeps elsewhere stays, and the answer shows it. */
+  sidecarRemove: publicProcedure.input(z.object({ id: sidecarId })).mutation(async ({ ctx, input }) => {
+    const sidecars = await sidecarsOrThrow(ctx);
+    if (sidecarDownloads.get(input.id)?.progress) throw sidecarBusy();
+    await sidecars.remove(input.id).catch((err: unknown) => {
+      throw sidecarRefusal(err);
+    });
+    sidecarDownloads.delete(input.id);
+    return sidecarRow(sidecars, input.id);
+  }),
+
+  /**
+   * Keeps a file the user chose once it answers with the pinned version; the answer says what it found either way.
+   * Refused during a download, which ends by replacing any saved choice.
+   */
+  sidecarSetPath: publicProcedure
+    .input(z.object({ id: sidecarId, path: z.string().trim().min(1, 'Enter the path to the program.').max(4096) }))
+    .mutation(async ({ ctx, input }) => {
+      const sidecars = await sidecarsOrThrow(ctx);
+      if (sidecarDownloads.get(input.id)?.progress) throw sidecarBusy();
+      return sidecars.setPath(input.id, input.path).catch((err: unknown) => {
+        throw sidecarRefusal(err);
+      });
     }),
 
   /** Runs the CLI's own browser sign-in, which the app never sees; answers once it has finished. */

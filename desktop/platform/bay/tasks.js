@@ -4,15 +4,19 @@
 //
 // - The desktop app (BAY_ENV=desktop, or RTF_SIMULATOR=1): the owner's provider
 //   from Settings, through the Provider contract (../providers/types.js).
-//   `media_processing_v2` runs in ffmpeg whoever the provider is. A task the
-//   provider cannot run is refused in one sentence, before anything is saved.
+//   `media_processing_v2` runs in ffmpeg whoever the provider is, its
+//   `conform_otio` in FilmCraft and its `relight` in LightCraft when that sidecar
+//   is here. A task the provider cannot run is refused in one sentence, before
+//   anything is saved.
 // - The plain harness and its tests: the simulator, with REAL_GEN handing stills
 //   and clips to ../realgen. Its client has no `capabilities()`, so the client
 //   code reads it as Bay.
 //
 // Tasks are kept in memory and in <data>/storage/tasks.json, every state change
 // written at once, so a restarted server still answers for them: resumeAll()
-// follows what was already submitted by its remote id and never resubmits.
+// follows what was already submitted by its remote id and never resubmits. A
+// tasks.json that will not read is restored from its backup (./durable.js); with
+// nothing to restore, no run starts and the file is never overwritten.
 // runway.js re-exports what the app imports from here.
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -20,6 +24,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { capabilitiesFor } from './capabilities.js';
+import { isRecord, readBackup, restoreDurable, writeDurable } from './durable.js';
 import { bootReady } from './guard.js';
 import { ASSETS_DIR, STORAGE_DIR, UPLOADS_DIR, mockOrigin } from './paths.js';
 // A cycle with runway.js, safe because these names are only read inside
@@ -31,6 +36,7 @@ import { createHiggsfieldProvider } from '../providers/higgsfield.js';
 import { createRunwayProvider } from '../providers/runway-api.js';
 import { AI_TEXT_SENTENCE } from '../providers/runway-mapping.js';
 import { SCALE, createSimulatorProvider, lookFromPrompt } from '../providers/simulator.js';
+import { localFileForUrl, refusesInput } from '../realgen/files.js';
 import { stopWaits } from '../realgen/higgsfield.js';
 import * as realgen from '../realgen/index.js';
 
@@ -42,23 +48,56 @@ const simulatorOffered = () => process.env.RTF_SIMULATOR === '1';
 
 const DEFAULT_BUDGET = 300; // credits a day until the owner sets their own
 const NO_PROVIDER = 'Choose a provider in Settings.';
+const TASKS_LOST = 'Render to Film could not read its task list or the backup of it, so nothing was started and nothing was charged.';
+const LIBRARY_LOST = 'Your library could not be read or restored from its backup, so nothing was started and nothing was charged.';
+const NOT_MEDIA = 'Only images and videos from this app can go to a provider, so nothing was uploaded and nothing was charged.';
 
 /** Nothing has reached a paid call yet. */
 const BEFORE_SUBMIT = new Set(['queued', 'uploading', 'quoting']);
 /** Possibly paid for: these are what a restart follows and what the quit dialog counts. */
 const SUBMITTED = new Set(['submitted', 'waiting', 'downloading']);
+/** Stay on this computer and go in no library: ffmpeg, and text that only the simulator answers. */
+const LOCAL_TYPES = new Set(['media_processing_v2', 'claude_api']);
+/** Who runs media_processing_v2 on this computer: nobody's generation provider, and started again at boot for free. */
+const LOCAL_PROVIDERS = new Set(['ffmpeg', 'filmcraft']);
 
 const TASKS_FILE = path.join(STORAGE_DIR, 'tasks.json');
 
 let state; // { tasks: { [id]: Task }, checks: number }
+let tasksLost = false; // tasks.json and its backup both failed: nothing may be saved or started
+
+/** The parsed task list; a throw means the bytes are not one. */
+function parseTasks(bytes) {
+  const doc = JSON.parse(bytes.toString('utf8'));
+  if (!isRecord(doc) || !isRecord(doc.tasks ?? {})) throw new Error('not a task list');
+  return doc;
+}
+
+/** tasks.json, else its backup with the damaged file kept, else an empty list that `tasksLost` keeps off the disk. */
+function readTasks() {
+  let missing = false;
+  try {
+    return parseTasks(fs.readFileSync(TASKS_FILE));
+  } catch (err) {
+    missing = err?.code === 'ENOENT';
+  }
+  const backup = readBackup(TASKS_FILE);
+  if (missing && !backup) return { tasks: {}, checks: 0 };
+  try {
+    const doc = parseTasks(backup);
+    const kept = restoreDurable(TASKS_FILE, backup);
+    console.warn(`[tasks] tasks.json could not be read; ${kept ? `kept it as ${kept} and ` : ''}restored ${Object.keys(doc.tasks ?? {}).length} tasks from its backup.`);
+    return doc;
+  } catch {
+    tasksLost = true;
+    console.error('[tasks] tasks.json could not be read and has no usable backup; it was left as it is, and no run will start.');
+    return { tasks: {}, checks: 0 };
+  }
+}
 
 function load() {
   if (state) return state;
-  try {
-    state = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
-  } catch {
-    state = { tasks: {}, checks: 0 };
-  }
+  state = readTasks();
   state.tasks ??= {};
   state.checks ??= 0;
   return state;
@@ -86,10 +125,8 @@ function reportJobs() {
 }
 
 function save() {
-  fs.mkdirSync(path.dirname(TASKS_FILE), { recursive: true });
-  const tmp = `${TASKS_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-  fs.renameSync(tmp, TASKS_FILE);
+  if (tasksLost) return;
+  writeDurable(TASKS_FILE, JSON.stringify(state, null, 2));
   reportJobs();
 }
 
@@ -102,9 +139,28 @@ if (!DESKTOP && realgen.mode() !== 'off') realgen.boot(realgenSetup);
 // ---------------------------------------------------------------- owners
 
 const connections = documentStore({ prefix: 'connections/' });
+const library = documentStore({ prefix: 'library/' });
 
 /** The last read of each owner's document, for the callers that cannot wait: owner -> { provider, budget, runwayKey }. */
 const owners = new Map();
+
+/**
+ * The one door every create path goes through, before anything is saved, uploaded
+ * or billed. Reading the library is what restores a damaged one: a take that
+ * cannot be recorded must not be paid for.
+ */
+async function assertRunnable(owner, type, options) {
+  load();
+  if (tasksLost) throw new RunwayTaskError(TASKS_LOST, { status: 400 });
+  if (LOCAL_TYPES.has(type)) return;
+  if (refusesInput(options)) throw new RunwayTaskError(NOT_MEDIA, { status: 400 });
+  try {
+    await library.get(`${owner}.json`);
+  } catch (err) {
+    console.warn(`[tasks] library: ${err?.message ?? err}`);
+    throw new RunwayTaskError(LIBRARY_LOST, { status: 400 });
+  }
+}
 
 /** Reads the owner's sealed `connections/` document; throws when it cannot be opened. */
 async function readOwner(owner) {
@@ -139,7 +195,24 @@ const providers = {
 
 const builtProviders = { ...providers };
 
-/** Test seam: swaps any of higgsfield, runway, simulator, ffmpeg. */
+let filmcraftLoad; // one load, whoever asks first
+let stopConforms; // what a quit calls, once there is anything to stop
+
+/**
+ * FilmCraft's module and the sidecars, with its provider in `providers` from then
+ * on. Read when a conform first needs them, as ffmpeg.js reads master.js:
+ * realgen-dry.test.mjs runs a private copy of bay/ with neither file beside it.
+ */
+function loadFilmcraft() {
+  filmcraftLoad ??= Promise.all([import('../filmcraft.js'), import('../sidecars.js')]).then(([filmcraft, sidecars]) => {
+    providers.filmcraft ??= filmcraft.createFilmcraftProvider({ dirs, storagePath, lookupTaskPath, persist: save, mockOrigin, sidecars });
+    stopConforms = filmcraft.stopFilmcraft;
+    return { sidecars, notInstalled: filmcraft.NOT_INSTALLED };
+  });
+  return filmcraftLoad;
+}
+
+/** Test seam: swaps any of higgsfield, runway, simulator, ffmpeg, filmcraft. */
 export function __setProviders(next) {
   Object.assign(providers, next);
 }
@@ -161,6 +234,22 @@ export async function providerFor(owner) {
   const id = chosenProvider(owner);
   if (id === 'simulator' && !simulatorOffered()) throw new RunwayTaskError(NO_PROVIDER, { status: 400 });
   return providers[id];
+}
+
+/**
+ * The provider a later step of some work is held to: the one that started it,
+ * whatever is chosen today. One that cannot be used any more refuses the step in
+ * one sentence, so it is never billed to another provider.
+ */
+async function providerStartedOn(owner, id) {
+  await readOwner(owner);
+  const provider = !LOCAL_PROVIDERS.has(id) && Object.hasOwn(providers, id) ? providers[id] : undefined;
+  if (!provider || (id === 'simulator' && !simulatorOffered())) {
+    throw new RunwayTaskError('This was started on a provider that is no longer available, so nothing was sent.', { status: 400 });
+  }
+  const refusal = provider.unavailable?.(owner);
+  if (refusal) throw new RunwayTaskError(refusal, { status: 400 });
+  return provider;
 }
 
 /** Whoever answers for a task from here on: the one that ran it, whatever is chosen today. */
@@ -212,12 +301,18 @@ export async function resumeAll() {
   resumed = true;
   // Listed before the first await: anything created after this is this process's own run.
   const tasks = Object.values(load().tasks).filter((task) => task?.real?.state);
+  await Promise.all([import('../lightcraft.js'), import('../sidecars.js')])
+    .then(([lightcraft, sidecars]) => lightcraft.registerLightcraft(providers, sidecars))
+    .catch((err) => console.warn(`[tasks] lightcraft: ${err?.message ?? err}`));
   const locked = new Set();
   const opened = new Set();
   for (const task of tasks) {
     const { kind, state: runState } = task.real;
-    if (kind === 'ffmpeg') {
-      if (runState === 'queued' || runState === 'running') track(task, () => providers.ffmpeg.resume(task));
+    if (LOCAL_PROVIDERS.has(kind)) {
+      if (runState === 'queued' || runState === 'running') {
+        if (kind === 'filmcraft') await loadFilmcraft();
+        track(task, () => providers[kind].resume(task));
+      }
       continue;
     }
     if (!Object.hasOwn(providers, kind)) continue;
@@ -251,6 +346,7 @@ function exitOnShutdown(port = process.parentPort) {
   port?.on('message', ({ data }) => {
     if (data?.type !== 'shutdown') return;
     stopFfmpeg();
+    stopConforms?.();
     stopWaits();
     process.exit(0);
   });
@@ -281,6 +377,7 @@ export function bootTasks() {
 
 /** Test hook: forget every task. */
 export function __mockResetTasks() {
+  tasksLost = false;
   state = { tasks: {}, checks: 0 };
   save();
 }
@@ -298,6 +395,28 @@ function launch(provider, owner, type, options, notes) {
   save();
   track(task, () => provider.start(task, options, envFor(owner)));
   return { id: task.id };
+}
+
+/** What a task would cost the owner, routed as createTask routes it. */
+async function quoteTask(owner, type, options) {
+  if (LOCAL_TYPES.has(type)) return { unit: 'credits', amount: 0 };
+  const provider = await providerFor(owner);
+  return (await provider.quote?.(type, options)) ?? { unit: 'credits', amount: null };
+}
+
+/** Who runs a media_processing_v2 task: FilmCraft a conform, once it is here; ffmpeg everything else. */
+async function localRunner(options) {
+  if (options?.operation !== 'conform_otio') return providers.ffmpeg;
+  const { sidecars, notInstalled } = await loadFilmcraft();
+  const { ok } = await sidecars.status('filmcraft');
+  if (!ok) throw new RunwayTaskError(notInstalled, { status: 400 });
+  return providers.filmcraft;
+}
+
+/** The file on this computer behind a task's result, null when it has none. */
+function taskFile(id) {
+  const served = lookupTaskPath(id);
+  return served ? localFileForUrl(served, dirs, storagePath) : null;
 }
 
 /** The plain harness: the simulator, unless REAL_GEN hands the task to realgen. */
@@ -322,8 +441,10 @@ export class RunwayClient {
     this.owner = owner;
     // Only here: on the harness these stay absent, and the app reads a client without them as Bay.
     if (!DESKTOP) return;
-    this.capabilities = () => capabilitiesFor(providers[chosenProvider(owner)]);
+    this.capabilities = () => ({ ...capabilitiesFor(providers[chosenProvider(owner)]), interchange: true, sidecars: true });
+    this.taskFile = taskFile;
     this.account = async () => (await providerFor(owner)).account(owner);
+    this.quote = (type, options = {}) => quoteTask(owner, type, options);
     this.verifyRunwayKey = verifyRunwayKey;
     this.higgsfield = {
       login: () => providers.higgsfield.login(),
@@ -342,14 +463,17 @@ export class RunwayClient {
     return { ...LOCAL_PROFILE };
   }
 
-  async createTask(type, options = {}, _opts = {}) {
+  /** `opts.provider`: a later step of work that provider started (src/task-helpers.ts, onProvider). */
+  async createTask(type, options = {}, opts = {}) {
+    await assertRunnable(this.owner, type, options);
     if (!DESKTOP) return harnessTask(type, options);
     if (type === 'media_processing_v2') {
-      const local = providers.ffmpeg.supports(type, options);
+      const runner = await localRunner(options);
+      const local = runner.supports(type, options);
       if (!local.ok) throw new RunwayTaskError(local.reason, { status: 400 });
-      return launch(providers.ffmpeg, this.owner, type, options, local.notes);
+      return launch(runner, this.owner, type, options, local.notes);
     }
-    const provider = await providerFor(this.owner);
+    const provider = opts.provider ? await providerStartedOn(this.owner, opts.provider) : await providerFor(this.owner);
     if (type === 'claude_api' && provider.id !== 'simulator') {
       throw new RunwayTaskError(AI_TEXT_SENTENCE, { status: 400 });
     }
@@ -366,6 +490,7 @@ export class RunwayClient {
         body: { error: { message: 'Task not found' } },
       });
     }
+    if (task.real?.kind === 'filmcraft') await loadFilmcraft();
     return providerOfTask(task).snapshot(task, opts);
   }
 

@@ -114,7 +114,7 @@
 }
 
 /* A checkbox row, after the Switch (ui/Switch.module.css): the box carries
-   the focus ring, selected turns it accent, disabled dims the row. */
+   the focus ring, selected turns it solid white, disabled dims the row. */
 .check {
   display: flex;
   align-items: flex-start;

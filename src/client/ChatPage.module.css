@@ -1,0 +1,254 @@
+/* The home page (DESIGN 3): the whole window, on the solid canvas, with the
+   transcript running under the fixed top bar. Fixed, so a long conversation
+   scrolls here and the window, shared with every other page, stays put. */
+.page {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background-color: var(--bay-bg-canvas);
+}
+
+/* The chats, as a left rail from 900 px. Below that they wait behind "Chats". */
+.rail {
+  display: none;
+}
+
+/* Stays under the top bar as the words pass behind it, so it brings a solid fill. */
+.column .chats {
+  position: sticky;
+  top: calc(var(--app-header) + 8px);
+  z-index: 2;
+  align-self: flex-start;
+  flex: none;
+  background-color: var(--bay-bg-subtle);
+}
+
+@media (min-width: 900px) {
+  .page {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .rail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: calc(var(--app-header) + 12px) 12px 12px;
+    border-right: 1px solid var(--bay-border-hair);
+    overflow: hidden;
+  }
+
+  .column .chats {
+    display: none;
+  }
+}
+
+.scroller {
+  min-width: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-border-strong) transparent;
+}
+
+/* One centred reading column. The composer is its last child and sticks to the
+   foot of the scroller, so the transcript passes under it and always clears it. */
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 792px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: calc(var(--app-header) + 16px) 16px 0;
+}
+
+.title {
+  margin: auto 0 0;
+  max-width: 28ch;
+  align-self: center;
+  font: var(--text-title-3);
+  letter-spacing: var(--track-title-3);
+  color: var(--bay-text-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+/* On its own fill: the transcript passes behind the foot. Empty, it takes no room
+   and stays in the page, because a live region has to be there before its words. */
+.reconnecting {
+  width: fit-content;
+  margin: 0 auto;
+  border-radius: var(--r-pill);
+  background-color: var(--bay-bg-subtle);
+  font: var(--text-caption);
+  letter-spacing: var(--track-caption);
+  color: var(--bay-text-2);
+}
+
+.reconnecting:not(:empty) {
+  margin-bottom: 6px;
+  padding: 2px 10px;
+}
+
+.setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: auto;
+  padding: 16px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+}
+
+.setupTitle {
+  margin: 0;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+}
+
+.setupLine {
+  margin: 0 0 4px;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text-2);
+}
+
+.setup a {
+  text-decoration: none;
+}
+
+/* The newest Run, one row in the top bar. Below 1100 px the row would run into
+   the page's title, so the bar has no room and the activity pill beside it opens
+   the same list. */
+.barTray {
+  display: none;
+}
+
+.barTray ul {
+  min-width: 0;
+  max-height: 40px;
+}
+
+@media (min-width: 1100px) {
+  .barTray {
+    display: block;
+    width: 240px;
+  }
+}
+
+/* A file over the page: a ring round all of it, and the two words it needs. */
+.dropRing {
+  position: absolute;
+  inset: calc(var(--app-header) + 8px) 8px 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 2px solid var(--bay-border-focus);
+  border-radius: var(--r-panel);
+  background: color-mix(in srgb, var(--bay-bg-canvas) 60%, transparent);
+  pointer-events: none;
+}
+
+.dropWords {
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+}
+
+/* ---------------------------------------------------------------- phone sheet */
+
+.sheetOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--scrim);
+}
+
+.sheet {
+  composes: glass-thick from global;
+  position: fixed;
+  inset: auto 12px calc(10px + env(safe-area-inset-bottom)) 12px;
+  display: flex;
+  max-height: calc(100dvh - 72px);
+  padding: 8px;
+  border-radius: var(--r-panel);
+  outline: none;
+}
+
+.sheetDialog {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 8px 12px;
+}
+
+.sheetTitle {
+  margin: 0;
+  font: var(--text-title-3);
+  letter-spacing: var(--track-title-3);
+  color: var(--bay-text);
+}
+
+.sheetClose {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--glass-btn);
+  color: var(--bay-text-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.sheetClose[data-hovered],
+.sheetClose[data-focus-visible] {
+  background: var(--glass-btn-hover);
+  color: var(--bay-text);
+}
+
+.sheetClose[data-pressed] {
+  background: var(--glass-btn-pressed);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

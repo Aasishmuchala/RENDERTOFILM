@@ -30,12 +30,17 @@ code {
   background: var(--bay-bg-subtle);
 }
 
+/* Links are ink plus an underline, always: with no hue, colour cannot say
+   "link", so the line does. */
 a {
-  color: var(--bay-accent-fg);
+  color: var(--bay-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 ::selection {
-  background: rgba(var(--bay-accent-rgb), 0.35);
+  background: rgba(var(--bay-accent-rgb), 0.28);
+  color: var(--bay-text-on-accent);
 }
 
 * {
@@ -43,13 +48,17 @@ a {
   scrollbar-color: var(--bay-border-strong) transparent;
 }
 
-/* The focus ring (DESIGN 2.8). Outlines follow the element's own radius, so
-   the ring needs no radius of its own; inputs swap it for an accent border
-   in their module. */
+/* The focus ring (DESIGN 2.8): two tones, a 2px white outline hugging the box
+   and a black halo from 2px to 4px outside it, so it reads over a white render
+   and over a black one. The offset stays 0: any gap would slide the outline
+   over the halo and leave the black only inside the white. Outlines follow the
+   element's own radius, so the ring needs no radius of its own; inputs swap it
+   for a white border in their module. */
 :focus-visible,
 [data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 2px;
+  outline-offset: 0;
+  box-shadow: 0 0 0 4px #0b0b0b;
 }
 
 @media (prefers-reduced-motion: reduce) {

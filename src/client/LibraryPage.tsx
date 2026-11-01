@@ -1,5 +1,5 @@
-import { ChevronRight, Clapperboard, Download, Image as ImageIcon, Maximize2, Play, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronRight, Clapperboard, Download, Image as ImageIcon, Maximize2, Play, Scissors, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button as AriaButton, Disclosure, DisclosurePanel } from 'react-aria-components';
 
 import type { Clip, Still } from '../api.ts';
@@ -16,8 +16,9 @@ import {
 import { recreateTitle } from '../recreate.ts';
 import { clipAutoTags, normalizeTag, stillAutoTags } from '../tags.ts';
 import { DeleteItemDialog, type DeleteTarget } from './DeleteItemDialog.tsx';
+import { formatHash, type GoTo, type Handoff } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
-import { Workspace } from './layouts/Workspace.tsx';
+import { PHONE_QUERY, Workspace } from './layouts/Workspace.tsx';
 import { clipPosterUrl, libraryUrl, NO_POSTER, stillThumbUrl, stillViewUrl, useDownload } from './lib/download.ts';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
@@ -26,11 +27,13 @@ import { EmptyState } from './ui/EmptyState.tsx';
 import { FilterChips } from './ui/FilterChips.tsx';
 import { Lightbox } from './ui/Lightbox.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
+import { Elapsed } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
 import { SkeletonBlock } from './ui/Skeleton.tsx';
 import { TagEditor, TagPicker } from './ui/TagEditor.tsx';
 import { Text } from './ui/Text.tsx';
 import { TextInput } from './ui/TextInput.tsx';
+import { useHandoff } from './VideoPage.tsx';
 import styles from './LibraryPage.module.css';
 
 type Item =
@@ -44,6 +47,7 @@ const KINDS = [
 ] as const;
 
 const PAGE = 24;
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 
 const keyOf = (it: Item) => `${it.kind}:${it.id}`;
 
@@ -58,6 +62,18 @@ const isBatchTag = (tag: string) => {
 };
 const isPending = (it: Item) => (it.kind === 'still' ? it.still.status === 'pending' : it.clip.status === 'pending');
 
+/** Whether an item passes the kind, the picked tags and the search words (`@name` is a tag). */
+function matches(it: Item, kind: string, picked: string[], query: string): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tagWords = words.filter((w) => w.startsWith('@')).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
+  const textWords = words.filter((w) => !w.startsWith('@'));
+  if (kind !== 'all' && it.kind !== kind) return false;
+  const all = [...it.tags, ...it.auto];
+  if (!picked.every((t) => all.includes(t))) return false;
+  if (!tagWords.every((t) => all.some((x) => x.startsWith(t)))) return false;
+  return textWords.every((w) => it.text.includes(w));
+}
+
 /**
  * Every still and clip the visitor has made, newest first, with automatic
  * @tags (look, day/night, people, model) plus their own. Search matches
@@ -65,7 +81,19 @@ const isPending = (it: Item) => (it.kind === 'still' ? it.still.status === 'pend
  * A contact sheet fills the canvas; selecting a picture opens it in the
  * inspector, where it is tagged, downloaded or deleted.
  */
-export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToStills: () => void }) {
+export function LibraryPage({
+  active,
+  handoff,
+  onGoTo,
+  onGoToStills,
+}: {
+  active: boolean;
+  /** What the address asks for: a search (`q`), or a `still` or `clip` to select. */
+  handoff?: Handoff | undefined;
+  /** Opens another page with a selection loaded; with none, the address does it. */
+  onGoTo?: GoTo | undefined;
+  onGoToStills: () => void;
+}) {
   const library = trpc.library.useQuery(undefined, {
     // Only while this tab is on screen; the tab making something polls it itself.
     refetchInterval: (q) =>
@@ -82,6 +110,8 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
   const [zoom, setZoom] = useState<{ src: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  /** The card the address named, until it has scrolled into view. */
+  const [reveal, setReveal] = useState<string | null>(null);
 
   const items = useMemo<Item[]>(() => {
     const data = library.data;
@@ -140,18 +170,10 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
   const namedTags = useMemo(() => tagCounts.filter((t) => !isBatchTag(t.tag)), [tagCounts]);
   const batchTags = useMemo(() => tagCounts.filter((t) => isBatchTag(t.tag)), [tagCounts]);
 
-  const filtered = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const tagWords = words.filter((w) => w.startsWith('@')).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
-    const textWords = words.filter((w) => !w.startsWith('@'));
-    return items.filter((it) => {
-      if (kind !== 'all' && it.kind !== kind) return false;
-      const all = [...it.tags, ...it.auto];
-      if (!picked.every((t) => all.includes(t))) return false;
-      if (!tagWords.every((t) => all.some((x) => x.startsWith(t)))) return false;
-      return textWords.every((w) => it.text.includes(w));
-    });
-  }, [items, kind, picked, query]);
+  const filtered = useMemo(
+    () => items.filter((it) => matches(it, kind, picked, query)),
+    [items, kind, picked, query]
+  );
 
   // The inspector shows the selected item while the filters keep it on the sheet.
   const current = selected === null ? undefined : filtered.find((it) => keyOf(it) === selected);
@@ -163,6 +185,45 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
     setQuery('');
   };
   const addFilter = (t: string) => setPicked((p) => (p.includes(t) ? p : [...p, t]));
+  const goTo: GoTo =
+    onGoTo ??
+    ((page, params) => {
+      window.location.hash = formatHash(page, params);
+    });
+
+  // The address asks once, when the library can answer; after that the sheet
+  // is the visitor's. The named item wins over any filter that would hide it.
+  const address = useHandoff(handoff);
+  const answered = useRef<Handoff | null>(null);
+  const askedAgain = useRef<Handoff | null>(null);
+  useEffect(() => {
+    if (address.page !== 'library' || answered.current === address || library.isPending) return;
+    const { q, still, clip } = address.params;
+    const key = still ? `still:${still}` : clip ? `clip:${clip}` : null;
+    const item = items.find((it) => keyOf(it) === key);
+    // A link to something just made can outrun this list: ask once more before giving up on it.
+    if (key && !item && askedAgain.current !== address) {
+      askedAgain.current = address;
+      void library.refetch();
+      return;
+    }
+    answered.current = address;
+    const search = q ?? query;
+    if (q !== undefined) {
+      setQuery(q);
+      setShown(PAGE);
+    }
+    if (!key || !item) return;
+    const fits = matches(item, kind, picked, search);
+    if (!fits) clear();
+    const list = fits ? items.filter((it) => matches(it, kind, picked, search)) : items;
+    setShown((n) => Math.max(q === undefined ? n : PAGE, Math.ceil((list.indexOf(item) + 1) / PAGE) * PAGE));
+    setSelected(key);
+    setReveal(key);
+  }, [address, items, library.dataUpdatedAt]);
+  useEffect(() => {
+    if (reveal) setReveal(null);
+  }, [reveal]);
 
   const toolbar =
     items.length > 0 ? (
@@ -243,6 +304,7 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
                 key={keyOf(it)}
                 item={it}
                 selected={keyOf(it) === selected}
+                reveal={keyOf(it) === reveal}
                 onSelect={() => setSelected((s) => (s === keyOf(it) ? null : keyOf(it)))}
                 onZoom={() => setZoom({ src: stillViewUrl(it.id), title: it.title })}
               />
@@ -271,6 +333,7 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
           onZoom={() => setZoom({ src: stillViewUrl(current.id), title: current.title })}
           onTag={addFilter}
           onDelete={() => setDeleting({ kind: current.kind, id: current.id, title: current.title })}
+          onGoTo={goTo}
         />
       ) : (
         <Section title="Filter by tag">
@@ -346,21 +409,29 @@ export function LibraryPage({ active, onGoToStills }: { active: boolean; onGoToS
 function LibraryCard({
   item,
   selected,
+  reveal,
   onSelect,
   onZoom,
 }: {
   item: Item;
   selected: boolean;
+  /** Scroll to this card: the address named it. */
+  reveal: boolean;
   onSelect: () => void;
   onZoom: () => void;
 }) {
   const pending = isPending(item);
+  const card = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    // On a phone the sheet rises over the lower half, so the card goes above it.
+    if (reveal) card.current?.scrollIntoView({ block: window.matchMedia(PHONE_QUERY).matches ? 'start' : 'center' });
+  }, [reveal]);
   // Thumbnails share one frame so the grid reads as a contact sheet; a
   // portrait take is shown whole inside it rather than cropped.
   const portrait = item.still ? item.still.height > item.still.width : false;
 
   return (
-    <li className={styles.card}>
+    <li ref={card} className={styles.card}>
       <button type="button" className={styles.select} aria-pressed={selected} aria-label={item.title} onClick={onSelect}>
         <span className={styles.media} data-portrait={portrait || undefined}>
           <ItemPicture item={item} pending={pending} />
@@ -385,13 +456,24 @@ function LibraryCard({
   );
 }
 
+/** How long it has been, in a line that stands still: the coarse clock for reduced motion. */
+function standingElapsed(since: number): string {
+  const minutes = Math.floor((Date.now() - since) / 60_000);
+  return minutes < 1 ? 'under a minute' : `${minutes} min`;
+}
+
 /** The still, or the clip's poster (its own, else its still's, else the plain tile). */
 function ItemPicture({ item, pending }: { item: Item; pending: boolean }) {
   if (pending) {
+    const since = Date.parse(item.createdAt);
     return (
       <span className={styles.pending}>
         <Text tone="muted" size="sm">
-          Still rendering…
+          Rendering…{' '}
+          {/* A ticking clock would be read out every second. */}
+          <span aria-hidden>
+            {window.matchMedia(REDUCED_MOTION).matches ? standingElapsed(since) : <Elapsed since={since} />}
+          </span>
         </Text>
       </span>
     );
@@ -430,11 +512,13 @@ function ItemInspector({
   onZoom,
   onTag,
   onDelete,
+  onGoTo,
 }: {
   item: Item;
   onZoom: () => void;
   onTag: (tag: string) => void;
   onDelete: () => void;
+  onGoTo: GoTo;
 }) {
   const saver = useDownload();
   const utils = trpc.useUtils();
@@ -520,6 +604,15 @@ function ItemInspector({
             {item.kind === 'still' && (
               <Button icon={<Maximize2 size={16} />} onPress={onZoom}>
                 View full size
+              </Button>
+            )}
+            {item.kind === 'still' ? (
+              <Button icon={<Clapperboard size={16} />} onPress={() => onGoTo('video', { still: item.id })}>
+                Make a video
+              </Button>
+            ) : (
+              <Button icon={<Scissors size={16} />} onPress={() => onGoTo('edit', { clip: item.id })}>
+                Open in Editing
               </Button>
             )}
             <Button variant="ghost" icon={<Trash2 size={16} />} aria-label={`Delete ${item.title}`} onPress={onDelete}>

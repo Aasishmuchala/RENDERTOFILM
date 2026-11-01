@@ -1,0 +1,97 @@
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A model can offer more shapes than one row of the inspector holds. */
+.aspects {
+  flex-wrap: wrap;
+}
+
+/* The render stays where it is; only the window moves over it. The whole
+   surface takes the drag, because at 6x the window is a small target. */
+.surface {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-sunken);
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.surface[data-dragging] {
+  cursor: grabbing;
+}
+
+.surface[data-disabled] {
+  cursor: not-allowed;
+}
+
+.surface:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+/* A solid 1 px white frame around what the still will hold, thirds inside it.
+   The shadow is the dimmed outside: the surface clips it to the picture. */
+.window {
+  --third: color-mix(in srgb, var(--bay-accent) 45%, transparent);
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--bay-accent);
+  background-image:
+    linear-gradient(var(--third), var(--third)),
+    linear-gradient(var(--third), var(--third)),
+    linear-gradient(var(--third), var(--third)),
+    linear-gradient(var(--third), var(--third));
+  background-position:
+    33.333% 0,
+    66.667% 0,
+    0 33.333%,
+    0 66.667%;
+  background-repeat: no-repeat;
+  background-size:
+    1px 100%,
+    1px 100%,
+    100% 1px,
+    100% 1px;
+  box-shadow: 0 0 0 100vmax var(--scrim);
+  pointer-events: none;
+}
+
+.zoomLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Two lines held open, so the buttons stay put as the note changes. */
+.note {
+  min-height: 36px;
+  margin: 0;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  /* Scrolled into reach, it stops clear of the inspector's 32px fade. */
+  scroll-margin-block-end: 40px;
+}

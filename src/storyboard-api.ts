@@ -11,6 +11,7 @@ import {
   type DirectorLensId,
   lensBlock,
 } from './direction.ts';
+import { shortFileName } from './file-name.ts';
 import { ownerKey, readLibrary, type Still, updateLibrary } from './library.ts';
 import {
   ANGLE_IDS,
@@ -35,6 +36,7 @@ import { documentStore } from './storage.ts';
 import { MAX_STORYBOARD_IMAGES, STORYLINE_IDS, STORYLINES, type StorylineId } from './storyboard.ts';
 import { logRejection, type RunwayCtx, snapError, toTrpcError } from './task-helpers.ts';
 import { router, signedInProcedure } from './trpc.ts';
+import { docLimit } from './doc-limit.ts';
 
 /**
  * The Director tab: upload a project's images, pick a storyline, and Claude
@@ -141,7 +143,7 @@ async function readJobs(owner: string): Promise<StoryboardJob[]> {
 }
 
 function updateJobs(owner: string, mutate: (jobs: StoryboardJob[]) => StoryboardJob[]) {
-  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, 10) }));
+  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, docLimit(10)) }));
 }
 
 /** Apply `patch` only while the stored job still passes `still`; returns the stored job. */
@@ -521,7 +523,7 @@ export const storyboardRouter = router({
               url: z.string().url(),
               width: z.number().int().min(16).max(16384),
               height: z.number().int().min(16).max(16384),
-              name: z.string().max(200).default(''),
+              name: z.string().default('').transform((name) => shortFileName(name)),
             })
           )
           .min(1, 'Add at least one image.')

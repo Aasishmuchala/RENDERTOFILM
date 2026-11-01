@@ -81,6 +81,7 @@
 .clipPlay:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
   background-color: var(--bay-accent);
   color: var(--bay-text-on-accent);
 }
@@ -134,6 +135,7 @@
 .timelineBox:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 4px;
+  box-shadow: 0 0 0 8px var(--bay-bg-canvas);
 }
 
 .lockNote,
@@ -168,8 +170,11 @@
   border-color: rgba(var(--bay-accent-rgb), 0.35);
 }
 
+/* The outline makes it 2 px wide without moving the card's contents. */
 .cut[data-failed] {
-  border-color: color-mix(in srgb, var(--bay-err-fg) 45%, transparent);
+  border-color: transparent;
+  outline: 2px dashed var(--bay-err-fg);
+  outline-offset: -1px;
 }
 
 @supports (corner-shape: squircle) {
@@ -218,6 +223,7 @@
 .cutMain:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--bay-bg-canvas);
   background-color: var(--glass-btn);
 }
 
@@ -225,7 +231,7 @@
   background-color: var(--glass-btn-hover);
 }
 
-/* The cut's number: the step marker's disc; the open cut takes the accent. */
+/* The cut's number: the step marker's disc; the open cut goes solid white. */
 .cutNumber {
   display: grid;
   flex: none;
@@ -246,14 +252,35 @@
 }
 
 .cut[data-open] .cutNumber {
-  background-color: var(--bay-accent-soft);
-  box-shadow: inset 0 0 0 1px var(--bay-accent);
-  color: var(--bay-accent-fg);
+  background-color: var(--bay-accent);
+  box-shadow: none;
+  color: var(--bay-text-on-accent);
 }
 
+/* A failed cut widens to a pill: the octagon, then the number. */
 .cut[data-failed] .cutNumber {
+  grid-auto-flow: column;
+  gap: 3px;
+  width: auto;
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
   background-color: var(--bay-err-bg);
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg);
   color: var(--bay-err-fg);
+}
+
+/* The octagon: errors keep no hue, so this shape says it (with a cut-out
+   exclamation mark, 10 px square, drawn in the text's own colour). */
+.cut[data-failed] .cutNumber::before,
+.segment[data-failed] .segmentNumber::before,
+.message[data-error] .who::before,
+.deliverable[data-status='failed'] .deliverableGlyph::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
 }
 
 .cutThumb {
@@ -385,6 +412,212 @@
   max-width: 160px;
 }
 
+/* The music bed: its name beside Remove, then its note, level and fades. */
+.musicHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--bay-text-2);
+}
+
+.musicName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The two title cards: each one's name beside its actions, its text, then its
+   subtitle and length, and a small picture of it. A hairline between the two. */
+.titleCards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.titleCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titleCard + .titleCard {
+  padding-top: 16px;
+  border-top: 1px solid var(--bay-border-hair);
+}
+
+.titleCardHead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+}
+
+.titleCardName {
+  flex: 1;
+  min-width: 0;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+}
+
+.titleCount {
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.titleCardFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: end;
+  gap: 8px;
+}
+
+.titlePreview {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  height: auto;
+  margin-top: 4px;
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-stage-frame);
+}
+
+/* The files a master makes: the shot director's checkbox, on one line. */
+.checks {
+  display: flex;
+  flex-direction: column;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+  cursor: pointer;
+}
+
+.checkBox {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--bay-border-strong);
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-bg-sunken);
+  color: transparent;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.check[data-hovered] .checkBox {
+  border-color: var(--bay-text-3);
+}
+
+.check[data-selected] .checkBox {
+  border-color: var(--bay-accent);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.check[data-selected][data-hovered] .checkBox {
+  border-color: var(--bay-accent-hover);
+  background: var(--bay-accent-hover);
+}
+
+.check[data-focus-visible] .checkBox {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
+}
+
+/* One finished file: a glyph and its name beside Download, then what QC read.
+   Its status never leans on hue: a check, the running pulse, or the failed
+   cut's dashes and octagon. */
+.deliverables {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deliverable {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+}
+
+.deliverable[data-status='failed'] {
+  border: 2px dashed var(--bay-err-fg);
+}
+
+.deliverable > p {
+  margin: 0;
+}
+
+.deliverableHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.deliverableHead > .pulse {
+  margin-right: 0;
+}
+
+.deliverableGlyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  font-weight: 700;
+  color: var(--bay-text);
+}
+
+.deliverable[data-status='succeeded'] .deliverableGlyph::before {
+  content: '\2713' / '';
+}
+
+.deliverableName {
+  flex: 1;
+  min-width: 0;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+}
+
+.qc {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkBox {
+    transition: none;
+  }
+}
+
 /* "Try again" inside the save note: a text link (DESIGN 2.7). */
 .inlineLink {
   display: inline;
@@ -404,6 +637,7 @@
 
 @media (hover: hover) {
   .inlineLink:hover {
+    color: var(--bay-accent-hover);
     text-decoration-thickness: 2px;
   }
 }
@@ -411,11 +645,12 @@
 .inlineLink:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
   text-decoration-thickness: 2px;
 }
 
 .inlineLink:active {
-  color: var(--bay-accent-hover);
+  color: var(--bay-text-2);
 }
 
 .pulse {
@@ -464,6 +699,18 @@
 
 .gradeWide {
   grid-column: 1 / -1;
+}
+
+/* The look, with its LUT beside it, level with the select under its label. */
+.lookRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.lookRow > button {
+  margin-top: 32px;
 }
 
 .gradeActions {
@@ -551,7 +798,7 @@
 }
 
 /* The player's own controls: a thin glass pill as wide as the picture, under
-   its guides. Play or pause, the scrub bar (an accent playhead over a lit
+   its guides. Play or pause, the scrub bar (a white playhead over a lit
    track), the time in tabular figures, full screen. */
 .transport {
   composes: glass-thin from global;
@@ -595,6 +842,7 @@
 .transportButton:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 1px;
+  box-shadow: 0 0 0 5px var(--bay-bg-canvas);
   background-color: var(--glass-btn-hover);
 }
 
@@ -609,7 +857,7 @@
 }
 
 /* The scrub bar: a 4 px track lit up to the playhead (`--p`), and the
-   playhead itself, an accent bar like an editor's. */
+   playhead itself, a white bar like an editor's, ringed like the Slider's knob. */
 .scrub {
   --p: 0%;
   flex: 1;
@@ -640,7 +888,7 @@
   border: 0;
   border-radius: var(--r-pill);
   background: var(--bay-accent-fg);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bay-accent) 28%, transparent);
+  box-shadow: 0 0 0 2px var(--bay-bg-canvas);
   appearance: none;
 }
 
@@ -650,12 +898,13 @@
   border: 0;
   border-radius: var(--r-pill);
   background: var(--bay-accent-fg);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bay-accent) 28%, transparent);
+  box-shadow: 0 0 0 2px var(--bay-bg-canvas);
 }
 
 .scrub:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
   border-radius: var(--r-pill);
 }
 
@@ -781,6 +1030,11 @@ p.exportStatus {
   box-shadow: var(--bay-shadow-stage);
 }
 
+/* The status inside keeps its words in the band, not at its own tall height. */
+.exportBand > * {
+  min-height: 0;
+}
+
 .alertActions {
   display: flex;
   gap: 8px;
@@ -798,6 +1052,13 @@ p.exportStatus {
 
 .graded[data-hidden] {
   visibility: hidden;
+}
+
+/* A 9:16 file stands centred in the 16:9 frame, on the frame's black. */
+.graded[data-portrait] {
+  width: auto;
+  aspect-ratio: 9 / 16;
+  justify-self: center;
 }
 
 .graded > * {
@@ -827,6 +1088,7 @@ p.exportStatus {
 .reel:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--bay-bg-canvas);
 }
 
 .strip {
@@ -940,22 +1202,37 @@ p.exportStatus {
   );
 }
 
-.segment[data-failed] {
-  box-shadow: 0 0 0 1px var(--bay-err-fg);
-}
-
-.segment[data-failed] .segmentNumber {
-  background-color: var(--bay-err-bg);
-  color: var(--bay-err-fg);
-}
-
+/* Selected is a solid white ring and a check on the number; failed is a
+   dashed ring and the octagon. Neither leans on hue, and the failed rules come
+   last, with the dashes outside the ring, so a selected cut that failed
+   shows both. */
 .segment[data-selected] {
   box-shadow: 0 0 0 2px var(--bay-accent);
 }
 
 .segment[data-selected] .segmentNumber {
+  grid-auto-flow: column;
+  gap: 3px;
   background-color: var(--bay-accent);
   color: var(--bay-text-on-accent);
+}
+
+.segment[data-selected] .segmentNumber::before {
+  content: '\2713' / '';
+  font-weight: 700;
+}
+
+.segment[data-failed] {
+  outline: 2px dashed var(--bay-err-fg);
+  outline-offset: 2px;
+}
+
+.segment[data-failed] .segmentNumber {
+  grid-auto-flow: column;
+  gap: 3px;
+  background-color: var(--bay-err-bg);
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg);
+  color: var(--bay-err-fg);
 }
 
 /* Hover and keyboard focus: the card lifts 2 px, the picture zooms inside
@@ -965,7 +1242,7 @@ p.exportStatus {
     transform: translateY(-2px);
   }
 
-  .segment:hover:not([data-selected], [data-failed]) {
+  .segment:hover:not([data-selected], [data-failed], :focus-visible) {
     box-shadow: 0 0 0 1px var(--bay-border-strong);
   }
 
@@ -977,7 +1254,14 @@ p.exportStatus {
 .segment:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 3px;
+  box-shadow: 0 0 0 7px var(--bay-bg-canvas);
   transform: translateY(-2px);
+}
+
+.segment[data-selected]:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--bay-accent),
+    0 0 0 7px var(--bay-bg-canvas);
 }
 
 .segment:focus-visible .segmentThumb {
@@ -1030,6 +1314,7 @@ p.exportStatus {
   border-radius: calc(var(--r-card) - 1px) calc(var(--r-card) - 1px) 0 0;
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--bay-bg-canvas);
 }
 
 .message {
@@ -1046,6 +1331,12 @@ p.exportStatus {
 
 .message[data-error] {
   background-color: var(--bay-err-bg);
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg);
+}
+
+.message[data-error] .who::before {
+  display: inline-block;
+  margin-right: 4px;
 }
 
 .who {
@@ -1115,6 +1406,7 @@ p.exportStatus {
 .suggestion:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
   background-color: var(--glass-btn-hover);
   color: var(--bay-text);
 }

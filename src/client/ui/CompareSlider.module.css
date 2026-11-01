@@ -45,8 +45,10 @@
 }
 
 /* The handle: a 36 px glass-button lens on the line (glass-btn fill, the
-   glass edge, a light blur), ringed so it reads over any picture. */
+   glass edge, a light blur that drops the picture's colour and dims it, as
+   every glass does), ringed so it reads over any picture. */
 .divider::after {
+  --lens-filter: blur(16px) saturate(var(--glass-saturate)) brightness(var(--glass-dim)) grayscale(1);
   content: '';
   position: absolute;
   top: 50%;
@@ -56,8 +58,8 @@
   margin: -18px 0 0 -18px;
   border-radius: 50%;
   background-color: var(--glass-btn);
-  -webkit-backdrop-filter: blur(16px) saturate(var(--glass-saturate));
-  backdrop-filter: blur(16px) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: var(--lens-filter);
+  backdrop-filter: var(--lens-filter);
   box-shadow:
     var(--glass-edge),
     0 0 0 1.5px color-mix(in srgb, var(--bay-text) 90%, transparent),
@@ -121,6 +123,7 @@
 .frame:has(.range:focus-visible) {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

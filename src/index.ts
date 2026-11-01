@@ -2,6 +2,7 @@ import { runwayAuth } from '@runway/bay/runway';
 import Koa from 'koa';
 
 import { mountApi, mountStaticFallback } from './api-routes.ts';
+import { mountChatEvents } from './chat-events.ts';
 import { mountStatic, mountTrpc } from './routes.ts';
 import { UserSymbol } from './trpc.ts';
 
@@ -58,6 +59,7 @@ app.use(runwayAuth({ optional: true }));
 
 mountTrpc(app);
 mountApi(app);
+mountChatEvents(app);
 
 // Mount your own routers here — above the line below, so they answer before
 // the static fallback and their answer is final (`bay add agent`'s router
@@ -68,9 +70,21 @@ mountApi(app);
 // while a real handler's answer (HTML included) is left alone.
 mountStaticFallback(app, mountStatic);
 
+/** The desktop's clock for chat work; Bay's is the shell's `chat.tick` poll. */
+async function startChatDriver() {
+  try {
+    // The literal path is what lets esbuild bundle it.
+    const { startDriver } = await import('./chat/driver.ts');
+    startDriver();
+  } catch (err) {
+    console.log(`Chat driver not started: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 const port = Number(process.env['PORT'] ?? 3000);
 const server = app.listen(port, () => {
   console.log(`Listening on port ${port}`);
+  if (process.env['BAY_ENV'] === 'desktop') void startChatDriver();
 });
 
 // Bay's gateway pools the upstream connection to this pod. Node's default

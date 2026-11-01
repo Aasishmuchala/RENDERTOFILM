@@ -24,7 +24,7 @@
   background: linear-gradient(
     100deg,
     transparent,
-    rgba(var(--bay-accent-rgb), 0.28) 50%,
+    rgba(var(--bay-accent-rgb), 0.18) 50%,
     transparent
   );
   will-change: transform;

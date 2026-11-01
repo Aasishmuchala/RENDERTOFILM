@@ -12,7 +12,7 @@
  * @typedef {{
  *   provider: 'higgsfield'|'runway'|'simulator', providerName: string, desktop: boolean,
  *   imageModels: string[], videoModels: string[], stillUpscalers: string[], clipUpscalers: string[],
- *   aleph: boolean, export: boolean, recreate: boolean, textViaRunway: boolean,
+ *   aleph: boolean, export: boolean, master: boolean, recreate: boolean, textViaRunway: boolean,
  *   notes: Record<string, string>, rates: Record<string, string>,
  * }} Capabilities
  */
@@ -29,7 +29,14 @@
  *   state?: 'queued'|'running'|'uploading'|'quoting'|'submitted'|'waiting'|'downloading'|'succeeded'|'failed',
  *   notes?: string[], credits?: number, jobId?: string, remoteId?: string, resultUrl?: string,
  *   width?: number, height?: number, duration?: number, frameRate?: number, error?: string, hint?: string,
+ *   keyPrint?: string, keyWait?: string,
  * }} TaskReal
+ */
+
+/**
+ * What a task would cost, asked before it is created. `amount` is null when the
+ * provider cannot say, and `note` then says why or gives its rate line.
+ * @typedef {{ unit: 'credits'|'usd', amount: number|null, note?: string }} TaskQuote
  */
 
 /**
@@ -42,12 +49,19 @@
  *   artifactMeta(task: object): { metadata?: object },
  *   resume(task: object, env: ProviderEnv): Promise<void> | void,
  *   account(owner: string): Promise<{ label: string, email?: string, credits?: number, plan?: string, signedIn: boolean } | null>,
+ *   unavailable?(owner: string): string | undefined,
+ *   quote?(type: string, options: object): Promise<TaskQuote>,
  *   rates?: Record<string, string>,
  * }} Provider
  *
  * `supports` refuses in one sentence, which the visitor reads. `start` runs the
  * whole pipeline and never rejects. `resume` is called once, at boot, for a task
  * in `submitted`, `waiting` or `downloading`. `account` makes free calls only.
+ * `unavailable` says, in one sentence, why a later step of work this provider
+ * started cannot be sent now. A paid run held up for a key stays `waiting`, with
+ * the reason in `keyWait`; its snapshot is not done and carries that as `error`.
+ * `keyPrint` is a fingerprint of the key that started a run, never the key.
+ * `quote` sends nothing anywhere; a provider without it has no price to give.
  */
 
 export {};

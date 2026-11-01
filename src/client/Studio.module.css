@@ -599,24 +599,27 @@
 
 @media (hover: hover) {
   .handleChip:hover:not(:disabled) {
-    background-color: rgba(var(--bay-accent-rgb), 0.26);
+    background-color: rgba(var(--bay-accent-rgb), 0.22);
   }
 }
 
 .handleChip[data-hovered],
 .handleChip:focus-visible,
 .handleChip[data-focus-visible] {
-  background-color: rgba(var(--bay-accent-rgb), 0.26);
+  background-color: rgba(var(--bay-accent-rgb), 0.22);
 }
 
 .handleChip:focus-visible,
 .handleChip[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
+/* Kept under .3: ink stays readable on these veils; past that it needs the
+   dark on-accent text. */
 .handleChip:active:not(:disabled) {
-  background-color: rgba(var(--bay-accent-rgb), 0.32);
+  background-color: rgba(var(--bay-accent-rgb), 0.28);
   transform: scale(0.98);
 }
 
@@ -676,6 +679,17 @@
   font: var(--text-subhead);
   letter-spacing: var(--track-subhead);
   color: var(--bay-err-fg);
+}
+
+/* The octagon: with no hue, the shape says this line is an error. */
+.frameDuplicate::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
 }
 
 /* Video: the line under the action button while takes render. */

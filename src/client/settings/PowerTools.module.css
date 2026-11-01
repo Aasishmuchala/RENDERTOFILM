@@ -1,0 +1,32 @@
+/* The Power tools card's own parts; its cards, rows and actions are the sheet's
+   (SettingsPage.module.css). */
+
+/* The shape says the state, beside the sentence, so nothing rests on colour. */
+.glyph {
+  flex: none;
+  color: var(--bay-text-2);
+}
+
+/* The stack's gap is the spacing here, not a paragraph's own margin. */
+.note {
+  margin: 0;
+}
+
+/* The notices file sits inline in a muted sentence, on the sunken fill the
+   sheet's code blocks use. */
+.file {
+  padding: 1px 6px;
+  border-radius: var(--bay-r-xs);
+  background: var(--bay-bg-sunken);
+  color: var(--bay-text);
+  font: var(--text-footnote);
+  font-family: var(--font-mono);
+  letter-spacing: var(--track-footnote);
+  overflow-wrap: anywhere;
+}
+
+/* A release address is one long word: it breaks anywhere rather than widen the
+   dialog on a phone. */
+.url {
+  overflow-wrap: anywhere;
+}

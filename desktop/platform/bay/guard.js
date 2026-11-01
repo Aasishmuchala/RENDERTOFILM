@@ -27,7 +27,9 @@ const CSP =
 
 // The files step 3 serves. Documents (library, tasks.json, the realgen status)
 // are not among them: their names are what would let a process find the rest.
-const MEDIA_PATH = /^\/__mock\/(assets|uploads|storage)\/.*\.(jpe?g|png|webp|gif|avif|mp4|mov|m4v|webm|bin)$/i;
+// Audio is a music bed's preview, and those live in uploads alone.
+const MEDIA_PATH =
+  /^\/__mock\/(?:(?:assets|uploads|storage)\/.*\.(?:jpe?g|png|webp|gif|avif|mp4|mov|m4v|webm|bin)|uploads\/.*\.(?:mp3|wav|m4a|aac|flac))$/i;
 
 // The two routes whose HTML is the OAuth result page, and its one inline script.
 const OAUTH_PAGES = '/api/mcp/oauth/';
@@ -169,7 +171,8 @@ const asBuffer = (chunk, encoding) => (typeof chunk === 'string' ? Buffer.from(c
 /**
  * Rewrites a JSON answer at `res`, because tRPC's adapter writes there itself
  * and never sets `ctx.body`. Koa's own answers end up here as well, so this one
- * path covers /trpc and /api. Anything but JSON goes straight through.
+ * path covers /trpc and /api. Anything but JSON goes straight through, chunk by
+ * chunk, which is what keeps an event stream (text/event-stream) unbuffered.
  */
 function rewriteJsonAnswer(res, origin) {
   const { write, end } = res;

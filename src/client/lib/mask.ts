@@ -13,6 +13,9 @@ export type MaskStroke =
       points: [number, number][];
     }
   | { type: 'box'; erase: boolean; x0: number; y0: number; x1: number; y1: number }
+  | { type: 'polygon'; erase: boolean; points: [number, number][] }
+  /** Marked becomes unmarked and the other way round. */
+  | { type: 'invert' }
   | { type: 'clear' };
 
 /** Longest edge of the exported mask; the server scales it to the render. */
@@ -24,6 +27,34 @@ export function maskSize(width: number, height: number) {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
   };
+}
+
+/** A lasso's last point this close to its first (normalised) is the same click. */
+const POLYGON_CLOSE = 0.004;
+
+/**
+ * A lasso's points as a closed shape: a last point that lies back on the first
+ * is dropped, and under three points left there is no shape (null).
+ */
+export function closePolygon(points: readonly [number, number][]): [number, number][] | null {
+  const out = points.map(([x, y]): [number, number] => [x, y]);
+  const first = out[0];
+  const last = out[out.length - 1];
+  if (first && last && out.length > 1 && Math.hypot(last[0] - first[0], last[1] - first[1]) < POLYGON_CLOSE) {
+    out.pop();
+  }
+  return out.length >= 3 ? out : null;
+}
+
+/** Shoelace area in normalised units (the whole image = 1), whichever way round. */
+export function polygonArea(points: readonly [number, number][]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x0, y0] = points[i]!;
+    const [x1, y1] = points[(i + 1) % points.length]!;
+    sum += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(sum) / 2;
 }
 
 /** Draw `strokes` onto a canvas of any size, marked area in `color`. */
@@ -46,6 +77,20 @@ export function paintStroke(ctx: CanvasRenderingContext2D, s: MaskStroke, color:
   ctx.lineJoin = 'round';
   if (s.type === 'clear') {
     ctx.clearRect(0, 0, w, h);
+  } else if (s.type === 'invert') {
+    // xor against the alpha already there: marked turns clear, clear turns marked.
+    ctx.globalCompositeOperation = 'xor';
+    ctx.fillRect(0, 0, w, h);
+  } else if (s.type === 'polygon') {
+    ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+    const [first, ...rest] = s.points;
+    if (first) {
+      ctx.beginPath();
+      ctx.moveTo(first[0] * w, first[1] * h);
+      for (const [x, y] of rest) ctx.lineTo(x * w, y * h);
+      ctx.closePath();
+      ctx.fill();
+    }
   } else if (s.type === 'box') {
     ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
     const x = Math.min(s.x0, s.x1) * w;

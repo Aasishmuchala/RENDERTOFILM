@@ -3,6 +3,9 @@
 // answers are canned, each in the shape its caller parses. In the desktop app it
 // is offered only under RTF_SIMULATOR=1; the plain harness runs on it by default.
 import { SIMULATOR_CAPABILITIES } from '../bay/capabilities.js';
+import { ASSETS_DIR, STORAGE_DIR, UPLOADS_DIR } from '../bay/paths.js';
+import { artifactDetails, probeSync, videoFields } from '../ffmpeg.js';
+import { localFileForUrl } from '../realgen/files.js';
 
 // Image families (prefix match): gpt_image_2* and seedream_5* included.
 const IMAGE_TYPES = [
@@ -26,8 +29,15 @@ const VIDEO_TYPES = [
   'ltx_2_5_pro',
   'wan_2_6',
   'workflow_aleph',
+  'image_to_video',
 ];
 const CLIP_UPSCALERS = ['media_upscale', 'flux_video_upscale', 'bytedance_video_upscale', 'magnific_video_upscaler_creative'];
+const CLIP_FAMILIES = new Set(['video', 'upscale-clip']);
+
+// The price list (PLAN-13 section 5). A second pass and a cast sheet are image
+// tasks, so each is one still.
+const STILL_CREDITS = 4;
+const CLIP_CREDITS_PER_SECOND = 5;
 
 /** Which simulated family a task type belongs to, and how long it "renders". */
 function familyOf(type, options = {}) {
@@ -157,8 +167,40 @@ export function lifestylePlanAnswer(count) {
   };
 }
 
-// Every duration is multiplied by this (e.g. MOCK_TASK_SCALE=0.2 for fast QA).
-export const SCALE = Number(process.env.MOCK_TASK_SCALE ?? 1) || 1;
+/**
+ * The Director planner's answer for one batch of `count` images, in the shape
+ * src/storyboard-api.ts parses: `image` counts from 1 within the batch.
+ */
+function storyboardPlanAnswer(count, prompt) {
+  const look = lookFromPrompt(prompt);
+  return {
+    frames: Array.from({ length: count }, (_, i) => {
+      const people = i % 2 === 0;
+      return {
+        image: i + 1,
+        space: 'exterior',
+        position: Math.round(((i + 0.5) / count) * 100),
+        title: `Through the garden ${i + 1}`,
+        beat: 'The place opens up one view further along the walk.',
+        look,
+        look_why: 'The light the story asks for at this point.',
+        crowd: people ? 'few' : 'none',
+        people: people ? 'Two friends walk slowly along the far path.' : '',
+        crowd_why: people ? 'A quiet moment gives the place its scale.' : 'The place holds this frame on its own.',
+      };
+    }),
+  };
+}
+
+/** RTF_SIM_SPEED: a positive number, else 1. */
+function simSpeed() {
+  const speed = Number(process.env.RTF_SIM_SPEED);
+  return Number.isFinite(speed) && speed > 0 ? speed : 1;
+}
+
+// Every duration is multiplied by this (e.g. MOCK_TASK_SCALE=0.2 for fast QA, or
+// RTF_SIM_SPEED=20 to run the same work twenty times faster).
+export const SCALE = (Number(process.env.MOCK_TASK_SCALE ?? 1) || 1) / simSpeed();
 
 let failNext = false;
 
@@ -183,6 +225,18 @@ function resultFor(type, family, options) {
 function promptOf(options) {
   const p = options?.text_prompt ?? options?.prompt ?? options?.textPrompt;
   return typeof p === 'string' ? p : '';
+}
+
+const clipDetails = new Map(); // a result's path -> its artifact metadata; every simulated clip shares a file
+
+/** What the clip behind `mockPath` really is: read once per process, and {} when it cannot be read. */
+function clipMeta(mockPath) {
+  if (!clipDetails.has(mockPath)) {
+    const file = localFileForUrl(mockPath, { ASSETS_DIR, UPLOADS_DIR, STORAGE_DIR });
+    const info = file ? probeSync(file) : null;
+    clipDetails.set(mockPath, info ? artifactDetails(videoFields(info)) : {});
+  }
+  return clipDetails.get(mockPath);
 }
 
 /** `getState()` is tasks.json in memory; `mockOrigin()` gives a result's absolute URL. */
@@ -222,6 +276,8 @@ export function createSimulatorProvider({ getState, mockOrigin }) {
       task.text = JSON.stringify(lifestylePlanAnswer(Array.isArray(options?.images) ? options.images.length : 1));
     } else if (name.includes('shot director')) {
       task.text = JSON.stringify(SHOT_ANSWER);
+    } else if (name.includes('storyboard')) {
+      task.text = JSON.stringify(storyboardPlanAnswer(Array.isArray(options?.images) ? options.images.length : 1, options?.prompt));
     } else {
       // Alternate pass / issues on successive people checks.
       task.text = JSON.stringify(s.checks % 2 === 0 ? PASS_REPORT : ISSUES_REPORT);
@@ -241,6 +297,15 @@ export function createSimulatorProvider({ getState, mockOrigin }) {
 
     supports() {
       return { ok: true, notes: [] };
+    },
+
+    /** A clip with no length has no price: an amount of 0 would read as free. */
+    async quote(type, options = {}) {
+      const { family } = familyOf(type, options);
+      if (family === 'text' || type === 'media_processing_v2') return { unit: 'credits', amount: 0 };
+      if (!CLIP_FAMILIES.has(family)) return { unit: 'credits', amount: STILL_CREDITS };
+      const seconds = Number(options.duration ?? options.seconds);
+      return { unit: 'credits', amount: seconds > 0 ? seconds * CLIP_CREDITS_PER_SECOND : null };
     },
 
     /** A timer needs no run: the snapshot reads `createdAt`, so there is nothing to resume either. */
@@ -271,8 +336,8 @@ export function createSimulatorProvider({ getState, mockOrigin }) {
       return snap;
     },
 
-    artifactMeta() {
-      return {};
+    artifactMeta(task) {
+      return CLIP_FAMILIES.has(task?.family) && task.path ? clipMeta(task.path) : {};
     },
 
     resume() {},

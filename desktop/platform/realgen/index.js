@@ -8,8 +8,9 @@
 // in taskSnapshot and artifactMeta() in getTask; ../bay/runway.js calls status()
 // for /__mock/realgen/status.
 // A run lives in task.real = { kind, state, notes[], model?, params?,
-// mediaIds?, credits?, jobId?, resultUrl?, width?, height?, error?, hint?,
-// waitStartedAt? } and every state change is written to tasks.json at once.
+// mediaIds?, credits?, jobId?, resultUrl?, width?, height?, duration?,
+// frameRate?, error?, hint?, waitStartedAt? } and every state change is written
+// to tasks.json at once.
 //
 // Pipeline: uploading -> quoting -> (dry: canned asset) -> submitted ->
 // waiting -> downloading -> succeeded | failed.
@@ -20,6 +21,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
+import { artifactDetails, probe, probeSync, videoFields } from '../ffmpeg.js';
 import { localFileForUrl, resultPathFor, sha1, stripOrigin } from './files.js';
 import * as hf from './higgsfield.js';
 import { append, budgetCheck, parseBudget, readAll, spent } from './ledger.js';
@@ -40,6 +42,7 @@ let env; // what boot() was given, plus where the real-mode files live
 const running = new Map(); // taskId -> this process's pipeline for it
 const reserved = new Map(); // taskId -> { session, mode, credits }: passed the budget, not yet in the ledger
 const uploading = new Map(); // sha1 -> an upload in flight (two tasks, one file, one upload)
+const unreadable = new Set(); // clips whose file ffmpeg could not read in this process
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const roundedCredits = (n) => String(Math.round(n * 100) / 100);
@@ -453,6 +456,16 @@ async function waitThroughOutages(run) {
   }
 }
 
+/** A clip's real length, size and rate; {} when they cannot be read, which does not undo a finished download. */
+async function videoDetails(file) {
+  try {
+    return videoFields(await probe(file));
+  } catch (err) {
+    console.warn(`[realgen] could not read ${path.basename(file)}: ${String(err?.message ?? err).slice(0, 120)}`);
+    return {};
+  }
+}
+
 /** Downloads the result into storage/realgen/results/ and marks the task done. */
 async function finish(run, url) {
   update(run.taskId, { state: 'downloading', resultUrl: url });
@@ -466,8 +479,8 @@ async function finish(run, url) {
       await sleep(Math.min(2000 * 2 ** attempt, 60_000));
     }
   }
-  const size = run.family === 'image' ? await imageSize(file) : null;
-  update(run.taskId, { state: 'succeeded', ...(size ?? {}) }, { path: mockPath });
+  const details = run.family === 'image' ? await imageSize(file) : run.family === 'video' ? await videoDetails(file) : null;
+  update(run.taskId, { state: 'succeeded', ...(details ?? {}) }, { path: mockPath });
   record('result', run, { jobId: run.jobId, status: 'completed', resultUrl: url, path: mockPath });
   console.log(`[realgen] done ${run.taskId} ${run.type} → ${run.model} ${run.credits ?? '?'} cr ${mockPath}`);
 }
@@ -579,10 +592,25 @@ export function snapshotPatch(task, _opts = {}) {
   return { id: task.id, done: false, status: now - task.createdAt < 500 ? 'PENDING' : 'RUNNING', progress };
 }
 
-/** `{ metadata: { size } }` for an artifact whose real size is known, else {}. */
+/**
+ * A finished clip from before its details were kept reads them now, once. The
+ * caller cannot wait, so this holds the server for the moment one probe takes,
+ * and tasks.json keeps the answer.
+ */
+function backfill(task) {
+  const r = task.real;
+  if (!env || r.state !== 'succeeded' || r.duration > 0 || !task.path || unreadable.has(task.id)) return;
+  if ((r.family ?? task.family) !== 'video' && !task.path.endsWith('.mp4')) return;
+  const file = localFileForUrl(task.path, env.dirs, env.storagePath);
+  const info = file ? probeSync(file) : null;
+  if (info?.seconds > 0) update(task.id, videoFields(info));
+  else unreadable.add(task.id);
+}
+
+/** `{ metadata }` of what is known of an artifact: a still's size, a clip's duration, frame rate and size. */
 export function artifactMeta(task) {
-  const r = task?.real;
-  return r?.width > 0 && r?.height > 0 ? { metadata: { size: { width: r.width, height: r.height } } } : {};
+  if (task?.real) backfill(task);
+  return artifactDetails(task?.real);
 }
 
 /** GET /__mock/realgen/status: mode, budget, runs in flight, the last 20 ledger lines. */

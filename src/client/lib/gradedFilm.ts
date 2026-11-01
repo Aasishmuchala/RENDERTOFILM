@@ -2,11 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { type CutColour, colourSteps, cutEnds } from '../../colour.ts';
 
+/** The music bed under a film (src/timeline.ts `EditMusic`) and where its file is served. */
+export type GradedMusic = {
+  src: string;
+  inSeconds: number;
+  gain: number;
+  fadeIn: number;
+  fadeOut: number;
+};
+
 /** What a graded download needs from an export (src/timeline.ts `ExportJob`). */
 export type GradedJob = {
   grades: readonly { seconds: number; colour?: CutColour | undefined }[];
   transition: 'hard' | 'fade';
   fadeSeconds?: number | undefined;
+  /** The film has mixed sound of its own (a master), which the recording keeps. */
+  ownSound?: boolean | undefined;
+  /** Mixed into the recording of a silent export when the project has one. */
+  music?: GradedMusic | null | undefined;
 };
 
 const VERTEX = `
@@ -50,6 +63,14 @@ const MIME_TYPES = [
   'video/webm',
 ];
 
+/** The same recorders with the sound named, tried first when there is music to record. */
+const MIME_TYPES_WITH_SOUND = [
+  'video/mp4;codecs=avc1.640028,mp4a.40.2',
+  'video/mp4;codecs=avc1,mp4a.40.2',
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+];
+
 /** A failure the person can act on; its message is shown as is. */
 export class GradedFilmError extends Error {}
 
@@ -58,6 +79,73 @@ export class GradedFilmCancelled extends Error {}
 
 /** No playback progress for this long means the film has stalled. */
 const STALL_MS = 15_000;
+
+/** How far the music may sit from the film, in seconds, before it is put back. */
+const MUSIC_DRIFT = 0.25;
+
+/** The bed's level `t` seconds into a film `length` long, as a linear gain: its gain in dB under its fades. */
+export function musicLevel(music: Omit<GradedMusic, 'src'>, t: number, length: number): number {
+  const fade = Math.min(1, music.fadeIn > 0 ? t / music.fadeIn : 1, music.fadeOut > 0 ? (length - t) / music.fadeOut : 1);
+  return 10 ** (music.gain / 20) * Math.max(0, fade);
+}
+
+/**
+ * Where the music should be `t` seconds into the film, for an <audio> element
+ * following one: seeks it back when it has drifted, and leaves a bed that has
+ * run out alone.
+ */
+export function followFilm(audio: HTMLAudioElement, music: Omit<GradedMusic, 'src'>, t: number) {
+  const want = music.inSeconds + t;
+  if (Math.abs(audio.currentTime - want) > MUSIC_DRIFT && want < audio.duration) audio.currentTime = want;
+}
+
+/**
+ * The music as one more track of the recorded stream: the <audio> element runs
+ * through an AudioContext into a MediaStreamDestination, so the recorder hears
+ * it and the room does not. `follow` keeps it on the film's clock and at its level.
+ */
+function mixMusic(music: GradedMusic, stream: MediaStream, onError: () => void) {
+  const audio = document.createElement('audio');
+  audio.preload = 'auto';
+  audio.onerror = onError;
+  const context = new AudioContext();
+  const gain = context.createGain();
+  const mix = context.createMediaStreamDestination();
+  context.createMediaElementSource(audio).connect(gain).connect(mix);
+  stream.addTrack(mix.stream.getAudioTracks()[0]!);
+  const ready = new Promise<void>((resolve) => {
+    audio.onloadedmetadata = () => resolve();
+  });
+  audio.src = music.src;
+  return {
+    ready,
+    play: async () => {
+      await context.resume();
+      await audio.play();
+    },
+    follow: (t: number, length: number) => {
+      followFilm(audio, music, t);
+      gain.gain.setTargetAtTime(musicLevel(music, t, length), context.currentTime, 0.02);
+    },
+    stop: () => {
+      audio.pause();
+      audio.removeAttribute('src');
+      void context.close();
+    },
+  };
+}
+
+/**
+ * The film's own sound as a track of the recorded stream, the same way: through
+ * an AudioContext, so the recorder hears it and the room does not.
+ */
+function keepSound(video: HTMLVideoElement, stream: MediaStream) {
+  const context = new AudioContext();
+  const mix = context.createMediaStreamDestination();
+  context.createMediaElementSource(video).connect(mix);
+  stream.addTrack(mix.stream.getAudioTracks()[0]!);
+  return { play: () => context.resume(), stop: () => void context.close() };
+}
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
   const s = gl.createShader(type)!;
@@ -69,8 +157,9 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
 
 /**
  * Plays the exported film once, frame by frame, through each cut's built-in
- * grade on a WebGL canvas, and records the result. It takes as long as the
- * film, and the tab has to stay in front while it runs.
+ * grade on a WebGL canvas, and records the result, with a master's own sound
+ * or, under a silent export, the project's music. It takes as long as the film,
+ * and the tab has to stay in front while it runs.
  */
 export async function recordGradedFilm(
   src: string,
@@ -91,12 +180,14 @@ export async function recordGradedFilm(
       'Your browser could not read the film to grade it. Download it without the grade, or grade the cuts with Aleph 2.0 to bake the look into the clips.'
     );
   }
-  const mimeType = MIME_TYPES.find((t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t));
+  const mimeType = (job.music || job.ownSound ? [...MIME_TYPES_WITH_SOUND, ...MIME_TYPES] : MIME_TYPES).find(
+    (t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)
+  );
   if (!mimeType) throw new GradedFilmError('This browser cannot record video. Try Chrome, Edge or Safari.');
 
   const href = URL.createObjectURL(file);
   const video = document.createElement('video');
-  video.muted = true;
+  video.muted = !job.ownSound;
   video.playsInline = true;
   video.preload = 'auto';
   video.src = href;
@@ -104,6 +195,8 @@ export async function recordGradedFilm(
   let watchdog: ReturnType<typeof setInterval> | undefined;
   let stream: MediaStream | undefined;
   let recorder: MediaRecorder | undefined;
+  let music: ReturnType<typeof mixMusic> | undefined;
+  let sound: ReturnType<typeof keepSound> | undefined;
   // Settles with an error when the film fails to play, stalls, or is cancelled.
   let fail: (err: Error) => void = () => undefined;
   const failed = new Promise<never>((_, reject) => {
@@ -189,9 +282,17 @@ export async function recordGradedFilm(
         reported = pct;
         onProgress(pct / 100);
       }
+      music?.follow(t, video.duration);
     };
 
     stream = canvas.captureStream(30);
+    if (job.ownSound) sound = keepSound(video, stream);
+    if (job.music) {
+      music = mixMusic(job.music, stream, () =>
+        fail(new GradedFilmError('The music could not be read. Remove it and try again, or download the film without the grade.'))
+      );
+      await Promise.race([music.ready, failed]);
+    }
     recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 16_000_000 });
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (e) => {
@@ -224,7 +325,7 @@ export async function recordGradedFilm(
       if (frames) video.requestVideoFrameCallback(loop);
       else raf = requestAnimationFrame(loop);
     };
-    await Promise.race([video.play(), failed]);
+    await Promise.race([Promise.all([sound?.play(), music?.play(), video.play()]), failed]);
     loop();
     await Promise.race([ended, failed]);
     cancelAnimationFrame(raf);
@@ -242,6 +343,8 @@ export async function recordGradedFilm(
       recorder.stop();
     }
     stream?.getTracks().forEach((t) => t.stop());
+    music?.stop();
+    sound?.stop();
     video.pause();
     video.removeAttribute('src');
     URL.revokeObjectURL(href);

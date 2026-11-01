@@ -1,0 +1,218 @@
+/* The conversation, on the solid canvas (DESIGN 2.4: content sits on solid
+   surfaces, glass is for the chrome). Everything is ink 1 or 2. */
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  border-radius: var(--r-control);
+}
+
+.log:focus-visible {
+  outline-offset: 6px;
+  box-shadow: none;
+}
+
+/* A person's words: on the right, on a solid surface. */
+.user {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(560px, 88%);
+  padding: 10px 14px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+}
+
+.userText {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font: var(--text-body);
+  letter-spacing: var(--track-body);
+  color: var(--bay-text);
+  white-space: pre-wrap;
+}
+
+/* The renders sent with it: a small contact sheet, every one of them. Wraps, so
+   the bubble is only as wide as its pictures. */
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.thumbs .thumb {
+  flex: none;
+  width: 84px;
+}
+
+.audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+/* The assistant's words: plain canvas, on the left. */
+.prose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-width: 640px;
+  overflow-wrap: anywhere;
+  font: var(--text-body);
+  letter-spacing: var(--track-body);
+  color: var(--bay-text);
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0;
+}
+
+.prose p {
+  white-space: pre-line;
+}
+
+.prose ul,
+.prose ol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 20px;
+}
+
+.code {
+  padding: 1px 5px;
+  border-radius: var(--bay-r-xs);
+  background-color: var(--bay-bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* What the assistant did: one quiet line that opens. */
+.steps {
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+.stepsLine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 8px 2px 4px;
+  border-radius: var(--bay-r-sm);
+  cursor: pointer;
+  list-style: none;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.stepsLine::-webkit-details-marker {
+  display: none;
+}
+
+.stepsLine:hover {
+  background-color: var(--glass-btn);
+  color: var(--bay-text);
+}
+
+.chevron {
+  flex: none;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.steps[open] .chevron {
+  transform: rotate(90deg);
+}
+
+.stepList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0 0 0 22px;
+  list-style: none;
+}
+
+/* A card keeps its own width; `.card` only places it in the column. */
+.card {
+  min-width: 0;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.refused {
+  max-width: 560px;
+}
+
+.ended {
+  margin: 0;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+/* The words still arriving. Outside the log, so it is never read out as it grows. */
+.draft {
+  margin-top: 16px;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The glyph stands still; the words still say it is working. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+
+  .chevron {
+    transition: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

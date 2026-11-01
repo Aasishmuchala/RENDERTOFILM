@@ -17,6 +17,9 @@ import type { PageId } from '../nav.ts';
 import { ImageDropZone } from '../ui/ImageDropZone.tsx';
 import styles from './Workspace.module.css';
 
+/** Close-ups and Location are Still modes, not pages, and keep their own open state. */
+type WorkspacePage = PageId | 'closeups' | 'location';
+
 /**
  * The full-screen canvas every studio page sits in (DESIGN.md 3.3, Phase 9):
  * the picture fills the window, the settings float beside it in one glass
@@ -34,7 +37,7 @@ export type CanvasState = 'empty' | 'preview' | 'live' | 'free';
 
 export type WorkspaceProps = {
   /** The persistence key and the active-page check. */
-  page: PageId;
+  page: WorkspacePage;
   canvasState: CanvasState;
   /** The picture (img, CompareSlider, video, RenderingStatus, Alert) or, for `free`, the grid or player. */
   canvas?: ReactNode;
@@ -119,7 +122,7 @@ function slateParts(caption: ReactNode): ReactNode[] | null {
   return parts ? parts.filter((p) => p !== undefined && p !== null && p !== false && p !== '') : null;
 }
 
-function readOpen(page: PageId): boolean {
+function readOpen(page: WorkspacePage): boolean {
   try {
     return localStorage.getItem(STORE_KEY + page) !== 'hidden';
   } catch {
@@ -127,7 +130,7 @@ function readOpen(page: PageId): boolean {
   }
 }
 
-function writeOpen(page: PageId, open: boolean) {
+function writeOpen(page: WorkspacePage, open: boolean) {
   try {
     localStorage.setItem(STORE_KEY + page, open ? 'open' : 'hidden');
   } catch {

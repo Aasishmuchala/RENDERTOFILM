@@ -1,6 +1,6 @@
-/* A pill toggle (DESIGN 4): 28 px, a glass-button fill; on, the accent soft
-   fill and accent text. The icon in the component (ring or filled check)
-   repeats the state for people who do not see colour. */
+/* A pill toggle (DESIGN 4): 28 px, a glass-button fill; on, solid white with
+   black text. The icon in the component (ring or filled check) repeats the
+   state, so the fill is never the only sign. */
 .toggle {
   display: inline-flex;
   align-items: center;
@@ -19,6 +19,7 @@
     background-color var(--dur-1) var(--ease-out),
     border-color var(--dur-1) var(--ease-out),
     color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out),
     transform var(--dur-2) var(--ease-out);
 }
 
@@ -34,24 +35,35 @@
 }
 
 .toggle[data-selected] {
-  border-color: rgba(var(--bay-accent-rgb), 0.4);
-  background: var(--bay-accent-soft);
-  color: var(--bay-accent-fg);
+  border-color: var(--bay-accent);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
 }
 
 .toggle[data-selected][data-hovered] {
-  background: rgba(var(--bay-accent-rgb), 0.24);
-  color: var(--bay-accent-fg);
+  border-color: var(--bay-accent-hover);
+  background: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+  color: var(--bay-text-on-accent);
 }
 
 .toggle[data-selected][data-pressed] {
-  background: rgba(var(--bay-accent-rgb), 0.3);
-  color: var(--bay-accent-fg);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
 }
 
 .toggle[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
+}
+
+/* Selected, focused and under the pointer: the inset line and the ring's
+   outer band together, since the hover rule above is the more specific. */
+.toggle[data-selected][data-hovered][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 6px var(--bay-bg-canvas);
 }
 
 .toggle[data-disabled] {

@@ -1,5 +1,6 @@
 import { documentStore } from './storage.ts';
 import type { EditDoc } from './timeline.ts';
+import { docLimit } from './doc-limit.ts';
 
 export type * from './timeline.ts';
 
@@ -8,6 +9,7 @@ export const MAX_MEMORY = 30;
 const MAX_MESSAGES = 60;
 
 export const EMPTY_EDIT: EditDoc = {
+  rev: 0,
   timeline: [],
   transition: 'hard',
   fadeSeconds: 0.5,
@@ -15,6 +17,8 @@ export const EMPTY_EDIT: EditDoc = {
   exports: [],
   messages: [],
   memory: [],
+  music: null,
+  titles: null,
 };
 
 /** One document per person under `edits/`, beside their library. */
@@ -35,8 +39,8 @@ export async function updateEdit(
     return {
       ...next,
       timeline: next.timeline.slice(0, MAX_TIMELINE),
-      derived: next.derived.slice(0, 200),
-      exports: next.exports.slice(0, 30),
+      derived: next.derived.slice(0, docLimit(200)),
+      exports: next.exports.slice(0, docLimit(30)),
       messages: next.messages.slice(-MAX_MESSAGES),
       memory: next.memory.slice(0, MAX_MEMORY),
     };
@@ -47,6 +51,12 @@ export async function updateEdit(
 export function editOwns(doc: EditDoc, id: string): boolean {
   return (
     doc.derived.some((d) => d.id === id) ||
-    doc.exports.some((e) => e.finalId === id)
+    doc.exports.some((e) => e.finalId === id || e.deliverables?.some((d) => d.finalId === id))
   );
+}
+
+/** Whether `key` is one file of this owner's under `chat-assets/`, and no path out of it. */
+export function ownsAsset(owner: string, key: string): boolean {
+  const prefix = `chat-assets/${owner}/`;
+  return key.startsWith(prefix) && /^[\w-]+\.\w+$/.test(key.slice(prefix.length));
 }

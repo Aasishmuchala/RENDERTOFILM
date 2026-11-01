@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, Clock, Plus } from 'lucide-react';
+import { CircleCheck, Clock, OctagonAlert, Plus, TriangleAlert } from 'lucide-react';
 import { memo } from 'react';
 import { Label, Radio, RadioGroup } from 'react-aria-components';
 
@@ -37,7 +37,7 @@ const STATE_TEXT: Record<TakeState, string> = {
   queued: 'Waiting at Runway',
   rendering: 'Rendering',
   ready: 'Ready',
-  failed: "Didn't render",
+  failed: "Failed: didn't render",
   lost: 'Lost touch',
 };
 
@@ -89,8 +89,10 @@ export const TakeStrip = memo(function TakeStrip({ label, items, value, onChange
                 <span className={styles.badge} aria-hidden>
                   {item.state === 'ready' ? (
                     <CircleCheck size={12} />
-                  ) : item.state === 'failed' || item.state === 'lost' ? (
-                    <CircleAlert size={12} />
+                  ) : item.state === 'failed' ? (
+                    <OctagonAlert size={12} />
+                  ) : item.state === 'lost' ? (
+                    <TriangleAlert size={12} />
                   ) : (
                     <Clock size={12} />
                   )}

@@ -1,6 +1,7 @@
 /* The zone wraps whatever the page shows (the current image, or the page's
-   own dashed empty box) and adds the drop feedback on top of it: an accent
-   border and an accent wash while a file is dragged over. */
+   own dashed empty box) and adds the drop feedback on top of it: a solid
+   white ring (dashes mean failed) and a white wash while a file is dragged
+   over. */
 .zone {
   position: relative;
   /* Its own stacking context: the wash and the pill never paint over a
@@ -14,7 +15,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  border: 2px dashed var(--bay-accent);
+  border: 2px solid var(--bay-accent);
   border-radius: inherit;
   background-color: var(--bay-accent-soft);
   opacity: 0;

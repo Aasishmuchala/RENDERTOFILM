@@ -8,6 +8,7 @@ import {
   Film,
   Image as ImageIcon,
   LayoutGrid,
+  Link2,
   Projector,
   RectangleHorizontal,
   RotateCcw,
@@ -70,6 +71,7 @@ import { CastSheetField, type CastSheet } from './CastSheetField.tsx';
 import { directedLine, DirectionStyleSelect, useDirectionStyle } from './director/DirectionStyle.tsx';
 import { slugify, withPick } from './director/shared.ts';
 import { TakeImage } from './director/TakeImage.tsx';
+import { formatHash, type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
@@ -162,6 +164,8 @@ export type LifestylePageProps = {
   active: boolean;
   /** Open the Video tab with this still picked and the shot set up for it. */
   onAnimate: (stillId: string, preset: VideoPreset) => void;
+  /** The address (`#lifestyle?job=abc&frame=3`), when App hands it down; without it the page reads it itself. */
+  handoff?: Handoff | undefined;
 };
 
 /** A model's 4K, the size a lifestyle frame is shot at, else its own default. */
@@ -358,50 +362,101 @@ function uploadErrorFrom(e: unknown, what: string): unknown {
   return e instanceof Error ? e : { message: `The ${what} could not be uploaded. Try again.` };
 }
 
-/** One optional reference photo (the lighting reference, a cast sheet): a local preview, uploaded at once. */
-function useReferenceUpload(what: string) {
-  const [image, setImage] = useState<CastSheet | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const latest = useRef<string | null>(null);
+/** A reference photo as held: whose it is, the preview, the upload in flight (its preview's src) and the last failure. */
+type Reference = { owner: string | undefined; image: CastSheet | null; uploading: string | null; error: unknown };
+
+/**
+ * One optional reference photo (the lighting reference, a cast sheet): a local
+ * preview, uploaded at once. `owner` is what the photo is for (a board's id):
+ * another owner is shown none of it, not the preview, the upload nor the
+ * failure, and an upload still in flight resolves for the one that dropped
+ * it, so a board opened meanwhile neither shows it nor takes it.
+ */
+function useReferenceUpload(what: string, owner?: string) {
+  const [held, setHeld] = useState<Reference>({ owner, image: null, uploading: null, error: null });
+  /** The upload each owner last started, so one replaced meanwhile is never applied. */
+  const latest = useRef(new Map<string | undefined, string>());
+  const mine = held.owner === owner;
 
   /** Upload a photo in place of the current one; its hosted URL, unless it failed or was replaced meanwhile. */
   async function add(file: Blob, name: string): Promise<string | undefined> {
-    setError(null);
     const src = URL.createObjectURL(file);
-    latest.current = src;
-    setImage((prev) => {
-      if (prev?.src.startsWith('blob:')) URL.revokeObjectURL(prev.src);
-      return { src, name };
+    latest.current.set(owner, src);
+    setHeld((prev) => {
+      if (prev.image?.src.startsWith('blob:')) URL.revokeObjectURL(prev.image.src);
+      return { owner, image: { src, name }, uploading: src, error: null };
     });
-    setUploading(true);
     try {
       const hostedUrl = await uploadRender(file);
-      setImage((cur) => (cur?.src === src ? { ...cur, hostedUrl } : cur));
-      return latest.current === src ? hostedUrl : undefined;
+      setHeld((cur) => (cur.image?.src === src ? { ...cur, image: { ...cur.image, hostedUrl } } : cur));
+      return latest.current.get(owner) === src ? hostedUrl : undefined;
     } catch (e) {
-      setImage((cur) => {
-        if (cur?.src !== src) return cur;
+      // The failure shows where the photo was dropped, while it is still the one there.
+      setHeld((cur) => {
+        if (cur.image?.src !== src) return cur;
         URL.revokeObjectURL(src);
-        return null;
+        return { ...cur, image: null, error: uploadErrorFrom(e, what) };
       });
-      setError(uploadErrorFrom(e, what));
       return undefined;
     } finally {
-      setUploading(false);
+      setHeld((cur) => (cur.uploading === src ? { ...cur, uploading: null } : cur));
     }
   }
 
+  /** Drop this owner's photo; another's, in flight or in, is left alone. */
   function clear() {
-    latest.current = null;
-    setError(null);
-    setImage((prev) => {
-      if (prev?.src.startsWith('blob:')) URL.revokeObjectURL(prev.src);
-      return null;
+    latest.current.delete(owner);
+    setHeld((prev) => {
+      if (prev.owner !== owner) return prev;
+      if (prev.image?.src.startsWith('blob:')) URL.revokeObjectURL(prev.image.src);
+      return { ...prev, image: null, error: null };
     });
   }
 
-  return { image, uploading, error, setError, add, clear };
+  function setError(error: unknown) {
+    setHeld((prev) => (prev.owner === owner ? { ...prev, error } : { owner, image: null, uploading: null, error }));
+  }
+
+  return {
+    image: mine ? held.image : null,
+    uploading: mine && held.uploading !== null,
+    error: mine ? held.error : null,
+    setError,
+    add,
+    clear,
+  };
+}
+
+/**
+ * The address: App's when it hands one down, else read here on load and on
+ * every change. App writes a page switch with replaceState, which fires no
+ * hashchange and lands after this page's effects, so that read waits for it.
+ */
+function useHandoff(given: Handoff | undefined, active: boolean): Handoff {
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    if (given) return;
+    const read = () => setHash(window.location.hash);
+    queueMicrotask(read);
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, [given, active]);
+  return useMemo(() => given ?? parseHash(hash), [given, hash]);
+}
+
+/** A plan made here takes over from the job the address names, so a reload lands on the new plan. */
+function dropAddressedJob() {
+  const { page, params } = parseHash(window.location.hash);
+  if (page === 'lifestyle' && params['job']) window.location.replace(formatHash('lifestyle'));
+}
+
+/** The frames of `board` in a guard keyed `board:image`, as the page's busy state. */
+function framesOn(board: string, guard: ReadonlySet<string>): Record<number, boolean> {
+  const out: Record<number, boolean> = {};
+  for (const key of guard) {
+    if (key.startsWith(`${board}:`)) out[Number(key.slice(board.length + 1))] = true;
+  }
+  return out;
 }
 
 /**
@@ -413,8 +468,11 @@ function useReferenceUpload(what: string) {
  * frame is then re-photographed from its render onto the board. Every take
  * lands in the library tagged @lifestyle.
  */
-export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
+export function LifestylePage({ active, onAnimate, handoff }: LifestylePageProps) {
   const utils = trpc.useUtils();
+  const address = useHandoff(handoff, active);
+  const addressedJob = (address.page === 'lifestyle' && address.params['job']) || undefined;
+  const addressedFrame = address.page === 'lifestyle' ? address.params['frame'] : undefined;
   // A take or cast sheet rendering, or one the board knows of that the
   // library hasn't caught up with yet, keeps the library fresh.
   const boardWaiting = useRef(false);
@@ -428,8 +486,6 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const [household, setHousehold] = useState('');
   const [directorStyle, setDirectorStyle] = useDirectionStyle('lifestyle');
   const light = useReferenceUpload('lighting reference');
-  // The person's own cast sheet; held here so it survives the inspector switching to a frame and back.
-  const castUpload = useReferenceUpload('cast sheet');
   const { allowedImage, caps, modelBlocked, onBay, providerNote } = useCapabilities();
   const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_MODEL);
   const [resolution, setResolution] = useState(() => fourK(DEFAULT_MODEL));
@@ -439,7 +495,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const pass1Off = modelBlocked('image', imageModel);
   const pass2Off = twoPass ? modelBlocked('image', pass2Model) : null;
   const jobBlocked = pass1Off ?? pass2Off;
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(addressedJob ?? null);
   const [viewing, setViewing] = useState<number | null>(null);
   /** What the inspector and the canvas are on: the film's setup, or one frame (its image index). */
   const [selected, setSelected] = useState<'job' | number>('job');
@@ -449,6 +505,8 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const [sheetShown, setSheetShown] = useState<string | null>(null);
   /** The renders the last plan made here was sent with: others added since turn the footer back to Plan. */
   const [plannedKey, setPlannedKey] = useState<string | null>(null);
+  /** The renders waiting when an address opened a board: the board stays up, and they keep a Plan of their own. */
+  const [behindBoard, setBehindBoard] = useState<string | null>(null);
 
   const plan = trpc.lifestyle.plan.useMutation();
   // A double-click's second press arrives before plan.isPending shows, and a
@@ -479,8 +537,10 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const current = job.data ?? null;
 
   // Until the new plan's first poll lands there is no job to show, and the
-  // button must not start (and bill) a second plan meanwhile.
-  const planning = plan.isPending || (jobId !== null && job.isPending) || current?.status === 'planning';
+  // button must not start (and bill) a second plan meanwhile. A job the address
+  // opened is being read, not planned.
+  const planning =
+    plan.isPending || (jobId !== null && jobId !== addressedJob && job.isPending) || current?.status === 'planning';
   const householdTooLong = household.length > HOUSEHOLD_MAX;
   const ready = uploads.length > 0 && pending === 0 && failed === 0 && !householdTooLong && !light.uploading;
   const uploadsKey = uploads.map((u) => u.key).join('|');
@@ -501,6 +561,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
       });
       setJobId(id);
       setPlannedKey(sentKey);
+      dropAddressedJob();
       void utils.lifestyle.job.invalidate();
     } catch {
       // Shown by RunwayErrorNotice from plan.error.
@@ -561,8 +622,17 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   /** Takes shown as their first pass rather than the final, by the final's id; the card and the big screen share it. */
   const [pass1Shown, setPass1Shown] = useState<Record<string, boolean>>({});
   const [castMode, setCastMode] = useState<CastMode>('generated');
+  const [castBusy, setCastBusy] = useState<CastMode | 'approve' | null>(null);
+  const [castError, setCastError] = useState<unknown>(undefined);
   const boardId = current?.status === 'planned' ? current.id : undefined;
+  // The person's own cast sheet; held here so it survives the inspector
+  // switching to a frame and back, and the board's own: another board is
+  // shown its own cast, never this one.
+  const castUpload = useReferenceUpload('cast sheet', boardId);
   const loadedBoard = useRef<string | undefined>(undefined);
+  /** Frames whose shoot or pass-2 retry request is in flight, by board and image, which the state is too slow to guard. */
+  const shootingNow = useRef(new Set<string>());
+  const retryingNow = useRef(new Set<string>());
   useEffect(() => {
     if (!boardId || loadedBoard.current === boardId || !current) return;
     loadedBoard.current = boardId;
@@ -570,10 +640,13 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
     for (const [k, v] of Object.entries(current.choices ?? {})) initial[Number(k)] = v;
     setDrafts(initial);
     setSaves({});
-    setShooting({});
+    // A board read again keeps what it has in flight: a frame stays busy, and its press isn't dropped unseen.
+    setShooting(framesOn(boardId, shootingNow.current));
     setShootErrors({});
-    setRetrying({});
+    setRetrying(framesOn(boardId, retryingNow.current));
     setRetryErrors({});
+    setCastBusy(null);
+    setCastError(undefined);
     // A film with residents starts on the created cast; one without, on none.
     const residents = castNeeds((current.plan ?? []).map((f) => boardFrame(f, initial[f.image]))).length > 0;
     setCastMode(current.cast?.mode ?? (residents && imageModelTakesCastSheet(current.imageModel) ? 'generated' : 'none'));
@@ -588,15 +661,19 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   const saveChains = useRef(new Map<number, Promise<unknown>>());
   const save = useCallback(
     (id: string, image: number, patch: LifestyleChoice) => {
-      setSaves((s) => ({ ...s, [image]: 'saving' }));
+      // A save that lands after another board loaded is not that board's.
+      const stillLoaded = () => loadedBoard.current === id;
+      if (stillLoaded()) setSaves((s) => ({ ...s, [image]: 'saving' }));
       const chains = saveChains.current;
       const next = (chains.get(image) ?? Promise.resolve())
         .catch(() => undefined)
         .then(() => utils.client.lifestyle.choose.mutate({ id, image, ...patch }))
         .then(() => {
-          if (chains.get(image) === next) setSaves((s) => ({ ...s, [image]: 'saved' }));
+          if (chains.get(image) === next && stillLoaded()) setSaves((s) => ({ ...s, [image]: 'saved' }));
         })
-        .catch((error: unknown) => setSaves((s) => ({ ...s, [image]: { error } })));
+        .catch((error: unknown) => {
+          if (stillLoaded()) setSaves((s) => ({ ...s, [image]: { error } }));
+        });
       chains.set(image, next);
     },
     [utils]
@@ -645,19 +722,20 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
 
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
-  /** Frames whose shoot or pass-2 retry request is in flight, which the state is too slow to guard. */
-  const shootingNow = useRef(new Set<number>());
-  const retryingNow = useRef(new Set<number>());
   const viewsRef = useRef(new Map<number, TakeView>());
   const refetchJob = job.refetch;
   const shoot = useCallback(
     async (image: number, fixes?: string) => {
-      if (!boardId) return;
+      // The drafts and frame state are the loaded board's: a Shoot all still
+      // running for a board since replaced stops here, with nothing billed.
+      if (!boardId || loadedBoard.current !== boardId) return;
+      const stillLoaded = () => loadedBoard.current === boardId;
       // A frame already being shot, or whose take is still on either pass, is not billed a second time.
-      if (shootingNow.current.has(image) || retryingNow.current.has(image) || inFlight(viewsRef.current.get(image)?.state)) {
+      const flying = `${boardId}:${image}`;
+      if (shootingNow.current.has(flying) || retryingNow.current.has(flying) || inFlight(viewsRef.current.get(image)?.state)) {
         return;
       }
-      shootingNow.current.add(image);
+      shootingNow.current.add(flying);
       // Typing still waiting to save rides along with the shoot instead.
       const typed = takeUnsent(image);
       setShooting((s) => ({ ...s, [image]: true }));
@@ -672,15 +750,15 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
           take: undefined,
           ...(fixes ? { fixes: fixes.slice(0, 2000) } : {}),
         });
-        if (typed) setSaves((s) => ({ ...s, [image]: 'saved' }));
+        if (typed && stillLoaded()) setSaves((s) => ({ ...s, [image]: 'saved' }));
         await Promise.all([refetchJob(), utils.library.invalidate()]);
       } catch (error) {
-        setShootErrors((e) => ({ ...e, [image]: error }));
+        if (stillLoaded()) setShootErrors((e) => ({ ...e, [image]: error }));
         // The shoot didn't go, so the typing it carried is saved on its own.
         if (typed) save(boardId, image, typed);
       } finally {
-        shootingNow.current.delete(image);
-        setShooting((s) => ({ ...s, [image]: false }));
+        shootingNow.current.delete(flying);
+        if (stillLoaded()) setShooting((s) => ({ ...s, [image]: false }));
       }
     },
     [boardId, utils, refetchJob, save, takeUnsent]
@@ -693,19 +771,23 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
    */
   const retryPass2 = useCallback(
     async (image: number, stillId: string) => {
-      if (!boardId || retryingNow.current.has(image) || shootingNow.current.has(image)) return;
-      retryingNow.current.add(image);
+      if (!boardId) return;
+      const flying = `${boardId}:${image}`;
+      if (retryingNow.current.has(flying) || shootingNow.current.has(flying)) return;
+      const stillLoaded = () => loadedBoard.current === boardId;
+      retryingNow.current.add(flying);
       setRetrying((r) => ({ ...r, [image]: true }));
       setRetryErrors((e) => ({ ...e, [image]: undefined }));
       try {
         await utils.client.lifestyle.retryPass2.mutate({ id: boardId, stillId });
       } catch (error) {
-        setRetryErrors((e) => ({ ...e, [image]: error }));
+        // A failure that lands after another board loaded is not that board's.
+        if (stillLoaded()) setRetryErrors((e) => ({ ...e, [image]: error }));
       } finally {
         // Sent or refused, the take has moved on: show where it is now.
         await Promise.all([refetchJob(), utils.library.invalidate()]).catch(() => undefined);
-        retryingNow.current.delete(image);
-        setRetrying((r) => ({ ...r, [image]: false }));
+        retryingNow.current.delete(flying);
+        if (stillLoaded()) setRetrying((r) => ({ ...r, [image]: false }));
       }
     },
     [boardId, utils, refetchJob]
@@ -802,38 +884,43 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
   }
 
   // ---- The cast: made, uploaded or none, then approved before the shoot.
-  const [castBusy, setCastBusy] = useState<CastMode | 'approve' | null>(null);
-  const [castError, setCastError] = useState<unknown>(undefined);
+  // Both calls are this board's: one that ends after another board loaded (a
+  // sheet whose upload outlasted the hop) still lands on its own job, and shows
+  // the board now on screen nothing of it.
   const chooseCast = useCallback(
     async (mode: CastMode, uploadedUrl?: string) => {
       if (!boardId) return;
-      setCastBusy(mode);
-      setCastError(undefined);
+      const stillLoaded = () => loadedBoard.current === boardId;
+      if (stillLoaded()) {
+        setCastBusy(mode);
+        setCastError(undefined);
+      }
       try {
         // The cast is made from the plan as it reads on screen, typing included.
-        await flushSaves();
+        if (stillLoaded()) await flushSaves();
         await utils.client.lifestyle.cast.mutate({ id: boardId, mode, ...(uploadedUrl ? { uploadedUrl } : {}) });
       } catch (error) {
-        setCastError(error);
+        if (stillLoaded()) setCastError(error);
       } finally {
         // Sheets sent before a failure are on the plan too.
         await Promise.all([refetchJob(), utils.library.invalidate()]).catch(() => undefined);
-        setCastBusy(null);
+        if (stillLoaded()) setCastBusy(null);
       }
     },
     [boardId, flushSaves, utils, refetchJob]
   );
   const approveCast = useCallback(async () => {
     if (!boardId) return;
+    const stillLoaded = () => loadedBoard.current === boardId;
     setCastBusy('approve');
     setCastError(undefined);
     try {
       await utils.client.lifestyle.approveCast.mutate({ id: boardId });
       await refetchJob();
     } catch (error) {
-      setCastError(error);
+      if (stillLoaded()) setCastError(error);
     } finally {
-      setCastBusy(null);
+      if (stillLoaded()) setCastBusy(null);
     }
   }, [boardId, utils, refetchJob]);
 
@@ -879,9 +966,24 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
 
   // ---- The workspace: selection drives the inspector and the canvas.
   const isPlanned = current?.status === 'planned';
-  // Renders added since the board was planned are a new film to plan.
-  const freshUploads = uploads.length > 0 && uploadsKey !== plannedKey;
+  // Renders added since the board was planned are a new film to plan; those an
+  // address opened a board over wait behind it.
+  const unplanned = uploads.length > 0 && uploadsKey !== plannedKey;
+  const freshUploads = unplanned && uploadsKey !== behindBoard;
   const planMode = planning || !isPlanned || freshUploads;
+  const planLabel = planning
+    ? 'Planning the film…'
+    : uploads.length === 0
+      ? 'Add project renders first'
+      : pending > 0
+        ? 'Uploading the renders…'
+        : failed > 0
+          ? 'Retry or remove the failed upload'
+          : householdTooLong
+            ? 'Shorten the household note first'
+            : light.uploading
+              ? 'Uploading the lighting reference…'
+              : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`;
   const selectedFrame = typeof selected === 'number' ? board.find((f) => f.image === selected) : undefined;
   const selectedIndex = selectedFrame ? board.indexOf(selectedFrame) : -1;
   const gridOn =
@@ -953,7 +1055,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
 
   // A plan made here lands: the inspector scrolls to it and the cast.
   const planRef = useRef<HTMLDivElement>(null);
-  const scrolledTo = useRef<string | undefined>(undefined);
+  const scrolledTo = useRef(addressedJob);
   useEffect(() => {
     const el = planRef.current;
     if (!active || !boardId || boardId !== jobId || scrolledTo.current === boardId || !el) return;
@@ -963,6 +1065,58 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     scroller?.scrollTo({ top: Math.max(0, el.offsetTop - 64), behavior: reduced ? 'auto' : 'smooth' });
   }, [active, boardId, jobId]);
+
+  // An address opens its job once per arrival: a new job loads as on a reload,
+  // past the board's guard even when it is the newest board already showing,
+  // and a plan made here afterwards is not pulled back. Renders waiting to be
+  // planned stay behind the board. The page stays mounted, so a job it already
+  // holds is read again: it may have moved on out of view. One it held earlier
+  // is read afresh too: the cached read lacks what was saved since, and the
+  // drafts load from it.
+  const openedJob = useRef(addressedJob);
+  useEffect(() => {
+    if (openedJob.current === addressedJob) return;
+    openedJob.current = addressedJob;
+    if (!addressedJob) return;
+    setBehindBoard(uploadsKey);
+    if (addressedJob === jobId) {
+      void refetchJob();
+      return;
+    }
+    loadedBoard.current = undefined;
+    scrolledTo.current = addressedJob;
+    void utils.lifestyle.job.reset({ id: addressedJob });
+    setJobId(addressedJob);
+  }, [addressedJob, jobId, refetchJob, uploadsKey, utils]);
+
+  // A job that isn't there (gone, another account's, or an id longer than the
+  // server takes) leaves the page on the newest board, and the page says so for
+  // as long as the address names it.
+  const [goneJob, setGoneJob] = useState<string | null>(null);
+  const jobGone = jobId !== null && (job.data === null || jobId.length > 200);
+  useEffect(() => {
+    if (!jobGone) return;
+    setGoneJob(jobId);
+    void utils.lifestyle.job.reset();
+    setJobId(null);
+  }, [jobGone, jobId, utils]);
+
+  // The frame an address names, by its image index, so a link stays on its
+  // frame when the film is reordered. It waits for its board: loading one
+  // opens on the setup, and this runs after that.
+  const openedFrame = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (addressedFrame === undefined) {
+      openedFrame.current = undefined;
+      return;
+    }
+    const arrival = `${addressedJob}:${addressedFrame}`;
+    if (openedFrame.current === arrival || !boardId || loadedBoard.current !== boardId) return;
+    if (addressedJob && addressedJob !== boardId) return;
+    openedFrame.current = arrival;
+    // Digits only: Number() would read '' as 0 and take '1e0' or '0x1' for 1.
+    if (/^\d+$/.test(addressedFrame)) selectFrame(Number(addressedFrame));
+  }, [addressedFrame, addressedJob, boardId, current, selectFrame]);
 
   // ---- The canvas.
   let canvasState: CanvasState;
@@ -1191,6 +1345,12 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
               plate={selView.plate}
               className={own.passToggleTools}
             />
+          </>
+        )}
+        {current && (
+          <>
+            <span className={own.toolSep} aria-hidden />
+            <CopyLink job={current.id} />
           </>
         )}
       </>
@@ -1488,6 +1648,24 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
           <Text tone="muted" size="sm" as="p" className={own.refNote}>
             A photograph whose light, colour and plant realism every frame should match. Only its light is used.
           </Text>
+          {/* With a board up, planning the renders waiting behind it is the secondary action here. */}
+          {!planMode && unplanned && (
+            <>
+              <BlockedTip message={jobBlocked}>
+                <Button
+                  icon={<Projector size={16} />}
+                  disabled={!ready || jobBlocked !== null}
+                  onPress={() => void runPlan()}
+                >
+                  {planLabel}
+                </Button>
+              </BlockedTip>
+              <Text tone="muted" size="sm" as="p">
+                Plans a new film from these renders; this one stays in your library.
+              </Text>
+              <RunwayErrorNotice error={plan.error} modelName="Claude" onRetry={() => void runPlan()} />
+            </>
+          )}
         </div>
       </Section>
 
@@ -1615,19 +1793,7 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
             disabled={!ready || jobBlocked !== null}
             onPress={() => void runPlan()}
           >
-            {planning
-              ? 'Planning the film…'
-              : uploads.length === 0
-                ? 'Add project renders first'
-                : pending > 0
-                  ? 'Uploading the renders…'
-                  : failed > 0
-                    ? 'Retry or remove the failed upload'
-                    : householdTooLong
-                      ? 'Shorten the household note first'
-                      : light.uploading
-                        ? 'Uploading the lighting reference…'
-                        : `Plan ${uploads.length} frame${uploads.length === 1 ? '' : 's'}`}
+            {planLabel}
           </Button>
         </BlockedTip>
         <CostLine
@@ -1749,7 +1915,16 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
           label: 'Drop or choose project renders',
         }}
         inspector={frameInspector ?? jobInspector}
-        footer={footer}
+        footer={
+          <>
+            {goneJob !== null && goneJob === addressedJob && (
+              <Alert tone="warning" title="That link's film is gone">
+                {isPlanned ? 'This is your newest film.' : 'Add renders to plan a new one.'}
+              </Alert>
+            )}
+            {footer}
+          </>
+        }
         strip={strip}
         stripLabel="Frames"
         raiseSheet={selected}
@@ -1772,6 +1947,35 @@ export function LifestylePage({ active, onAnimate }: LifestylePageProps) {
           onAnimate={onAnimate}
         />
       )}
+    </>
+  );
+}
+
+/** The board's address, for a chat or a note. The note sits before the button, so a phone's scrolled toolbar still shows it. */
+function CopyLink({ job }: { job: string }) {
+  const [note, setNote] = useState('');
+  const clearNote = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(clearNote.current), []);
+  async function copy() {
+    clearTimeout(clearNote.current);
+    try {
+      await navigator.clipboard.writeText(formatHash('lifestyle', { job }));
+      setNote('Copied');
+    } catch {
+      // No clipboard on this page, or the browser refused.
+      setNote('Could not copy');
+    }
+    clearNote.current = setTimeout(() => setNote(''), 2500);
+  }
+  return (
+    <>
+      <span className={own.saveState} role="status">
+        {note}
+      </span>
+      <AriaButton className={own.tool} onPress={() => void copy()}>
+        <Link2 size={16} aria-hidden />
+        <span className={own.toolLabel}>Copy link</span>
+      </AriaButton>
     </>
   );
 }

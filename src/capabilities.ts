@@ -23,6 +23,12 @@ export type Capabilities = {
   clipUpscalers: ClipUpscalerId[];
   aleph: boolean;
   export: boolean;
+  /** Mastering: one finished file per deliverable, with music and QC, through the desktop app's own ffmpeg. */
+  master: boolean;
+  /** The cut as a file other editors read (OTIO, EDL), which names each clip's file on this computer. */
+  interchange: boolean;
+  /** Optional pinned command-line editors, set up under Settings, Power tools. */
+  sidecars: boolean;
   /** Recreate in 4K: native 4K from a still and a reference clip. The Runway API cannot pin the still as the first frame alongside a reference video. */
   recreate: boolean;
   textViaRunway: boolean;
@@ -42,6 +48,9 @@ export const BAY_CAPABILITIES: Capabilities = {
   clipUpscalers: ['runway', 'flux'],
   aleph: true,
   export: true,
+  master: false,
+  interchange: false,
+  sidecars: false,
   recreate: true,
   textViaRunway: true,
   notes: {},
@@ -52,4 +61,18 @@ export const BAY_CAPABILITIES: Capabilities = {
 export function capabilitiesOf(runway: unknown): Capabilities {
   const client = runway as { capabilities?: () => Capabilities } | null | undefined;
   return typeof client?.capabilities === 'function' ? client.capabilities() : BAY_CAPABILITIES;
+}
+
+/** Who ran a task in the desktop app; Bay has one provider and records none. */
+export type GenerationProvider = Exclude<Capabilities['provider'], 'bay'>;
+
+/**
+ * The provider this client's tasks go to, for the work's later steps to be held
+ * to. Read it on the line after the first task's `await`: createTask has just
+ * read Settings, and nothing else runs before that line, so this names the
+ * provider that task went to. Undefined on Bay.
+ */
+export function providerOf(runway: unknown): GenerationProvider | undefined {
+  const { provider } = capabilitiesOf(runway);
+  return provider === 'bay' ? undefined : provider;
 }

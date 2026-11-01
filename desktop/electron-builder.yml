@@ -14,9 +14,12 @@ files:
   - platform/bay/package.json
   - platform/bay-react/package.json
   - package.json
+  - build/icon.png # the tray's; buildResources stay out of the app unless named
 extraResources:
   - from: platform/assets
     to: assets
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
 # Native code and the two bundled binaries must exist as real files on disk.
 asarUnpack:
   - "**/node_modules/sharp/**"

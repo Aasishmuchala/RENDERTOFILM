@@ -1,0 +1,129 @@
+/* A Run in the transcript: the same solid card as a Quote, ink 1 and 2 only. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  padding: 16px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+/* The running line: a glyph and words, never colour alone. */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 0;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+}
+
+.status svg {
+  flex: none;
+}
+
+.line {
+  margin: 0;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  text-wrap: pretty;
+}
+
+/* A thin white bar. It scales, so moving it costs no layout. */
+.bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background-color: var(--bay-border);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  background-color: var(--bay-accent);
+  transform-origin: left;
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}
+
+.step svg {
+  flex: none;
+}
+
+.name {
+  min-width: 0;
+}
+
+.note {
+  margin-left: auto;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* A quiet button: its words line up with the steps above it. */
+.stop {
+  margin-left: -14px;
+}
+
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The glyph stands still; the line and the clock still say it is running. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

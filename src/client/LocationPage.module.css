@@ -47,6 +47,17 @@
   color: var(--bay-err-fg);
 }
 
+/* The octagon: with no hue, the shape says this line is an error. */
+.fieldError::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
+}
+
 @media (max-width: 560px) {
   .coords {
     grid-template-columns: 1fr;
@@ -58,6 +69,7 @@
    focus brightens the border and zooms the picture inside its own frame. The
    strip is a fixed height, so a card fills it and nothing lifts. */
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -80,10 +92,29 @@ button.card {
   cursor: pointer;
 }
 
-/* The take on the canvas: the accent hairline says which one is showing. */
+/* The take on the canvas: a 2 px white ring and a check say which one is
+   showing. */
 .card[data-current] {
   border-color: var(--bay-accent);
+  box-shadow: 0 0 0 1px var(--bay-accent);
   color: var(--bay-text);
+}
+
+.card[data-current]::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
 }
 
 button.card:focus-visible {

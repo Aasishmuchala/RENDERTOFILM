@@ -8,7 +8,9 @@ import { errorMessage } from './lib/runwayErrors.ts';
 import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { useOnRunwaySignedIn } from './lib/useOnRunwaySignedIn.ts';
+import { AI_TEXT_CARD, ChatCard } from './settings/ChatCard.tsx';
 import { DesktopFooter, GenerationSection } from './settings/GenerationSection.tsx';
+import { PowerTools } from './settings/PowerTools.tsx';
 import { trpc } from './trpc.ts';
 import { Alert } from './ui/Alert.tsx';
 import { Avatar } from './ui/Avatar.tsx';
@@ -25,10 +27,8 @@ import styles from './SettingsPage.module.css';
 const OAUTH_MESSAGE = 'render-to-film:mcp-oauth';
 
 /**
- * Accounts and connections: the Runway sign-in that pays for generations
- * (in the desktop app, the Generation section instead), Higgsfield (built-in
- * MCP server, OAuth), any other MCP server, and API keys
- * for other providers (Seevio, Anthropic, OmegaPlus). Credentials never come back to the browser;
+ * Accounts and connections: the Runway sign-in (in the desktop app, the Generation section), the chat agent, MCP
+ * servers, API keys for other providers and the desktop app's power tools. Credentials never come back to the browser;
  * the page only learns whether each one is connected. No Workspace: one glass sheet over the ambient.
  */
 export function SettingsPage({ active }: { active: boolean }) {
@@ -109,6 +109,8 @@ export function SettingsPage({ active }: { active: boolean }) {
           <Alert tone="error" title={errorMessage(connections.error) ?? 'Your connections did not load.'} />
         ) : (
           <>
+            <ChatCard active={active} />
+
             <Section
               title="Runway MCP"
               description={
@@ -132,7 +134,12 @@ export function SettingsPage({ active }: { active: boolean }) {
             </Section>
 
             <Section
-              title="AI text and vision"
+              title={
+                <span id={AI_TEXT_CARD} tabIndex={-1}>
+                  AI text and vision
+                </span>
+              }
+              label="ai text and vision"
               description={`The Storyboard and Lifestyle planners, the people check, the close-up finder and the editor read your images and write plans with this model. ${caps.textViaRunway ? 'Runway bills Claude through your Runway account; Anthropic' : 'Anthropic'} and OmegaPlus use your own key and your own choice of model.`}
             >
               <AiTextCard active={active} />
@@ -152,6 +159,7 @@ export function SettingsPage({ active }: { active: boolean }) {
           </>
         )}
 
+        {caps.desktop && <PowerTools active={active} />}
         {caps.desktop && <DesktopFooter />}
       </div>
     </div>
@@ -523,7 +531,9 @@ function AiTextCard({ active }: { active: boolean }) {
   const { caps } = useCapabilities();
   const ai = trpc.settings.aiText.useQuery(undefined, { enabled: active });
   const utils = trpc.useUtils();
-  const choose = trpc.settings.setAiText.useMutation({ onSettled: () => utils.settings.aiText.invalidate() });
+  // The Chat card's readiness follows who answers here.
+  const refresh = () => Promise.all([utils.settings.aiText.invalidate(), utils.settings.chat.invalidate()]);
+  const choose = trpc.settings.setAiText.useMutation({ onSettled: refresh });
 
   if (ai.error) return <Alert tone="error" title={errorMessage(ai.error) ?? 'Your AI text settings did not load.'} />;
   if (!ai.data) return <SkeletonBlock height={160} />;
@@ -645,7 +655,7 @@ function KeyCard({
 }) {
   const utils = trpc.useUtils();
   const [key, setKey] = useState('');
-  const refresh = () => utils.settings.aiText.invalidate();
+  const refresh = () => Promise.all([utils.settings.aiText.invalidate(), utils.settings.chat.invalidate()]);
   const save = trpc.settings.setAiTextKey.useMutation({ onSuccess: () => setKey(''), onSettled: refresh });
   const clear = trpc.settings.clearAiTextKey.useMutation({ onSuccess: () => save.reset(), onSettled: refresh });
   // Same rule as the Seevio card: a key of only spaces is not a key.

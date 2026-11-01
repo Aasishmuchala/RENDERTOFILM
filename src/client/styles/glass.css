@@ -5,6 +5,10 @@
  * glass-thin) and adds only its own geometry (radius, padding, position).
  * Values come from the `--glass-*` tokens in tokens.css.
  *
+ * Black and white: whatever sits behind the glass is blurred, dimmed
+ * (`--glass-dim`, a brightness() so a white render cannot wash the text out)
+ * and grayscaled, so a picture's colour never tints the chrome.
+ *
  *   .glass        sidebar, action bar, top bar, tab bar
  *   .glass-thick  sheets, dialogs, popovers, menus (text-heavy)
  *   .glass-thin   the stage toolbar pill (icon buttons, short labels)
@@ -16,8 +20,8 @@
 .glass,
 .glass-thick,
 .glass-thin {
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-dim)) grayscale(1);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-dim)) grayscale(1);
   box-shadow: var(--glass-edge), var(--glass-shadow);
 }
 
@@ -51,7 +55,8 @@
   }
 }
 
-/* Reduced transparency: no blur, solid fill (the ambient layer is not rendered). */
+/* Reduced transparency: no blur, solid fill with a 1px line to hold the edge
+   (the ambient layer is not rendered). */
 @media (prefers-reduced-transparency: reduce) {
   .glass,
   .glass-thick,
@@ -59,5 +64,28 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--glass-solid);
+    border: 1px solid var(--bay-border-strong);
+  }
+}
+
+/* More contrast asked for: the same opaque treatment. */
+@media (prefers-contrast: more) {
+  .glass,
+  .glass-thick,
+  .glass-thin {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--glass-solid);
+    border: 1px solid var(--bay-border-strong);
+  }
+}
+
+/* Forced colours drop box-shadow, so the edge comes from a border the system
+   paints in its own colour. */
+@media (forced-colors: active) {
+  .glass,
+  .glass-thick,
+  .glass-thin {
+    border: 1px solid transparent;
   }
 }

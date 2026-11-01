@@ -1,4 +1,4 @@
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type Koa from 'koa';
 
 export interface RunwayProfile {
@@ -13,7 +13,7 @@ export interface RunwayProfile {
 export interface TaskSnapshot {
   id: string;
   done: boolean;
-  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
+  status: 'PENDING' | 'THROTTLED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
   progress?: number;
   url?: string;
   error?: string;
@@ -31,10 +31,19 @@ export interface TaskArtifact {
   metadata?: { duration?: number; frameRate?: number; size?: { width?: number; height?: number } };
 }
 
+/** What a task would cost. `amount` is null when the provider cannot say; `note` then says why or gives its rate line. */
+export interface TaskQuote {
+  unit: 'credits' | 'usd';
+  amount: number | null;
+  note?: string;
+}
+
 export declare class RunwayClient {
   constructor(owner?: string);
   /** Desktop only: the owner's provider row. Absent on the plain harness, which capabilitiesOf() reads as Bay. */
   capabilities?(): unknown;
+  /** Desktop only: the owner's provider prices a task. Absent on the plain harness, as it is on Bay. */
+  quote?(type: string, options?: Record<string, unknown>): Promise<TaskQuote>;
   ready(): Promise<void>;
   getProfile(): Promise<RunwayProfile>;
   createTask(
@@ -46,7 +55,7 @@ export declare class RunwayClient {
   getTask(
     id: string
   ): Promise<{ id: string; status: TaskSnapshot['status']; artifacts: TaskArtifact[] }>;
-  uploadAsset(bytes: Buffer, opts: { filename: string }): Promise<{ url: string }>;
+  uploadAsset(bytes: Buffer, opts: { filename: string; signal?: AbortSignal }): Promise<{ url: string }>;
   runTask(
     type: string,
     options: Record<string, unknown>
@@ -66,6 +75,19 @@ export declare const LOCAL_OWNER: string;
 
 export declare function runwayAuth(options?: { optional?: boolean }): Koa.Middleware;
 export declare function requireRunwayUser(): Koa.Middleware;
+/**
+ * The tRPC context for work no request started, as the one local owner. Typed as
+ * src/trpc.ts's Context so a caller takes it; at run time `res` is undefined and
+ * `req` holds only the client, which is all a procedure reads through ownerKey.
+ */
+export declare function localContext(): {
+  req: IncomingMessage;
+  res: ServerResponse<IncomingMessage>;
+  user: undefined;
+  runway: RunwayClient;
+  viewer: BayViewerKind;
+  signInUrl: string;
+};
 export declare function getRunwayClient(req: IncomingMessage): RunwayClient | undefined;
 export declare function getRunwayToken(req: IncomingMessage): string | undefined;
 export declare function getBayViewer(req: IncomingMessage): BayViewerKind | undefined;

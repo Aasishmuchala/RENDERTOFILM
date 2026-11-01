@@ -1,6 +1,7 @@
 /* Text fields (DESIGN 4): 40 px, sunken fill, a 1 px line. Hover strengthens
-   the line; focus draws the button ring (DESIGN 2.8: a solid 2 px outline in
-   the focus colour) and turns the line accent. */
+   the line; focus draws the two-tone ring (DESIGN 2.8: 2 px white hugging the
+   box, then 2 px black outside it, so it reads over any picture) and turns the
+   line white. */
 .field {
   display: flex;
   flex-direction: column;
@@ -44,8 +45,9 @@
 .input[data-focused],
 .input[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 1px;
+  outline-offset: 0;
   border-color: var(--bay-accent);
+  box-shadow: 0 0 0 4px var(--bay-bg-canvas);
 }
 
 .input[data-disabled] {

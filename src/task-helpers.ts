@@ -10,6 +10,7 @@ import {
 } from '@runway/bay/runway';
 import { TRPCError } from '@trpc/server';
 
+import type { GenerationProvider } from './capabilities.ts';
 import { compositeError, compositeUrl, ensureComposite } from './composite.ts';
 import { readLibrary, type TaskState } from './library.ts';
 import type { Context } from './trpc.ts';
@@ -49,6 +50,19 @@ export async function finishedUrl(ctx: RunwayCtx, taskId: string, owner?: string
       ? 'That still did not finish, so there is nothing to use. Pick another one.'
       : 'That still is still rendering. Try again once it has finished.',
   });
+}
+
+/**
+ * `ctx` with every task it creates sent to `provider`: a later step of work
+ * that provider started finishes there whatever Settings says now, or is
+ * refused. `ctx` itself when nothing was recorded, always so on Bay.
+ */
+export function onProvider<C extends RunwayCtx>(ctx: C, provider: GenerationProvider | undefined): C {
+  if (!provider) return ctx;
+  const runway: Runway = Object.create(ctx.runway);
+  runway.createTask = (type, options, opts) =>
+    ctx.runway.createTask(type, options, { ...opts, provider } as typeof opts);
+  return { ...ctx, runway };
 }
 
 export function settled(snap: TaskSnapshot): { status: TaskState; error?: string } {

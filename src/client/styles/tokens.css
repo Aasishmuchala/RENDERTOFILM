@@ -1,60 +1,89 @@
 /**
- * App design tokens. Dark only: `index.html` pins `<html data-theme="dark">`
- * and there is no light block and no OS-following. This file owns every
- * colour, radius, duration, easing and font the app uses; the values and the
- * reasons are in DESIGN.md section 2 (palette 2.2, glass 2.3, type 2.6,
- * motion 2.7). Re-skin here and in DESIGN.md in the same change.
- * `@runway/bay-react/tokens.css` (imported first in main.tsx) only supplies
- * the avatar palette and the first values of the `--bay-r-*` / `--bay-dur*`
- * names, which this file re-points. The `--bay-*` names stay because the
- * component modules read them; the `--glass-*`, `--text-*`, `--track-*`,
- * `--r-*`, `--ease-*` and `--dur-*` families sit beside them.
+ * App design tokens. Black and white glass, dark only: `index.html` pins
+ * `<html data-theme="dark">` and there is no light block and no OS-following.
+ * Every chrome colour here is a neutral grey (R=G=B); the pictures are the
+ * only colour on screen. The primary action and the selected state are solid
+ * white with black text, status is a glyph plus a label, and glass is dimmed
+ * and grayscaled in glass.css so a bright render behind it cannot tint it.
+ * This file owns every colour, radius, duration, easing and font the app uses;
+ * the values and the reasons are in DESIGN.md section 2 (palette 2.2, glass
+ * 2.3, type 2.6, motion 2.7). Re-skin here and in DESIGN.md in the same change.
+ * `@runway/bay-react/tokens.css` (imported first in main.tsx) supplies the
+ * first values of the `--bay-r-*` / `--bay-dur*` names, which this file
+ * re-points, and the avatar palette, which this file re-declares as greys.
+ * The `--bay-*` names stay because the component modules read them; the
+ * `--glass-*`, `--text-*`, `--track-*`, `--r-*`, `--ease-*` and `--dur-*`
+ * families sit beside them.
  */
 
 :root {
   color-scheme: dark;
 
   /* Ground, surfaces, ink and lines (DESIGN 2.2). */
-  --bay-bg-canvas: #0c0c0e;
-  --bay-bg-surface: #16161a;
-  --bay-bg-subtle: #1e1e24;
-  --bay-bg-sunken: #0f0f12;
-  --bay-text: #f5f5f7;
-  --bay-text-2: #b9b9c1;
-  --bay-text-3: #8f8f98;
-  --bay-text-4: #6c6c75;
-  --bay-text-5: #3a3a42;
-  --bay-border-hair: rgba(255, 255, 255, 0.06);
-  --bay-border: rgba(255, 255, 255, 0.1);
-  --bay-border-strong: rgba(255, 255, 255, 0.18);
+  --bay-bg-canvas: #0b0b0b;
+  --bay-ambient-glow: #171717;
+  --bay-bg-surface: #161616;
+  --bay-bg-subtle: #1f1f1f;
+  --bay-bg-sunken: #0f0f0f;
+  --bay-text: #f5f5f5;
+  --bay-text-2: #c2c2c2;
+  --bay-text-3: #9a9a9a;
+  --bay-text-4: #747474;
+  --bay-text-5: #3d3d3d;
+  --bay-border-hair: rgba(255, 255, 255, 0.08);
+  --bay-border: rgba(255, 255, 255, 0.14);
+  --bay-border-strong: rgba(255, 255, 255, 0.36);
 
-  /* Accent: tungsten, for action and selection only. */
-  --bay-accent: #e07b4a;
-  --bay-accent-hover: #ea8f62;
-  --bay-accent-soft: rgba(224, 123, 74, 0.16);
-  --bay-accent-fg: #f0a070;
-  --bay-accent-rgb: 224, 123, 74;
-  --bay-text-on-accent: #140c07;
-  --bay-border-focus: #f0a070;
+  /* Accent: white, for the one primary action and the selected state only
+     (solid white with `--bay-text-on-accent` on it). */
+  --bay-accent: #f5f5f5;
+  --bay-accent-hover: #ffffff;
+  --bay-accent-soft: rgba(255, 255, 255, 0.14);
+  --bay-accent-fg: #f5f5f5;
+  --bay-accent-rgb: 245, 245, 245;
+  --bay-text-on-accent: #0b0b0b;
+  --bay-border-focus: #f5f5f5;
 
-  /* Status. Info is the accent family, not blue. */
-  --bay-ok-bg: #14271e;
-  --bay-ok-fg: #5fd39c;
-  --bay-warn-bg: #2a2410;
-  --bay-warn-fg: #e6b34a;
-  --bay-err-bg: #2a1716;
-  --bay-err-fg: #ef7a72;
-  --bay-info-bg: #2b1f17;
-  --bay-info-fg: #f0a070;
+  /* Status has no hue: every kind is white on a grey tile, and the glyph plus
+     the label say which (never colour alone). */
+  --bay-ok-bg: #1f1f1f;
+  --bay-ok-fg: #f5f5f5;
+  --bay-warn-bg: #1f1f1f;
+  --bay-warn-fg: #f5f5f5;
+  --bay-err-bg: #1f1f1f;
+  --bay-err-fg: #f5f5f5;
+  --bay-info-bg: #1f1f1f;
+  --bay-info-fg: #f5f5f5;
 
-  /* The app mark: a glass tile with the aperture glyph in accent. */
+  /* The app mark: a glass tile with the aperture glyph in white. */
   --bay-brand: rgba(255, 255, 255, 0.1);
-  --bay-brand-fg: #f0a070;
+  --bay-brand-fg: #f5f5f5;
+
+  /* Avatar palette: the nine pairs `@runway/bay-react/tokens.css` ships, as
+     greys, so a person's tile carries no hue (src/client/ui/Avatar.tsx). */
+  --bay-app-mint-bg: #1f1f1f;
+  --bay-app-mint-fg: #f5f5f5;
+  --bay-app-pink-bg: #2a2a2a;
+  --bay-app-pink-fg: #f5f5f5;
+  --bay-app-purple-bg: #1f1f1f;
+  --bay-app-purple-fg: #f5f5f5;
+  --bay-app-sky-bg: #2a2a2a;
+  --bay-app-sky-fg: #f5f5f5;
+  --bay-app-amber-bg: #1f1f1f;
+  --bay-app-amber-fg: #f5f5f5;
+  --bay-app-red-bg: #2a2a2a;
+  --bay-app-red-fg: #f5f5f5;
+  --bay-app-lime-bg: #1f1f1f;
+  --bay-app-lime-fg: #f5f5f5;
+  --bay-app-cyan-bg: #2a2a2a;
+  --bay-app-cyan-fg: #f5f5f5;
+  --bay-app-slate-bg: #1f1f1f;
+  --bay-app-slate-fg: #f5f5f5;
 
   /* The result stage: a scrim over the ambient backdrop, a black frame. */
   --bay-stage-bg: rgba(0, 0, 0, 0.5);
   --bay-stage-frame: #000000;
-  --bay-stage-raised: #101014;
+  --bay-stage-raised: #101010;
   --bay-stage-line: rgba(255, 255, 255, 0.08);
   --bay-stage-text: var(--bay-text);
   --bay-stage-text-2: var(--bay-text-2);
@@ -84,17 +113,20 @@
   --bay-shadow-pop: var(--glass-shadow);
   --bay-shadow-stage: 0 40px 100px -40px rgba(0, 0, 0, 0.9);
 
-  /* Glass material (DESIGN 2.3); glass.css is the recipe that reads these. */
-  --glass-fill: rgba(22, 22, 27, 0.62);
-  --glass-fill-thick: rgba(22, 22, 27, 0.84);
-  --glass-fill-thin: rgba(22, 22, 27, 0.42);
+  /* Glass material (DESIGN 2.3); glass.css is the recipe that reads these.
+     Saturate 0 and the dim keep a bright render behind a bar from tinting or
+     washing out the text on it. */
+  --glass-fill: rgba(22, 22, 22, 0.72);
+  --glass-fill-thick: rgba(22, 22, 22, 0.84);
+  --glass-fill-thin: rgba(22, 22, 22, 0.6);
   --glass-blur: 24px;
-  --glass-saturate: 1.6;
+  --glass-saturate: 0;
+  --glass-dim: 0.55;
   --glass-edge:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-  --glass-solid: #16161a;
+  --glass-solid: #161616;
   --glass-btn: rgba(255, 255, 255, 0.08);
   --glass-btn-hover: rgba(255, 255, 255, 0.12);
   --glass-btn-pressed: rgba(255, 255, 255, 0.16);
@@ -173,7 +205,7 @@
 }
 
 /* Pages set `data-stage` on the result column. It only deepens the surfaces:
-   the ink, accent and status tokens are already dark. */
+   the ink, accent and status tokens are already black and white. */
 [data-stage] {
   --bay-bg-surface: var(--bay-stage-raised);
   --bay-bg-sunken: #000;

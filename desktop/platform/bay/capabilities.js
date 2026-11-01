@@ -46,6 +46,7 @@ export const HIGGSFIELD_CAPABILITIES = {
   clipUpscalers: ['bytedance'],
   aleph: false,
   export: true,
+  master: true,
   recreate: true,
   textViaRunway: false,
   notes: {
@@ -67,6 +68,7 @@ export const SIMULATOR_CAPABILITIES = {
   clipUpscalers: ['runway', 'flux', 'bytedance', 'magnific-video'],
   aleph: true,
   export: true,
+  master: true,
   recreate: true,
   textViaRunway: false,
   notes: {},
@@ -79,6 +81,7 @@ export function capabilitiesFor(provider) {
     ...provider.capabilities(),
     desktop: true,
     export: true,
+  master: true,
     textViaRunway: false,
     rates: provider.rates ?? {},
   };

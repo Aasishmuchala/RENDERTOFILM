@@ -5,17 +5,19 @@ export const RELEASES_URL = 'https://github.com/Aasishmuchala/RENDERTOFILM/relea
 
 export type MenuActions = {
   openSettings: () => void;
+  importLibrary: () => void;
   dataDir: string;
   logFile: () => string;
 };
 
-export function installMenu({ openSettings, dataDir, logFile }: MenuActions) {
+export function installMenu({ openSettings, importLibrary, dataDir, logFile }: MenuActions) {
   const isMac = process.platform === 'darwin';
   const settings: MenuItemConstructorOptions = {
     label: 'Settings',
     accelerator: 'CmdOrCtrl+,',
     click: openSettings,
   };
+  const importItem: MenuItemConstructorOptions = { label: 'Import library…', click: importLibrary };
   const macApp: MenuItemConstructorOptions[] = [
     {
       role: 'appMenu',
@@ -23,6 +25,7 @@ export function installMenu({ openSettings, dataDir, logFile }: MenuActions) {
         { role: 'about' },
         { type: 'separator' },
         settings,
+        importItem,
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -32,7 +35,7 @@ export function installMenu({ openSettings, dataDir, logFile }: MenuActions) {
       ],
     },
   ];
-  const file: MenuItemConstructorOptions[] = [{ label: 'File', submenu: [settings, { type: 'separator' }, { role: 'quit' }] }];
+  const file: MenuItemConstructorOptions[] = [{ label: 'File', submenu: [settings, importItem, { type: 'separator' }, { role: 'quit' }] }];
   const devTools: MenuItemConstructorOptions[] =
     process.env['RTF_DEVTOOLS'] === '1' ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : [];
   const template: MenuItemConstructorOptions[] = [

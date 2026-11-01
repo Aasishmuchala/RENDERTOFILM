@@ -1,5 +1,5 @@
 import { Clapperboard, Film, ScanEye, Scissors, SlidersHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Clip, Still } from '../../api.ts';
 import {
@@ -25,7 +25,6 @@ import type { FramePlan, StoryboardJob } from '../../storyboard-api.ts';
 import { Section } from '../layouts/Section.tsx';
 import { libraryUrl, stillThumbUrl } from '../lib/download.ts';
 import { useCapabilities } from '../lib/useCapabilities.ts';
-import { useInFlight } from '../lib/useInFlight.ts';
 import { type ShotPlan, useShotPlan } from '../lib/useShotPlan.ts';
 import { ShotDirector } from '../ShotDirector.tsx';
 import { trpc } from '../trpc.ts';
@@ -171,6 +170,50 @@ export type FilmStepProps = {
 /** How long the batch waits for a card to show how its director call went before it moves on. */
 const REPORT_WAIT_MS = 5000;
 
+/**
+ * A storyboard's batch (directing or making). The page drops this step on
+ * every hop between boards while the batch's loop runs on, so the claim and
+ * what the loop is doing live out here, by job: a step that comes back shows
+ * the batch busy and can't start a second one.
+ */
+type FilmBatch = {
+  /** Claimed from the press until the batch's last frame is done. */
+  running: boolean;
+  /** The frame whose clip is being started. */
+  making: number | null;
+  /** The frame whose director call the batch is sending. */
+  directing: number | null;
+  /** The frames the batch makes or directs, for its "N of M" count. */
+  images: readonly number[];
+  errors: Record<number, unknown>;
+  error: unknown;
+  /** Whose refusal stopped the batch: the shot director's or the video model's. */
+  from: 'direct' | 'make';
+};
+
+const NO_BATCH: FilmBatch = { running: false, making: null, directing: null, images: [], errors: {}, error: null, from: 'make' };
+const filmBatches = new Map<string, FilmBatch>();
+const batchListeners = new Set<() => void>();
+
+const readBatch = (jobId: string) => filmBatches.get(jobId) ?? NO_BATCH;
+
+function updateBatch(jobId: string, patch: Partial<FilmBatch>) {
+  filmBatches.set(jobId, { ...readBatch(jobId), ...patch });
+  for (const listener of batchListeners) listener();
+}
+
+function subscribeBatches(onChange: () => void): () => void {
+  batchListeners.add(onChange);
+  return () => batchListeners.delete(onChange);
+}
+
+/** Claim the job's batch; false when one is already running. */
+function claimBatch(jobId: string): boolean {
+  if (readBatch(jobId).running) return false;
+  updateBatch(jobId, { running: true });
+  return true;
+}
+
 /** What a card's shot director tells the step; each card reports after every render. */
 type ShotReport = {
   /** Directing is on and this frame has no fresh plan yet. */
@@ -198,17 +241,9 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   const utils = trpc.useUtils();
   // This section's button and the page's footer both start a batch (directing
   // or making); a double-click on either starts one.
-  const makeGuard = useInFlight();
+  const filmBatch = useSyncExternalStore(subscribeBatches, () => readBatch(job.id));
+  const { running: busy, making, directing, images: batch, errors, error: batchError, from: batchFrom } = filmBatch;
   const [s, setS] = useFilmSettings(job.id);
-  const [making, setMaking] = useState<number | null>(null);
-  /** The frame whose director call the running batch is sending. */
-  const [directing, setDirecting] = useState<number | null>(null);
-  /** The frames the running batch makes or directs, for its "N of M" count. */
-  const [batch, setBatch] = useState<readonly number[]>([]);
-  const [errors, setErrors] = useState<Record<number, unknown>>({});
-  const [batchError, setBatchError] = useState<unknown>(null);
-  /** Whose refusal stopped the batch: the shot director's or the video model's. */
-  const [batchFrom, setBatchFrom] = useState<'direct' | 'make'>('make');
   /** The card whose plan is open; one at a time. */
   const [editing, setEditing] = useState<number | null>(null);
   const set = (patch: Partial<FilmSettings>) => setS((prev) => ({ ...prev, ...patch }));
@@ -274,7 +309,6 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
   const moveOf = (frame: FramePlan, order: number) => s.moves[frame.image] ?? suggestedMove(frame, order, frames.length);
   /** The camera a frame's clip moves with: its plan's once directed, else its preset. */
   const cameraOf = (frame: FramePlan, order: number) => (s.direct ? shots[frame.image]?.move : undefined) ?? moveOf(frame, order);
-  const busy = making !== null || directing !== null;
   const madeAny = film.some(({ frame }) => clipFor.has(frame.image));
   const rendering = film.filter(({ frame }) => clipFor.get(frame.image)?.status === 'pending').length;
   const missing = film.filter(({ frame }) => {
@@ -293,76 +327,79 @@ export function FilmStep({ job, frames, takes, chosen, clips, onMade, onGoToEdit
    * the button; each plan comes back on its card.
    */
   async function direct(list: typeof film) {
-    if (!makeGuard.start()) return;
-    setBatchError(null);
-    const todo = list.filter(({ frame }) => {
-      const r = reports.current.get(frame.image);
-      return r?.needsPlan && !r.planning;
-    });
-    setBatch(todo.map(({ frame }) => frame.image));
-    for (const { frame } of todo) {
-      const r = reports.current.get(frame.image);
-      if (!r?.needsPlan || r.planning) continue;
-      setDirecting(frame.image);
-      await r.direct();
-      // Every render from here on shows how the call went: planning, or why it was refused.
-      const since = reportSeq.current;
-      rerender();
-      await waitForReport(frame.image, (x) => x.seq > since, REPORT_WAIT_MS);
-      const refused = reports.current.get(frame.image)?.planError;
-      const code = errorCode(refused);
-      if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
-        setBatchError(refused);
-        setBatchFrom('direct');
-        break;
+    if (!claimBatch(job.id)) return;
+    try {
+      const todo = list.filter(({ frame }) => {
+        const r = reports.current.get(frame.image);
+        return r?.needsPlan && !r.planning;
+      });
+      updateBatch(job.id, { error: null, images: todo.map(({ frame }) => frame.image) });
+      for (const { frame } of todo) {
+        const r = reports.current.get(frame.image);
+        if (!r?.needsPlan || r.planning) continue;
+        updateBatch(job.id, { directing: frame.image });
+        await r.direct();
+        // Every render from here on shows how the call went: planning, or why it was refused.
+        const since = reportSeq.current;
+        rerender();
+        await waitForReport(frame.image, (x) => x.seq > since, REPORT_WAIT_MS);
+        const refused = reports.current.get(frame.image)?.planError;
+        const code = errorCode(refused);
+        if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
+          updateBatch(job.id, { error: refused, from: 'direct' });
+          break;
+        }
       }
+    } finally {
+      updateBatch(job.id, { running: false, directing: null });
     }
-    setDirecting(null);
-    makeGuard.end();
   }
 
   async function make(list: typeof film) {
-    if (!makeGuard.start()) return;
-    setBatchError(null);
-    setBatch(list.map(({ frame }) => frame.image));
-    for (const { frame, order } of list) {
-      const take = takes.get(frame.image);
-      if (!take) continue;
-      setMaking(frame.image);
-      setErrors((e) => ({ ...e, [frame.image]: undefined }));
-      try {
-        const move = moveOf(frame, order);
-        // A directed frame sends its plan; the server resolves it again for this clip.
-        const shot = s.direct ? reports.current.get(frame.image)?.sendable : undefined;
-        const { id } = await utils.client.createVideo.mutate({
-          stillId: take.id,
-          videoModel: s.videoModel,
-          resolution,
-          motion: move,
-          moveStyle: s.moveStyle,
-          speed: s.speed,
-          seconds,
-          direction: s.direction,
-          onlyInImage: s.onlyInImage,
-          archviz: s.archviz,
-          ...(shot ? { shot } : {}),
-        });
-        await utils.client.storyboard.recordClip.mutate({ id: job.id, image: frame.image, clipId: id });
-        await onMade();
-      } catch (error) {
-        // Out of credits, a plan refusal or a sign-in stops the run (the next
-        // frame would fail the same way) and shows once, under the button.
-        const code = (error as { data?: { code?: string } } | null)?.data?.code;
-        if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
-          setBatchError(error);
-          setBatchFrom('make');
-          break;
+    if (!claimBatch(job.id)) return;
+    try {
+      updateBatch(job.id, { error: null, images: list.map(({ frame }) => frame.image) });
+      // Each frame's plan as the press found it: a card goes with its report on
+      // a hop, and the rest of the batch still sends what was directed.
+      const plans = new Map<number, ShotPlanRaw | undefined>();
+      for (const { frame } of list) plans.set(frame.image, s.direct ? reports.current.get(frame.image)?.sendable : undefined);
+      for (const { frame, order } of list) {
+        const take = takes.get(frame.image);
+        if (!take) continue;
+        updateBatch(job.id, { making: frame.image, errors: { ...readBatch(job.id).errors, [frame.image]: undefined } });
+        try {
+          const move = moveOf(frame, order);
+          // A directed frame sends its plan; the server resolves it again for this clip.
+          const shot = plans.get(frame.image);
+          const { id } = await utils.client.createVideo.mutate({
+            stillId: take.id,
+            videoModel: s.videoModel,
+            resolution,
+            motion: move,
+            moveStyle: s.moveStyle,
+            speed: s.speed,
+            seconds,
+            direction: s.direction,
+            onlyInImage: s.onlyInImage,
+            archviz: s.archviz,
+            ...(shot ? { shot } : {}),
+          });
+          await utils.client.storyboard.recordClip.mutate({ id: job.id, image: frame.image, clipId: id });
+          await onMade();
+        } catch (error) {
+          // Out of credits, a plan refusal or a sign-in stops the run (the next
+          // frame would fail the same way) and shows once, under the button.
+          const code = (error as { data?: { code?: string } } | null)?.data?.code;
+          if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') {
+            updateBatch(job.id, { error, from: 'make' });
+            break;
+          }
+          updateBatch(job.id, { errors: { ...readBatch(job.id).errors, [frame.image]: error } });
         }
-        setErrors((e) => ({ ...e, [frame.image]: error }));
       }
+    } finally {
+      updateBatch(job.id, { running: false, making: null });
     }
-    setMaking(null);
-    makeGuard.end();
   }
 
   /** The batch's next press: direct the frames that still need a plan, else make the clips. */

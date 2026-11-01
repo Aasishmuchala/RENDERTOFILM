@@ -1,5 +1,6 @@
-import { Clapperboard, Download, ExternalLink, Pencil, Sparkles, SquareDashedMousePointer, SunMedium, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { Clapperboard, Crop, Download, ExternalLink, Pencil, Sparkles, SquareDashedMousePointer, SunDim, SunMedium, Undo2, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { Menu, MenuItem, MenuTrigger, Popover } from 'react-aria-components';
 
 import {
   ACTIVITIES,
@@ -42,7 +43,7 @@ import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { LightReferenceField } from './LightReferenceField.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { libraryUrl, stillThumbUrl, useDownload } from './lib/download.ts';
-import { classifyRunwayError } from './lib/runwayErrors.ts';
+import { classifyRunwayError, errorMessage } from './lib/runwayErrors.ts';
 import { useCapabilities } from './lib/useCapabilities.ts';
 import { exportMaskPng, maskCoverage, type MaskStroke } from './lib/mask.ts';
 import { loadStoredRender, saveStoredRender } from './lib/storedRender.ts';
@@ -59,6 +60,7 @@ import { ImageDropZone } from './ui/ImageDropZone.tsx';
 import { MaskOverlay, MaskPainter } from './ui/MaskPainter.tsx';
 import { BlockedTip, ModelUnavailable } from './ui/ModelUnavailable.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
+import { ReframeStage } from './ui/ReframeStage.tsx';
 import { RenderingStatus } from './ui/RenderingStatus.tsx';
 import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
 import { Switch } from './ui/Switch.tsx';
@@ -66,6 +68,7 @@ import { Text } from './ui/Text.tsx';
 import { TextArea } from './ui/TextArea.tsx';
 import { TextInput } from './ui/TextInput.tsx';
 import { Select } from './ui/Select.tsx';
+import menuStyles from './ui/UserMenu.module.css';
 import { UpscaleStill, type UpscaleJob } from './UpscaleStill.tsx';
 import styles from './Studio.module.css';
 
@@ -111,7 +114,16 @@ type ShotSettings = {
   maskStrokes?: readonly MaskStroke[] | undefined;
 };
 
-type Shot = ShotSettings & { id: string; source: Source; fixed: boolean };
+type RelightPreset = (typeof RELIGHTS)[number]['id'];
+
+type Shot = ShotSettings & {
+  id: string;
+  source: Source;
+  fixed: boolean;
+  /** Made by the Relight menu: the preset, and the take it was relit from. */
+  relight?: RelightPreset | undefined;
+  relitFrom?: Shot | undefined;
+};
 
 const SAMPLE: Source = {
   src: '/sample-render.jpg',
@@ -119,6 +131,14 @@ const SAMPLE: Source = {
   width: 2560,
   height: 1440,
 };
+
+/** What the Relight menu offers, in its order. */
+const RELIGHTS = [
+  { id: 'soft-overcast', name: 'Soft overcast' },
+  { id: 'golden-low', name: 'Golden low sun' },
+  { id: 'blue-hour', name: 'Blue hour' },
+  { id: 'studio-neutral', name: 'Studio neutral' },
+] as const;
 
 /** Longest extra direction the server takes, in characters. */
 const DIRECTION_MAX = 600;
@@ -204,7 +224,8 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   const [source, setSource] = useState<Source>(SAMPLE);
   /** The newest pick: a slower, earlier file must not land on top of it. */
   const latestPick = useRef(0);
-  const isSample = source.src === SAMPLE.src;
+  /** The pick a frame came in on: Cancel voids that one and no other. */
+  const framePick = useRef(0);
   // A reload or an app restart reopens the person's own render, never quietly the sample.
   useEffect(() => {
     let live = true;
@@ -224,7 +245,9 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       live = false;
     };
   }, []);
-  const { allowedImage, modelBlocked, offeredImageNames, onBay, providerNote } = useCapabilities();
+  const { allowedImage, caps, modelBlocked, offeredImageNames, onBay, providerNote } = useCapabilities();
+  const sidecars = trpc.settings.sidecars.useQuery(undefined, { enabled: caps.sidecars, refetchOnWindowFocus: false });
+  const canRelight = sidecars.data?.some((s) => s.id === 'lightcraft' && s.ok) === true;
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
   const [aspectRatio, setAspectRatio] = useState<string>(MATCH_RENDER);
@@ -251,6 +274,11 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   const library = trpc.library.useQuery(undefined, { refetchOnWindowFocus: false });
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'submitting'>('idle');
   const [marking, setMarking] = useState(false);
+  const [reframing, setReframing] = useState(false);
+  /** The render a reframe was cut from, until it is undone or a new render replaces it. */
+  const [original, setOriginal] = useState<Source | null>(null);
+  // A frame cut from the sample is still the sample.
+  const isSample = source.src === SAMPLE.src || original?.src === SAMPLE.src;
   const [strokes, setStrokes] = useState<MaskStroke[]>([]);
   /** The stored mask for exactly these strokes on this source, once uploaded. */
   const [savedMask, setSavedMask] = useState<{ src: string; strokes: readonly MaskStroke[]; key: string } | null>(null);
@@ -267,6 +295,8 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   shotRef.current = shot;
   const sourceRef = useRef(source);
   sourceRef.current = source;
+  const originalRef = useRef(original);
+  originalRef.current = original;
   /**
    * Upscales by the still they belong to. Kept here, not in the panel, so an
    * upscale keeps running and stays visible when a new take replaces its still.
@@ -287,7 +317,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   useEffect(() => {
     const prev = prevShotSrc.current;
     prevShotSrc.current = shotSrc;
-    if (prev && prev !== shotSrc && prev.startsWith('blob:') && prev !== sourceRef.current.src) {
+    if (prev && prev !== shotSrc && prev.startsWith('blob:') && prev !== sourceRef.current.src && prev !== originalRef.current?.src) {
       URL.revokeObjectURL(prev);
     }
   }, [shotSrc]);
@@ -300,6 +330,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
     return at - compositeSince.current.at > COMPOSITE_RETRY_MS;
   };
   const createShot = trpc.createShot.useMutation();
+  const relightStill = trpc.relightStill.useMutation();
   const status = trpc.shotStatus.useQuery(
     { id: shot?.id ?? '' },
     {
@@ -342,10 +373,18 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
   const earlierUpscales = Object.entries(upscales).filter(([stillId]) => stillId !== shot?.id);
   const directionTooLong = direction.length > DIRECTION_MAX;
 
-  async function onFile(file: File) {
+  /** A replaced render's object URL goes, unless the finished take's compare slider still shows it. */
+  function freeRender(src: string) {
+    if (src.startsWith('blob:') && src !== shotRef.current?.source.src) URL.revokeObjectURL(src);
+  }
+
+  async function onFile(file: File, reframed = false) {
     setError(null);
+    // A new render ends the stage now, so a cut still running cannot land on top of it.
+    if (!reframed) setReframing(false);
     const src = URL.createObjectURL(file);
     const pick = ++latestPick.current;
+    if (reframed) framePick.current = pick;
     try {
       const bitmap = await createImageBitmap(file);
       if (pick !== latestPick.current) {
@@ -353,24 +392,76 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
         URL.revokeObjectURL(src);
         return;
       }
+      // Read now: the updater below can run after the bitmap is closed.
+      const { width, height } = bitmap;
+      // A reframe keeps the render it was cut from, for Undo; a new render lets it go.
+      const kept = reframed ? (originalRef.current ?? sourceRef.current) : null;
+      if (!reframed && originalRef.current) freeRender(originalRef.current.src);
+      originalRef.current = kept;
+      setOriginal(kept);
+      const next = { src, name: file.name, width, height };
+      sourceRef.current = next;
       setSource((prev) => {
-        // The finished take's compare slider may still show the old render.
-        if (prev.src.startsWith('blob:') && prev.src !== shotRef.current?.source.src) {
-          URL.revokeObjectURL(prev.src);
-        }
-        return { src, name: file.name, width: bitmap.width, height: bitmap.height };
+        if (prev.src !== kept?.src) freeRender(prev.src);
+        return next;
       });
-      void saveStoredRender({ blob: file, name: file.name, width: bitmap.width, height: bitmap.height });
+      // A frame of the sample is no more the person's render than the sample is: a reload reopens the sample itself.
+      if (kept?.src !== SAMPLE.src) void saveStoredRender({ blob: file, name: file.name, width, height });
       bitmap.close();
       // A mark belongs to the render it was drawn on.
       setStrokes([]);
       setSavedMask(null);
       setMarking(false);
+      setReframing(false);
     } catch {
       URL.revokeObjectURL(src);
       if (pick !== latestPick.current) return;
       setError(new Error('That file could not be read as an image. Try a PNG, JPEG or WebP.'));
     }
+  }
+
+  /** The window becomes the render, through the same door as a picked file. */
+  function applyFrame(blob: Blob) {
+    const base = (original ?? source).name.replace(/\.[^.]+$/, '');
+    const name = `${base} \u00b7 reframed.${blob.type === 'image/png' ? 'png' : 'jpg'}`;
+    return onFile(new File([blob], name, { type: blob.type }), true);
+  }
+
+  /** Voids a frame still on its way in, and nothing else: a render picked since still lands. */
+  function dropFrameInFlight() {
+    if (framePick.current === latestPick.current) latestPick.current++;
+  }
+
+  /** Leaves the render as it was, even with a frame already on its way in. */
+  function cancelReframe() {
+    dropFrameInFlight();
+    setReframing(false);
+  }
+
+  function undoReframe() {
+    if (!original) return;
+    const kept = original;
+    dropFrameInFlight();
+    originalRef.current = null;
+    setOriginal(null);
+    sourceRef.current = kept;
+    setSource((prev) => {
+      freeRender(prev.src);
+      return kept;
+    });
+    setStrokes([]);
+    setSavedMask(null);
+    // A reload reopens the render on the page, not the frame that was undone. The sample is never kept,
+    // and a render that lands meanwhile keeps its own place.
+    if (kept.src === SAMPLE.src) return;
+    void fetch(kept.src)
+      .then((r) => r.blob())
+      .then((blob) =>
+        sourceRef.current.src === kept.src
+          ? saveStoredRender({ blob, name: kept.name, width: kept.width, height: kept.height })
+          : undefined
+      )
+      .catch(() => undefined);
   }
 
   /** Upload an extra reference photo (cast sheet or lighting) into its own slot. */
@@ -448,6 +539,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
 
   async function submit(settings: ShotSettings, from: Source, fixes = '') {
     setError(null);
+    relightStill.reset();
     try {
       let hostedUrl = from.hostedUrl;
       if (!hostedUrl) {
@@ -547,6 +639,21 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
     }
   }
 
+  /** The take stays on the canvas until the relight has an id, then it is followed like any take. */
+  async function relight(from: Shot, preset: RelightPreset) {
+    if (busy) return;
+    setPhase('submitting');
+    try {
+      const { id } = await relightStill.mutateAsync({ stillId: from.id, preset });
+      const relitFrom = { ...from, maskStrokes: undefined, relitFrom: undefined };
+      setShot({ ...relitFrom, id, fixed: false, maskKey: undefined, relight: preset, relitFrom });
+    } catch {
+      // Shown under the button from relightStill.error.
+    } finally {
+      setPhase('idle');
+    }
+  }
+
   const { planBlocked, unavailable } = classifyRunwayError(shownError);
   const modelName = imageModelName(shot && shownError === status.error ? shot.imageModel : imageModel);
 
@@ -617,16 +724,25 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
               ? fixing
                 ? 'Starting the corrected take…'
                 : 'Starting the take…'
-              : 'Lighting the scene and developing the frame…'
+              : shot?.relight
+                ? 'Relighting the still…'
+                : 'Lighting the scene and developing the frame…'
         }
         progress={status.data?.progress}
         runKey={shot?.id}
       />
     ) : taskError ? (
       <div className={styles.frameAlert}>
-        <Alert tone="error" title="This take didn't render">
+        <Alert tone="error" title={shot?.relight ? "This relight didn't finish" : "This take didn't render"}>
           {taskError}
         </Alert>
+        {shot?.relitFrom && (
+          <div className={styles.markRow}>
+            <Button size="sm" onPress={() => shot.relitFrom && setShot({ ...shot.relitFrom, source: shot.source })}>
+              Back to the take
+            </Button>
+          </div>
+        )}
       </div>
     ) : (
       <img src={source.src} alt="" />
@@ -641,6 +757,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
         take.fixed && 'with fixes',
         take.maskKey && 'only the marked area changed',
         take.angle !== 'as-rendered' && ANGLES.find((a) => a.id === take.angle)?.name.toLowerCase(),
+        take.relight && `relit, ${RELIGHTS.find((r) => r.id === take.relight)?.name.toLowerCase()}`,
       ]
     : shot
       ? [lookName, imageModelName(shot.imageModel), imageResolutionName(shot.imageModel, shot.resolution)]
@@ -652,13 +769,14 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
         variant="ghost"
         icon={<Download size={16} />}
         loading={saver.pending}
-        onPress={() => saver.start(libraryUrl('still', take.id), `film-still-${take.look}.png`)}
+        onPress={() => saver.start(libraryUrl('still', take.id), `film-still-${take.look}${take.relight ? `-${take.relight}` : ''}.png`)}
       >
         {saver.label('Download')}
       </Button>
       <Button variant="ghost" icon={<Clapperboard size={16} />} onPress={() => onAnimate(take.id)}>
         Make a video
       </Button>
+      {canRelight && <RelightMenu disabled={busy} onPick={(preset) => void relight(take, preset)} />}
       {!take.maskKey && matchStillId !== take.id && (
         <Button
           variant="ghost"
@@ -690,7 +808,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       {(take || earlierUpscales.length > 0) && (
         <Section title={take ? 'This take' : 'Earlier upscales'}>
           <div className={peopleStyles.take}>
-            {take && take.crowd !== 'none' && (
+            {take && take.crowd !== 'none' && !take.relight && (
               <PeopleCheck key={take.id} stillId={take.id} autoRun onFix={(f) => void fix(f)} fixing={fixing || busy} />
             )}
             {take && (
@@ -744,11 +862,13 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
         description={
           marking
             ? 'Paint the area that may change. Everything outside it stays exactly as rendered.'
-            : 'Drop an image here or replace it.'
+            : reframing
+              ? 'Frame a part of the render. The window never leaves the picture.'
+              : 'Drop an image here or replace it.'
         }
       >
         <div className={styles.stack}>
-          {isSample && !marking && (
+          {isSample && !marking && !reframing && (
             <Alert tone="info" title="This is the sample render">
               Drop your own render on the picture below, or use Replace render, before you make a take.
             </Alert>
@@ -764,6 +884,17 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
               onDone={() => setMarking(false)}
               disabled={busy}
             />
+          ) : reframing ? (
+            <ReframeStage
+              src={source.src}
+              alt={`Source render: ${source.name}`}
+              width={source.width}
+              height={source.height}
+              aspects={imageAspectOptions(imageModel).map((a) => ({ id: a.id, label: a.name, ratio: aspectRatioOf(a.id) }))}
+              onApply={applyFrame}
+              onCancel={cancelReframe}
+              disabled={busy}
+            />
           ) : (
             <ImageDropZone onFile={onFile} disabled={busy} label="Drop or choose the source render">
               <figure className={styles.frame} style={{ aspectRatio: `${source.width} / ${source.height}` }}>
@@ -773,7 +904,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
             </ImageDropZone>
           )}
         </div>
-        {!marking && (
+        {!marking && !reframing && (
           <div className={styles.markRow}>
             <Button
               size="sm"
@@ -795,10 +926,27 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
                 Remove mark
               </Button>
             )}
+            <BlockedTip message={hasMark ? 'Remove the mark to reframe' : null}>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Crop size={14} />}
+                disabled={busy || hasMark}
+                onPress={() => setReframing(true)}
+              >
+                Reframe
+              </Button>
+            </BlockedTip>
+            {original && (
+              <Button size="sm" variant="ghost" icon={<Undo2 size={14} />} disabled={busy} onPress={undoReframe}>
+                Undo reframe
+              </Button>
+            )}
           </div>
         )}
         <Text tone="muted" size="sm" as="p" className={styles.meta}>
           {source.name}, {source.width} × {source.height}
+          {original && ` \u00b7 reframed from ${original.width} × ${original.height}`}
           {hasMark &&
             `. About ${Math.max(1, Math.round(markedShare * 100))}% marked: only that area will change, the rest is kept pixel for pixel.`}
         </Text>
@@ -1004,7 +1152,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
 
   const footer = (
     <>
-      <BlockedTip message={blocked}>
+      <BlockedTip message={blocked ?? (reframing ? 'Use this frame or Cancel first' : null)}>
         <Button
           variant="primary"
           size="lg"
@@ -1019,6 +1167,7 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
             unavailable ||
             !maskFit.ok ||
             directionTooLong ||
+            reframing ||
             blocked !== null
           }
           onPress={() => void run()}
@@ -1061,8 +1210,13 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       <RunwayErrorNotice
         error={shownError}
         modelName={modelName}
-        onRetry={() => void (shownError === status.error ? status.refetch() : run())}
+        onRetry={shownError === status.error ? () => void status.refetch() : reframing ? undefined : () => void run()}
       />
+      {relightStill.error && (
+        <Alert tone="error" title="The relight didn't start">
+          {errorMessage(relightStill.error)}
+        </Alert>
+      )}
       {saver.error && (
         <Alert tone="error" title="Download failed">
           {saver.error}
@@ -1094,6 +1248,41 @@ export function StillsPage({ onAnimate }: StillsPageProps) {
       footer={footer}
     />
   );
+}
+
+/** The picture's Relight action: one menu of presets, and what they do under them. */
+function RelightMenu({ disabled, onPick }: { disabled: boolean; onPick: (preset: RelightPreset) => void }) {
+  const noteId = useId();
+  return (
+    <MenuTrigger>
+      <Button variant="ghost" icon={<SunDim size={16} />} disabled={disabled}>
+        Relight
+      </Button>
+      <Popover placement="top" offset={6} className={menuStyles.popover}>
+        <Menu
+          aria-label="Relight"
+          aria-describedby={noteId}
+          className={menuStyles.menu}
+          onAction={(key) => onPick(key as RelightPreset)}
+        >
+          {RELIGHTS.map((r) => (
+            <MenuItem key={r.id} id={r.id} className={menuStyles.item}>
+              {r.name}
+            </MenuItem>
+          ))}
+        </Menu>
+        <p id={noteId} className={menuStyles.email}>
+          Relights what is in the image; adds nothing.
+        </p>
+      </Popover>
+    </MenuTrigger>
+  );
+}
+
+/** A ratio as width / height; null for "Match render". */
+function aspectRatioOf(ratio: string): number | null {
+  const dims = aspectDims(ratio);
+  return dims ? dims.width / dims.height : null;
 }
 
 /** The CSS aspect-ratio of a take: its chosen ratio, else the render's own. */

@@ -33,7 +33,7 @@
 
 /* A card (DESIGN 4): solid surface, hairline, continuous corners. Hover
    lifts it 2 px and zooms the picture inside its own frame; selected is a
-   2 px accent ring. */
+   2 px white ring and a check, because a ring alone reads as hover. */
 .card {
   position: relative;
   display: flex;
@@ -67,9 +67,33 @@
   box-shadow: 0 0 0 1px var(--bay-accent);
 }
 
+.card[data-selected]::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .card[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 3px;
+  box-shadow: 0 0 0 7px var(--bay-bg-canvas);
+}
+
+.card[data-selected][data-focus-visible] {
+  box-shadow:
+    0 0 0 1px var(--bay-accent),
+    0 0 0 7px var(--bay-bg-canvas);
 }
 
 .card[data-disabled] {

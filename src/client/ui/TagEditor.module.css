@@ -1,7 +1,7 @@
 /* Tag chips (DESIGN 4): 28 px pills in the subhead role. An applied tag is a
-   selected chip (accent soft fill, accent text); the add field is a dashed
-   pill that becomes a field when focused; the picker chips sit on the glass
-   button fill and turn accent when selected. */
+   selected chip (solid white, black text); the add field is a dashed pill
+   that becomes a field when focused; the picker chips sit on the glass button
+   fill and turn solid white when selected. */
 .editor {
   display: flex;
   flex-wrap: wrap;
@@ -25,8 +25,8 @@
   height: 28px;
   padding: 0 4px 0 12px;
   border-radius: var(--r-pill);
-  background: var(--bay-accent-soft);
-  color: var(--bay-accent-fg);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
   font: var(--text-subhead);
   font-weight: 500;
   letter-spacing: var(--track-subhead);
@@ -36,6 +36,7 @@
 .tag[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 .remove {
@@ -54,18 +55,20 @@
     transform var(--dur-2) var(--ease-out);
 }
 
+/* It sits on the white chip, so its states are dark veils and a dark ring. */
 .remove[data-hovered] {
-  background: rgba(var(--bay-accent-rgb), 0.24);
+  background: color-mix(in srgb, var(--bay-text-on-accent) 14%, transparent);
 }
 
 .remove[data-pressed] {
-  background: rgba(var(--bay-accent-rgb), 0.32);
+  background: color-mix(in srgb, var(--bay-text-on-accent) 24%, transparent);
   transform: scale(0.94);
 }
 
 .remove[data-focus-visible] {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: 0;
+  outline: 2px solid var(--bay-text-on-accent);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 .remove[data-disabled] {
@@ -172,6 +175,7 @@
     background-color var(--dur-1) var(--ease-out),
     border-color var(--dur-1) var(--ease-out),
     color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out),
     transform var(--dur-2) var(--ease-out);
 }
 
@@ -185,22 +189,33 @@
 }
 
 .pick[data-selected] {
-  border-color: rgba(var(--bay-accent-rgb), 0.4);
-  background: var(--bay-accent-soft);
-  color: var(--bay-accent-fg);
+  border-color: var(--bay-accent);
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
 }
 
 .pick[data-selected][data-hovered] {
-  background: rgba(var(--bay-accent-rgb), 0.24);
+  border-color: var(--bay-accent-hover);
+  background: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
 }
 
 .pick[data-selected][data-pressed] {
-  background: rgba(var(--bay-accent-rgb), 0.3);
+  background: var(--bay-accent);
 }
 
 .pick[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
+}
+
+/* Selected, focused and under the pointer: the inset line and the ring's
+   outer band together, since the hover rule above is the more specific. */
+.pick[data-selected][data-hovered][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 6px var(--bay-bg-canvas);
 }
 
 .pick[data-disabled] {
@@ -216,7 +231,7 @@
 }
 
 .pick[data-selected] .count {
-  color: var(--bay-accent-fg);
+  color: var(--bay-text-on-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

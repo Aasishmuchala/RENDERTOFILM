@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { Unit } from './chat/domain.ts';
 import {
   type AuthServerMetadata,
   McpAuthError,
@@ -88,12 +89,28 @@ export interface GenerationChoice {
 /** Credits a day until the owner sets their own. */
 export const DEFAULT_GENERATION_BUDGET = 300;
 
+/** What the chat agent runs on, and the Allowance (a daily amount in `unit`, 0 means every Run needs a click). */
+export interface ChatSettings {
+  model: string;
+  effort: 'high';
+  allowancePerDay: number;
+  unit: Unit;
+}
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  model: 'claude-opus-5-5',
+  effort: 'high',
+  allowancePerDay: 0,
+  unit: 'credits',
+};
+
 export interface ConnectionsDoc {
   servers: McpServerRecord[];
   pending: PendingOAuth[];
   apiKeys: Partial<Record<ApiKeyProvider, ApiKeyRecord>>;
   aiText?: AiTextChoice | undefined;
   generation?: GenerationChoice | undefined;
+  chat?: Partial<ChatSettings> | undefined;
 }
 
 const store = documentStore<ConnectionsDoc>({ prefix: 'connections/' });
@@ -116,7 +133,14 @@ function withPresets(doc: Partial<ConnectionsDoc> | undefined): ConnectionsDoc {
   const apiKeys = doc?.apiKeys ?? {};
   const presets = PRESETS.map((p) => saved.find((s) => s.id === p.id) ?? { ...p });
   const others = saved.filter((s) => !isPresetId(s.id));
-  return { servers: [...presets, ...others], pending, apiKeys, aiText: doc?.aiText, generation: doc?.generation };
+  return {
+    servers: [...presets, ...others],
+    pending,
+    apiKeys,
+    aiText: doc?.aiText,
+    generation: doc?.generation,
+    chat: doc?.chat,
+  };
 }
 
 export async function readConnections(owner: string): Promise<ConnectionsDoc> {
@@ -136,8 +160,24 @@ export async function updateConnections(
       apiKeys: next.apiKeys,
       aiText: next.aiText,
       generation: next.generation,
+      chat: next.chat,
     };
   });
+}
+
+/** The saved chat settings over the defaults, so a document from before chat reads the same as a fresh one. */
+function chatSettingsOf(doc: ConnectionsDoc): ChatSettings {
+  return { ...DEFAULT_CHAT_SETTINGS, ...doc.chat, effort: 'high' };
+}
+
+export async function readChatSettings(owner: string): Promise<ChatSettings> {
+  return chatSettingsOf(await readConnections(owner));
+}
+
+/** Saves the fields in `patch`; the rest keep what they were. Answers the settings now in force. */
+export async function writeChatSettings(owner: string, patch: Partial<ChatSettings>): Promise<ChatSettings> {
+  const doc = await updateConnections(owner, (current) => ({ ...current, chat: { ...chatSettingsOf(current), ...patch } }));
+  return chatSettingsOf(doc);
 }
 
 export function updateServer(

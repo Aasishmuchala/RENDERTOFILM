@@ -5,8 +5,9 @@ import { AmbientLayer } from '../lib/ambient.tsx';
 import { useActivity } from '../lib/useActivity.ts';
 import type { PageId } from '../nav.ts';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
+import { RunWaitNotice } from '../ui/RunWaitNotice.tsx';
 import styles from './AppShell.module.css';
-import { Dock, isShootPage, ShootModes, TabBar, TopBar } from './Nav.tsx';
+import { TopBar } from './Nav.tsx';
 
 export type AppShellUser = {
   name: string;
@@ -23,17 +24,16 @@ export type AppShellProps = {
 
 /**
  * The screening room's frame (DESIGN.md 3.1): a skip link, the ambient
- * backdrop, the glass top bar, the floating glass dock (from 900 px) or, on
- * phones, the floating tab bar (and, on a Shoot page, the row of Shoot
- * modes under the top bar), and `<main>`. Sets `--app-header`,
- * `--app-subnav`, `--app-dock` and `--app-bottom` for the pages' own geometry.
+ * backdrop, the glass top bar and `<main>`. Sets `--app-header` and, on the
+ * Still page with its row of modes, `--app-subnav` for the pages' own
+ * geometry; `--app-dock` and `--app-bottom` stay defined, at 0.
  */
 export function AppShell({ current, user, children }: AppShellProps) {
   const main = useRef<HTMLElement>(null);
   const activity = useActivity().total;
 
   return (
-    <div data-bay-block="app-shell" className={styles.shell} data-shoot={isShootPage(current) ? '' : undefined}>
+    <div data-bay-block="app-shell" className={styles.shell} data-subnav={current === 'stills' ? '' : undefined}>
       <a
         href="#main"
         className={styles.skip}
@@ -47,9 +47,7 @@ export function AppShell({ current, user, children }: AppShellProps) {
       </a>
       <AmbientLayer />
       <TopBar current={current} user={user} activity={activity} />
-      <ShootModes current={current} />
-      <Dock current={current} />
-      <TabBar current={current} activity={activity} />
+      <RunWaitNotice active={activity > 0} />
       <main id="main" tabIndex={-1} ref={main} className={styles.main}>
         <ErrorBoundary label="page">{children}</ErrorBoundary>
       </main>

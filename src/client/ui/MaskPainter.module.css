@@ -14,7 +14,7 @@
 }
 
 /* Tool and brush size: segmented controls with 36 px segments (DESIGN 2.8,
-   toolbar targets). The selected one takes the glass-button fill and edge. */
+   toolbar targets). The selected one goes solid white with black text. */
 .segment {
   display: inline-flex;
   gap: 2px;
@@ -58,14 +58,28 @@
 }
 
 .segItem[data-selected] {
-  background-color: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  color: var(--bay-text);
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.segItem[data-selected][data-hovered] {
+  background-color: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+  color: var(--bay-text-on-accent);
 }
 
 .segItem[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 1px;
+  box-shadow: 0 0 0 5px var(--bay-bg-canvas);
+}
+
+/* Selected, focused and under the pointer: the inset line and the ring's
+   outer band together, since the hover rule above is the more specific. */
+.segItem[data-selected][data-hovered][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 5px var(--bay-bg-canvas);
 }
 
 .segItem[data-disabled] {
@@ -94,15 +108,17 @@
   height: 14px;
 }
 
-/* The picture being marked: an accent ring says "marking". The tint stays
-   the accent at half strength (rgba(var(--bay-accent-rgb), 0.5) once drawn). */
+/* The picture being marked: a white ring, a black hairline off the picture's
+   edge, says "marking". */
 .surface {
   position: relative;
   width: 100%;
   overflow: hidden;
   border-radius: var(--r-card);
   background-color: var(--bay-bg-sunken);
-  box-shadow: 0 0 0 2px var(--bay-accent);
+  box-shadow:
+    0 0 0 1px var(--bay-stage-frame),
+    0 0 0 3px var(--bay-accent);
   touch-action: none;
   user-select: none;
 }
@@ -120,21 +136,56 @@
   pointer-events: none;
 }
 
+/* The mark is two-tone: white at half strength, which vanishes on a bright
+   render, inside a 1 px black outline, which vanishes on a dark one. Both
+   tones come from `MarkFilter`; the strokes themselves stay one colour. */
 .canvas,
 .overlayCanvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.5;
+}
+
+/* Holds the filter only, so it takes no room in the picture. */
+.markFilter {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.markOutline {
+  flood-color: var(--bay-stage-frame);
 }
 
 .canvas[data-tool] {
   cursor: none;
 }
 
-.canvas[data-tool='box'] {
+.canvas[data-tool='box'],
+.canvas[data-tool='lasso'] {
   cursor: crosshair;
+}
+
+/* The lasso being clicked out: a 1 px dashed line in the tint through 4 px
+   vertex dots, with a dark halo so it reads on light and dark renders. Width,
+   dashes and dots are sized in markup, against the full-size zoom. */
+.lassoPath {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px var(--bay-stage-frame));
+}
+
+.lassoLine {
+  fill: none;
+  stroke: var(--bay-accent);
+}
+
+.lassoDot {
+  fill: var(--bay-accent);
 }
 
 .overlayCanvas {
@@ -260,7 +311,43 @@
 }
 
 .bigFrame {
+  position: relative;
   max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-control);
+}
+
+/* Translated then scaled from the top-left; the picture inside keeps its size
+   in the layout and its canvas its own resolution. */
+.zoomLayer {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Space held, or a drag in progress: the pointer pans instead of marking. */
+.bigFrame[data-pan] .canvas {
+  cursor: grab;
+}
+
+.bigFrame[data-pan='drag'] .canvas {
+  cursor: grabbing;
+}
+
+.bigFrame[data-pan] .cursor {
+  display: none;
+}
+
+.zoomChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 8px;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,86 @@
+/* The list of chats. The rail and the sheet bring their own surface. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.list .new {
+  flex: none;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-border-strong) transparent;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--bay-text);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.row[data-hovered] {
+  background-color: var(--glass-btn-hover);
+}
+
+.row[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+/* Inset, so the list's scroller cannot clip the ring. */
+.row[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+/* The one showing: solid white, the selected state everywhere (DESIGN 2.2). */
+.row[aria-current] {
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.row[aria-current][data-hovered] {
+  background-color: var(--bay-accent-hover);
+}
+
+.title {
+  overflow: hidden;
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.when {
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.row[aria-current] .when {
+  color: var(--bay-text-on-accent);
+}

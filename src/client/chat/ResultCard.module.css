@@ -1,0 +1,84 @@
+/* What a Run made: a contact sheet on a solid card. Its own width picks the
+   columns, so it reads the same in any transcript: thumbs of 160 px, four
+   across from 670 px of room (the desktop column), two at a phone's width. */
+.card {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@container (min-width: 500px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 670px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The name sits under the picture, on the card, never over it. */
+.name {
+  margin-top: 2px;
+  overflow: hidden;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.verdict {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+/* A card's picture: filled to its frame, on the black of the stage until it loads. */
+.thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: var(--bay-r-sm);
+  background-color: var(--bay-stage-frame);
+}
+
+.gone {
+  display: grid;
+  place-items: center;
+  color: var(--bay-text-2);
+  background-color: var(--bay-bg-subtle);
+}

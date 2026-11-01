@@ -77,6 +77,7 @@ import { closeupsRouter } from './closeups-api.ts';
 import { locationRouter } from './location-api.ts';
 import { forgetTake as forgetLifestyleTake, lifestyleRouter } from './lifestyle-api.ts';
 import { forgetTake, storyboardRouter } from './storyboard-api.ts';
+import { chatRouter } from './chat-api.ts';
 import { settingsRouter } from './settings-api.ts';
 import { recreateRouter } from './recreate-api.ts';
 import { pick, submitStill } from './still-submit.ts';
@@ -137,6 +138,12 @@ import {
   signedInProcedure,
   type Context,
 } from './trpc.ts';
+
+/** What a relight offers; desktop/platform/lightcraft.js holds what each one does. */
+const RELIGHT_PRESETS = ['soft-overcast', 'golden-low', 'blue-hour', 'studio-neutral'] as const;
+
+/** A still made by `relightStill`: `relightOf` names the original. */
+type RelitStill = Still & { relightOf: string };
 
 export type { AppProfile } from './profile.ts';
 export type { CheckReport } from './checks.ts';
@@ -402,6 +409,8 @@ export const AppRouter = router({
   recreate: recreateRouter,
   /** The shot director: one vision call that plans a clip from what its first frame shows (src/shot-director-api.ts). */
   shot: shotRouter,
+  /** The Chat tab: threads, Quotes, Runs and the Bay clock (src/chat-api.ts). */
+  chat: chatRouter,
 
   profile: publicProcedure.query(({ ctx }) => resolveProfile(ctx)),
 
@@ -1307,6 +1316,71 @@ export const AppRouter = router({
         owner,
         id,
         'Your upscale started on Runway, but your library could not save it, so this page cannot follow it. Look for it in your Runway account, and try again in a moment.'
+      );
+      return { id };
+    }),
+
+  /**
+   * Relight a finished still in the desktop app's LightCraft sidecar: tone and
+   * colour on the finished file, full size at 16 bits, so nothing is added. The
+   * copy is recorded as its own still (`relightOf` names the original) and
+   * polled with `shotStatus`, so it shows up on the Video tab like any other take.
+   */
+  relightStill: signedInProcedure
+    .input(z.object({ stillId: z.string().min(1), preset: z.enum(RELIGHT_PRESETS) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!capabilitiesOf(ctx.runway).sidecars) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Relight is a power tool of the desktop app.',
+        });
+      }
+      const owner = await ownerKey(ctx.req);
+      const parent = (await readLibrary(owner)).stills.find(
+        (s) => s.id === input.stillId
+      );
+      if (!parent) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'That still is no longer in your library.',
+        });
+      }
+      let id: string;
+      try {
+        const url = await finishedUrl(ctx, parent.id, owner);
+        ({ id } = await ctx.runway.createTask('media_processing_v2', {
+          name: 'render-to-film relight',
+          operation: 'relight',
+          parameters: { input: url, preset: input.preset, longEdge: 0, bitDepth: 16 },
+        }));
+      } catch (err) {
+        throw toTrpcError(err);
+      }
+      const still: RelitStill = {
+        ...parent,
+        id,
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        error: undefined,
+        check: undefined,
+        relightOf: parent.id,
+        // Relighting an upscale makes a still of its own, not another upscale.
+        upscaleOf: undefined,
+        upscaler: undefined,
+        scale: undefined,
+        // Relit from the marked edit's composite, so it is final as is.
+        maskKey: undefined,
+        compositeKey: undefined,
+        renderKey: undefined,
+      };
+      await recordStillWithRetry(
+        (lib) => ({
+          ...lib,
+          stills: [still, ...lib.stills.filter((s) => s.id !== id)],
+        }),
+        owner,
+        id,
+        'Your relight started, but your library could not save it, so this page cannot follow it. Try again in a moment.'
       );
       return { id };
     }),

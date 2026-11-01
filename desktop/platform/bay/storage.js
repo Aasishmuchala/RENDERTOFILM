@@ -2,9 +2,11 @@
 // <data>/storage/. Keys map 1:1 to paths below that directory, on every OS, so
 // a key has to be a legal Windows path as well as a POSIX one (`assertSafeKey`).
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { backupOf, isRecord, isSpareCopy, readBackup, restoreDurable, writeDurable } from './durable.js';
 import { dataKey } from './guard.js';
 import { DATA_DIR, STORAGE_DIR, mockOrigin } from './paths.js';
 import { SecretsError, isSealed, open, seal } from './secrets.js';
@@ -102,40 +104,113 @@ async function readSealed(buf) {
   }
 }
 
+const isItemList = (value) =>
+  value === undefined || (Array.isArray(value) && value.every((item) => isRecord(item) && typeof item.id === 'string'));
+
+/** Parsing is not enough for the library: every paid take is recorded by walking these two lists. */
+const wholeDocument = (key, doc) =>
+  isRecord(doc) && (!key.startsWith('library/') || (isItemList(doc.stills) && isItemList(doc.clips)));
+
+const LABELS = {
+  'library/': 'library',
+  'lifestyle/': 'Lifestyle',
+  'storyboards/': 'Director',
+  'closeups/': 'Close-ups',
+  'edits/': 'Edit',
+  'chat/': 'chat',
+  'chat-events/': 'chat events',
+  'chat-assets/': 'chat files',
+};
+
+function unreadable(prefix) {
+  const label = LABELS[prefix] ?? 'saved';
+  return Object.assign(new Error(`Your ${label} file could not be read and no backup could restore it, so nothing was changed.`), {
+    status: 409,
+    expose: true,
+  });
+}
+
+// Per file, not per store: bay/tasks.js opens `library/` beside src/library.ts.
+const turns = new Map();
+
 /**
  * One JSON document per key. `update` is serialised per key inside this
- * process, which stands in for the real store's re-read-and-retry. Documents
- * under `SEALED_PREFIXES` are sealed on disk; a read that cannot open one
- * throws `SecretsError`, so `update` never runs and the file stays.
+ * process, which stands in for the real store's re-read-and-retry.
+ *
+ * A plain document that will not read is kept beside its name and replaced by
+ * its backup (./durable.js). With no usable backup a read throws a visitor
+ * sentence, so `update` never runs and the file stays. A missing document with
+ * a backup counts as damaged: a document that was deleted took its backup along.
+ *
+ * Documents under `SEALED_PREFIXES` are sealed on disk and keep no second copy.
+ * A read that cannot open one throws `SecretsError`, and the same rule holds.
  */
 export function documentStore({ prefix }) {
-  const locks = new Map();
   const fileFor = (key) => storagePath(`${prefix}${key}`);
-  const parse = (key, buf) =>
-    isSealedKey(`${prefix}${key}`) ? readSealed(buf) : JSON.parse(buf.toString('utf8'));
+  const sealed = (key) => isSealedKey(`${prefix}${key}`);
   const format = async (key, value) =>
-    JSON.stringify(isSealedKey(`${prefix}${key}`) ? seal(await dataKey(DATA_DIR), value) : value, null, 2);
+    JSON.stringify(sealed(key) ? seal(await dataKey(DATA_DIR), value) : value, null, 2);
+  const inTurn = (key, work) => {
+    const turn = `${prefix}${key}`;
+    const run = (turns.get(turn) ?? Promise.resolve()).catch(() => {}).then(work);
+    turns.set(turn, run);
+    return run;
+  };
+
+  /** `{ value }` for a plain document that is whole, else undefined. */
+  const parsePlain = (key, buf) => {
+    try {
+      const value = JSON.parse(buf.toString('utf8'));
+      return wholeDocument(`${prefix}${key}`, value) ? { value } : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** `{ value }`, null for no document, undefined for one that needs `restore`. */
+  const read = async (key) => {
+    const file = fileFor(key);
+    if (sealed(key)) {
+      const buf = await readOrNull(file);
+      return buf ? { value: await readSealed(buf) } : null;
+    }
+    const buf = await readOrNull(file).catch(() => undefined);
+    if (buf === null) return existsSync(backupOf(file)) ? undefined : null;
+    return buf ? parsePlain(key, buf) : undefined;
+  };
+
+  /** `read`, with the backup standing in for a damaged file. Runs in the key's turn. */
+  const restore = async (key) => {
+    const doc = await read(key);
+    if (doc !== undefined) return doc;
+    const file = fileFor(key);
+    const backup = readBackup(file);
+    const whole = backup ? parsePlain(key, backup) : undefined;
+    if (!whole) {
+      console.warn(`[storage] ${prefix}${key} could not be read and has no usable backup; it was left as it is.`);
+      throw unreadable(prefix);
+    }
+    const kept = restoreDurable(file, backup);
+    console.warn(`[storage] ${prefix}${key} could not be read; ${kept ? `kept it as ${kept} and ` : ''}restored it from its backup.`);
+    return whole;
+  };
+
   return {
     async get(key) {
-      const buf = await readOrNull(fileFor(key));
-      return buf ? { value: await parse(key, buf) } : null;
+      const doc = await read(key);
+      return doc === undefined ? inTurn(key, () => restore(key)) : doc;
     },
     update(key, fn) {
-      const prev = locks.get(key) ?? Promise.resolve();
-      const run = prev
-        .catch(() => {})
-        .then(async () => {
-          const buf = await readOrNull(fileFor(key));
-          const current = buf ? await parse(key, buf) : undefined;
-          const next = await fn(current);
-          await writeAtomic(fileFor(key), await format(key, next));
-          return next;
-        });
-      locks.set(key, run);
-      return run;
+      return inTurn(key, async () => {
+        const doc = await restore(key);
+        const next = await fn(doc?.value);
+        writeDurable(fileFor(key), await format(key, next), { backup: !sealed(key) });
+        return next;
+      });
     },
     async delete(key) {
       await fs.rm(fileFor(key), { force: true });
+      await fs.rm(backupOf(fileFor(key)), { force: true });
     },
   };
 }
@@ -150,6 +225,7 @@ export async function getObject(key) {
 
 export async function deleteObject(key) {
   await fs.rm(storagePath(key), { force: true });
+  await fs.rm(backupOf(storagePath(key)), { force: true });
 }
 
 /** One level of keys under `prefix`: files as objects, subdirectories as folders. */
@@ -167,7 +243,7 @@ export async function list(prefix = '') {
   const join = (name) => (base ? `${base}/${name}` : name);
   return {
     objects: entries
-      .filter((e) => e.isFile() && !e.name.endsWith('.tmp') && join(e.name).startsWith(prefix))
+      .filter((e) => e.isFile() && !e.name.endsWith('.tmp') && !isSpareCopy(e.name) && join(e.name).startsWith(prefix))
       .map((e) => ({ key: join(e.name) })),
     folders: entries
       .filter((e) => e.isDirectory() && join(e.name).startsWith(prefix))

@@ -12,6 +12,7 @@ import {
   type TextUsage,
 } from './ai-text/providers.ts';
 import { recordUsage } from './ai-text/usage.ts';
+import { capabilitiesOf } from './capabilities.ts';
 import { readConnections } from './connections.ts';
 import { documentStore } from './storage.ts';
 import type { RunwayCtx } from './task-helpers.ts';
@@ -134,8 +135,9 @@ export async function createTextTask(
   options: TextTaskOptions,
   deps: TextDeps = {}
 ): Promise<{ id: string }> {
-  const target = await (deps.resolve ?? resolveTextProvider)(owner);
-  if (target.provider === 'runway') {
+  // The simulator answers text itself, whichever provider Settings names: a pretend run never reaches a real key.
+  const target = capabilitiesOf(ctx.runway).provider === 'simulator' ? null : await (deps.resolve ?? resolveTextProvider)(owner);
+  if (!target || target.provider === 'runway') {
     return ctx.runway.createTask(RUNWAY_TEXT_TASK, options as Record<string, unknown>, { internal: true });
   }
   const now = deps.now ?? Date.now;

@@ -41,6 +41,7 @@ import { type ShotContext, shotSummary } from '../shot-director.ts';
 import { settingName } from '../surroundings.ts';
 import { DeleteItemDialog, type DeleteTarget } from './DeleteItemDialog.tsx';
 import { DirectionStyleSelect, useDirectionStyle } from './director/DirectionStyle.tsx';
+import { type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, usePhoneLayout, Workspace, type WorkspaceProps } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
@@ -143,9 +144,6 @@ type Filter = (typeof DAY_FILTERS)[number]['id'];
 /** The Video tab's two tabs: animate a still, or recreate a clip in 4K. */
 type VideoMode = 'animate' | 'recreate';
 
-/** What a mode's canvas shows: its takes (the focused one, or the next shot), or every clip as a contact sheet. */
-export type CanvasViewId = 'takes' | 'clips';
-
 /**
  * A shot set up from another tab (the Lifestyle tab's "Animate"): it fills
  * the settings once, each stays editable, and nothing starts until Make the
@@ -165,6 +163,8 @@ export type VideoPreset = {
 export type VideoPageProps = {
   /** True while the Video tab is on screen; polling slows down when it isn't. */
   active: boolean;
+  /** What the address asks for: `mode`, or a `clip` to recreate. */
+  handoff?: Handoff | undefined;
   /** A still picked from the Stills tab ("Make a video"). */
   pickedStillId: string | null;
   /** Settings that came with the pick; a new one replaces the current settings. */
@@ -174,7 +174,7 @@ export type VideoPageProps = {
   onGoToStills: () => void;
 };
 
-export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoToStills }: VideoPageProps) {
+export function VideoPage({ active, handoff, pickedStillId, preset = null, onPick, onGoToStills }: VideoPageProps) {
   const utils = trpc.useUtils();
   const library = trpc.library.useQuery(undefined, {
     // Only while this tab is on screen; the clip being made polls itself below.
@@ -360,7 +360,58 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
     // rendering in the strip.
     setFocusId(null);
     setView('takes');
+    // A pick is a still to animate, whichever mode was open.
+    if (pickedStillId) setMode('animate');
   }, [pickedStillId]);
+
+  const address = useHandoff(handoff);
+  useEffect(() => {
+    // The address names the mode once; after that the tabs are the visitor's.
+    // A clip is a shot to copy, so it opens Recreate; a still, Animate.
+    if (address.page !== 'video') return;
+    const { clip, mode: named, still } = address.params;
+    if (named === 'animate' || named === 'recreate') setMode(named);
+    else if (clip) setMode('recreate');
+    else if (still) setMode('animate');
+  }, [address]);
+
+  // The pick may sit past the stills shown, or outside the filter.
+  function revealPick() {
+    const at = stills.findIndex((s) => s.id === pickedStillId);
+    if (at >= 0 && !filtered.slice(0, shown).some((s) => s.id === pickedStillId)) {
+      setFilter('all');
+      setShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE));
+    }
+  }
+
+  // Once per pick, when the library has it: after that the filter is the visitor's.
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selected || revealed.current === selected.id) return;
+    revealed.current = selected.id;
+    revealPick();
+  }, [selected]);
+
+  // The still this page last really had, from before an address could replace it.
+  const [storedPick] = useState(readStoredPick);
+  const realPick = useRef(storedPick);
+  if (selected) realPick.current = selected.id;
+
+  useEffect(() => {
+    // An old link can name a still that is gone, which must not cost the real
+    // pick. Only on screen, since onPick opens this page; and a still just
+    // made may not be in this list yet, so ask again before believing it.
+    if (!active || !pickedStillId || !library.data || stillIds.has(pickedStillId)) return;
+    let moved = false;
+    void library.refetch().then(({ data, isError }) => {
+      if (moved || isError || !data || data.stills.some((s) => s.id === pickedStillId)) return;
+      const real = data.stills.find((s) => s.id === realPick.current && s.status === 'succeeded');
+      onPick(real?.id ?? null);
+    });
+    return () => {
+      moved = true;
+    };
+  }, [active, pickedStillId, stillIds]);
 
   useEffect(() => {
     // Each new preset sets the shot up once, as if picked here by hand.
@@ -375,12 +426,7 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
     setPresetNote(pickedStillId ? { stillId: pickedStillId, note: preset.note } : null);
     setFocusId(null);
     createVideo.reset();
-    // The still it came with may sit past the stills shown, or outside the filter.
-    const at = stills.findIndex((s) => s.id === pickedStillId);
-    if (at >= 0 && !filtered.slice(0, shown).some((s) => s.id === pickedStillId)) {
-      setFilter('all');
-      setShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE));
-    }
+    revealPick();
     // Only a new preset applies; the pick and the lists are read as they stand.
   }, [preset]);
 
@@ -575,7 +621,11 @@ export function VideoPage({ active, pickedStillId, preset = null, onPick, onGoTo
   const durations = videoDurations(videoModel);
   const secondsOptions = durations.map((s) => ({ id: String(s), name: `${s} seconds` }));
 
-  const recreate = useRecreateWorkspace({ active: active && mode === 'recreate', onSourceThumb: setSourceThumb });
+  const recreate = useRecreateWorkspace({
+    active: active && mode === 'recreate',
+    onSourceThumb: setSourceThumb,
+    referenceClipId: address.page === 'video' ? address.params['clip'] : undefined,
+  });
 
   const motionText = (
     cameraTravels
@@ -1150,6 +1200,9 @@ function VideoWorkspace({ tabs, ...props }: Omit<WorkspaceProps, 'page' | 'inspe
   return <Workspace page="video" inspectorHead={tabs} {...props} />;
 }
 
+/** What a mode's canvas shows: its takes (the focused one, or the next shot), or every clip as a contact sheet. */
+export type CanvasViewId = 'takes' | 'clips';
+
 /** The canvas's view toggle: a mode's takes, or every clip as a contact sheet. */
 export function CanvasView({
   view,
@@ -1372,6 +1425,29 @@ function ClipCard({
       </figcaption>
     </figure>
   );
+}
+
+/**
+ * The address a page was opened with: App's handoff, or while App passes none
+ * the hash itself, on load and at each change.
+ */
+export function useHandoff(handoff: Handoff | undefined): Handoff {
+  const [hash, setHash] = useState(() => parseHash(window.location.hash));
+  useEffect(() => {
+    const onHash = () => setHash(parseHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  return handoff ?? hash;
+}
+
+/** App's copy of the pick (src/client/App.tsx), read before anything on this load writes it. */
+function readStoredPick(): string | null {
+  try {
+    return sessionStorage.getItem('render-to-film:picked-still');
+  } catch {
+    return null;
+  }
 }
 
 /** A clip's one-line caption: model, resolution and camera move, or what a recreation is. */

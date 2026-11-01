@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTextTask, textTaskSnapshot } from './ai-text.ts';
+import { type GenerationProvider, providerOf } from './capabilities.ts';
 import {
   DEFAULT_DIRECTOR_LENS,
   DIRECTION_DOCTRINE,
@@ -11,6 +12,7 @@ import {
   type DirectorLensId,
   lensBlock,
 } from './direction.ts';
+import { shortFileName } from './file-name.ts';
 import { type Library, ownerKey, readLibrary, type Still, type TaskState, updateLibrary } from './library.ts';
 import {
   buildCastSheetPrompt,
@@ -65,8 +67,9 @@ import {
 } from './models.ts';
 import { submitStill } from './still-submit.ts';
 import { documentStore } from './storage.ts';
-import { finishedUrl, logRejection, type RunwayCtx, settled, snapError, toTrpcError } from './task-helpers.ts';
+import { finishedUrl, logRejection, onProvider, type RunwayCtx, settled, snapError, toTrpcError } from './task-helpers.ts';
 import { router, signedInProcedure } from './trpc.ts';
+import { docLimit } from './doc-limit.ts';
 
 /**
  * The Lifestyle tab: upload every render of a project, and Claude plans each
@@ -94,7 +97,9 @@ import { router, signedInProcedure } from './trpc.ts';
  * model, which re-photographs it at full detail (`buildPass2Prompt`). Each
  * take holds its own claim on that second still (`LifestyleShot.pass2`), so
  * polls, reloads and retries send it once, and one that failed, was skipped
- * or was deleted waits for the person's "Retry pass 2" (`retryPass2`).
+ * or was deleted waits for the person's "Retry pass 2" (`retryPass2`). In the
+ * desktop app a take finishes on the provider that shot it (`LifestyleShot.provider`),
+ * whatever Settings says by then.
  */
 
 const PLANNER_MODEL = 'claude-sonnet-5-5';
@@ -224,13 +229,22 @@ export type LifestyleShot = {
   createdAt: string;
   pass2?: Pass2State | undefined;
   plate?: true | undefined;
+  /** Desktop app: who shot the first pass, and so who finishes the take. Unset on Bay and on older takes. */
+  provider?: GenerationProvider | undefined;
   /** The lighting the first pass was shot with (Phase 5); the develop relights to it. Unset on older takes and unlit frames. */
   lighting?: FrameLighting | undefined;
   /** The depth and focus the first pass was shot with (Phase 7); the develop keeps them. Unset on older takes and frames without a camera design. */
   camera?: FrameCamera | undefined;
 };
 
-export type LifestyleImage = { url: string; width: number; height: number; name: string };
+export type LifestyleImage = {
+  url: string;
+  width: number;
+  height: number;
+  name: string;
+  /** The chat Asset it came from, on a plan the chat made: a name can repeat. */
+  key?: string | undefined;
+};
 
 export type LifestyleJob = {
   id: string;
@@ -285,7 +299,7 @@ async function readJobs(owner: string): Promise<LifestyleJob[]> {
 }
 
 function updateJobs(owner: string, mutate: (jobs: LifestyleJob[]) => LifestyleJob[]) {
-  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, 10) }));
+  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, docLimit(10)) }));
 }
 
 /** Apply `patch` only while the stored job still passes `still`; returns the stored job. */
@@ -1051,7 +1065,7 @@ async function startPass2(
     const frame = boardFrames(claimed).find((f) => f.image === shot.image);
     const { references, prompt } = pass2Request(claimed, shot, pass1, frame, { pass1: url, render: img.url });
     ({ id } = await submitStill(
-      ctx,
+      onProvider(ctx, own(claimed)?.provider),
       {
         imageModel: model,
         imageUrl: url,
@@ -1287,7 +1301,8 @@ export const lifestyleRouter = router({
               url: z.string().url(),
               width: z.number().int().min(16).max(16384),
               height: z.number().int().min(16).max(16384),
-              name: z.string().max(200).default(''),
+              name: z.string().default('').transform((name) => shortFileName(name)),
+              key: z.string().max(300).optional(),
             })
           )
           .min(1, 'Add at least one render.')
@@ -1614,6 +1629,7 @@ export const lifestyleRouter = router({
         }
       );
       let id: string;
+      let provider: GenerationProvider | undefined;
       try {
         ({ id } = await submitStill(
           ctx,
@@ -1630,6 +1646,7 @@ export const lifestyleRouter = router({
           },
           prompt
         ));
+        provider = providerOf(ctx.runway);
       } catch (err) {
         logRejection('lifestyle', job.imageModel, err);
         throw toTrpcError(err);
@@ -1648,6 +1665,7 @@ export const lifestyleRouter = router({
                 stillId: id,
                 createdAt: still.createdAt,
                 ...(isTwoPass(job) ? { plate: true as const } : {}),
+                ...(provider ? { provider } : {}),
                 ...(lighting ? { lighting } : {}),
                 ...(camera ? { camera } : {}),
               },

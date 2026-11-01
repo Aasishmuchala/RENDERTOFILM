@@ -1,6 +1,6 @@
 /* A setting row (DESIGN 4): label and hint on the left, a 36 x 22 track on
-   the right with an 18 px white knob. The row is a solid field; the track
-   carries the focus ring. */
+   the right with an 18 px knob, white when off and black on a white track
+   when on. The row is a solid field; the track carries the focus ring. */
 .switch {
   position: relative;
   display: flex;
@@ -22,16 +22,22 @@
 }
 
 .switch[data-selected] {
-  border-color: rgba(var(--bay-accent-rgb), 0.45);
+  border-color: rgba(var(--bay-accent-rgb), 0.55);
+}
+
+.switch[data-selected][data-hovered] {
+  border-color: var(--bay-accent);
 }
 
 .switch[data-focus-visible] {
   outline: none;
+  box-shadow: none;
 }
 
 .switch[data-focus-visible] .track {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 .switch[data-disabled] {
@@ -79,6 +85,7 @@
   background: var(--bay-text);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--bay-bg-canvas) 70%, transparent);
   transition:
+    background-color var(--dur-2) var(--ease-out),
     translate var(--dur-2) var(--ease-out),
     scale var(--dur-1) var(--ease-out),
     box-shadow var(--dur-2) var(--ease-out);
@@ -97,13 +104,16 @@
 }
 
 .switch[data-selected] .thumb {
+  background: var(--bay-text-on-accent);
   translate: 14px 0;
 }
 
 /* Reduced motion: the knob jumps, the colours still change. */
 @media (prefers-reduced-motion: reduce) {
   .thumb {
-    transition: box-shadow var(--dur-2) var(--ease-out);
+    transition:
+      background-color var(--dur-2) var(--ease-out),
+      box-shadow var(--dur-2) var(--ease-out);
   }
 
   .switch[data-pressed] .thumb {

@@ -25,6 +25,7 @@ const LABEL = 'Higgsfield';
 const INSTALL = 'npm install -g @higgsfield/cli';
 const CLI_MISSING = 'The Higgsfield CLI is not installed. Settings shows how to add it.';
 const GRADES = 'Grades and AI edits need the Runway API provider.';
+const NO_ESTIMATE = 'Higgsfield gives no estimate before running.';
 const LOGIN_MS = 5 * 60_000;
 const VERSION_MS = 10_000;
 const ACCOUNT_MS = 30_000;
@@ -215,6 +216,11 @@ export function createHiggsfieldProvider({ lookupTaskPath }) {
     supports(type, options) {
       const { d, reason } = decide(type, options);
       return d ? { ok: true, notes: d.notes } : { ok: false, reason };
+    },
+
+    /** realgen's own quote runs the CLI, and a price has to work without one. */
+    async quote() {
+      return { unit: 'credits', amount: null, note: NO_ESTIMATE };
     },
 
     /** The pipeline is realgen's; it never rejects, and a task reaches `generate create` once. */

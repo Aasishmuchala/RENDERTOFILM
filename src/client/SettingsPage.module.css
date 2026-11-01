@@ -177,8 +177,8 @@
   border-radius: var(--bay-r-pill);
 }
 
-/* Connected is the status green, with a soft halo; not connected is a quiet
-   grey (the words beside it carry the meaning). */
+/* Connected is a white dot with a soft halo; not connected is a quiet grey
+   (the words beside it carry the meaning). */
 .dotOn {
   background: var(--bay-ok-fg);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--bay-ok-fg) 22%, transparent);

@@ -39,6 +39,8 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm run build
+      # Shows the licence state without blocking yet: scripts/build.mjs says when that ends.
+      - run: node scripts/check-ffmpeg-licence.mjs --warn
       - run: npx electron-builder --config electron-builder.yml --publish never
       - name: Smoke the packaged app
         run: |
@@ -81,6 +83,8 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm run build
+      # Shows the licence state without blocking yet: scripts/build.mjs says when that ends.
+      - run: node scripts/check-ffmpeg-licence.mjs --warn
       - run: npx electron-builder --config electron-builder.yml --publish never
       # Stopped by image name: a Git Bash pid is not a Windows pid, and Electron has children.
       - name: Smoke the packaged app

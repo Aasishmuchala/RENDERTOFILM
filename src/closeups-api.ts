@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTextTask, textTaskSnapshot } from './ai-text.ts';
+import { type GenerationProvider, providerOf } from './capabilities.ts';
 import { artifactOf } from './edit-api.ts';
 import { ownerKey, readLibrary, type Still, updateLibrary } from './library.ts';
 import {
@@ -15,8 +16,9 @@ import {
 } from './models.ts';
 import { submitStill } from './still-submit.ts';
 import { documentStore } from './storage.ts';
-import { finishedUrl, logRejection, type RunwayCtx, snapError, toTrpcError } from './task-helpers.ts';
+import { finishedUrl, logRejection, onProvider, type RunwayCtx, snapError, toTrpcError } from './task-helpers.ts';
 import { router, signedInProcedure } from './trpc.ts';
+import { docLimit } from './doc-limit.ts';
 
 /**
  * The Close-ups tab: find the best cinematic close-ups in a clip, a still or
@@ -31,7 +33,9 @@ import { router, signedInProcedure } from './trpc.ts';
  * `find` starts it, `job` polls (and records finished captures and answers,
  * which costs nothing), `analyze` asks Claude for the shots, `render`
  * submits one still per shot. Those stills land in the library as pending,
- * and the library query settles them like any other still.
+ * and the library query settles them like any other still. `render` fires on
+ * its own once the shots are picked, so in the desktop app it goes to the
+ * provider the search was started on (`CloseupJob.provider`).
  */
 
 export const MAX_CLOSEUPS = 6;
@@ -61,6 +65,8 @@ export type CloseupJob = {
   imageModel: ImageModelId;
   resolution: string;
   direction: string;
+  /** Desktop app: the provider the search was started on, which shoots its close-ups. Unset on Bay. */
+  provider?: GenerationProvider | undefined;
   status: CloseupStatus;
   error?: string | undefined;
   captureTaskId?: string | undefined;
@@ -83,7 +89,7 @@ async function readJobs(owner: string): Promise<CloseupJob[]> {
 }
 
 function updateJobs(owner: string, mutate: (jobs: CloseupJob[]) => CloseupJob[]) {
-  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, 20) }));
+  return store.update(`${owner}.json`, (current) => ({ jobs: mutate(current?.jobs ?? []).slice(0, docLimit(20)) }));
 }
 
 function patchJob(owner: string, id: string, patch: Partial<CloseupJob>) {
@@ -318,6 +324,7 @@ export const closeupsRouter = router({
         imageModel: input.imageModel,
         resolution,
         direction: input.direction.trim(),
+        provider: providerOf(ctx.runway),
       };
       let job: CloseupJob;
       if (input.kind === 'clip') {
@@ -435,7 +442,7 @@ export const closeupsRouter = router({
         let id: string;
         try {
           ({ id } = await submitStill(
-            ctx,
+            onProvider(ctx, job.provider),
             {
               imageModel: job.imageModel,
               imageUrl,

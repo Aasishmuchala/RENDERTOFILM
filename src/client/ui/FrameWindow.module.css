@@ -1,0 +1,101 @@
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.modes {
+  align-self: flex-start;
+}
+
+/* Only carries the tooltip: the segment's flex row sees the button itself. */
+.hint {
+  display: contents;
+}
+
+/* The clip keeps its own shape; only the 9:16 window moves over it. The whole
+   stage takes the drag, because a window a third of the width is easy to miss. */
+.stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-sunken);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.stage[data-dragging] {
+  cursor: grabbing;
+}
+
+.stage[data-disabled] {
+  cursor: not-allowed;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.blank {
+  position: absolute;
+  inset: 0;
+  background-color: var(--bay-bg-sunken);
+}
+
+/* A solid 1 px white frame around what the 9:16 file keeps. The shadow is the
+   dimmed outside: the stage clips it to the picture. */
+.window {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--bay-accent);
+  box-shadow: 0 0 0 100vmax var(--scrim);
+  outline: none;
+  cursor: inherit;
+}
+
+.window:focus-visible {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -4px;
+}
+
+/* Fit: the whole clip, on black, inside the 9:16 outline. */
+.fit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: min(100%, 160px);
+  margin-inline: auto;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border: 1px solid var(--bay-accent);
+  border-radius: var(--bay-r-sm);
+  background-color: var(--bay-stage-frame);
+}
+
+.fitImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.fitBlank {
+  background-color: var(--bay-bg-sunken);
+}
+
+.label {
+  margin: 0;
+  font: var(--text-subhead);
+  letter-spacing: var(--track-subhead);
+  color: var(--bay-text-2);
+}

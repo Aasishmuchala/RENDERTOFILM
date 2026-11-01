@@ -17,6 +17,7 @@ const CRASH_LIMIT = 3;
 const BACKOFF_MS = [1_000, 2_000, 4_000];
 const LOG_BYTES = 10 * 1024 * 1024;
 const LOG_FILES = 3;
+const ALLOWED_PERMISSIONS = new Set(['clipboard-sanitized-write', 'fullscreen', 'notifications']);
 
 export type ServerOptions = {
   port: number | undefined;
@@ -32,7 +33,24 @@ export type ServerHooks = {
   onOriginChange: (origin: string) => void;
   /** Three crashes in a minute. Resolves true to try again. */
   onCrashLoop: (logFile: string) => Promise<boolean>;
+  /** Work started, or the last of it ended. */
+  onBusyChange: (busy: boolean) => void;
 };
+
+/** The window's own origin gets these three and nothing else does. Here because importing main.ts starts the app. */
+export function permissionAllowed(name: string, origin: string, ownOrigin: string): boolean {
+  if (!ALLOWED_PERMISSIONS.has(name)) return false;
+  try {
+    return new URL(origin).origin === ownOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/** Between two of a run's tasks `active` is 0, and the run is still working. */
+export function busyFrom({ active, runs }: { active: number; runs: number }): boolean {
+  return active > 0 || runs > 0;
+}
 
 function redact(text: string, secrets: string[]): string {
   return secrets.reduce((out, secret) => out.replaceAll(secret, '[redacted]'), text);
@@ -78,6 +96,9 @@ export class ServerHost {
   /** Runs out on a provider, as the server last said, and whose they are. */
   active = 0;
   provider = '';
+  /** Chat runs under way, which outlast any one task. */
+  runs = 0;
+  busy = false;
 
   private child: UtilityProcess | undefined;
   private port: number;
@@ -102,9 +123,11 @@ export class ServerHost {
     return this.log.file;
   }
 
-  /** Starts the server; true once it answers health, false after 20 s. */
+  /** Starts the server, or starts it again after `stop()`; true once it answers health, false after 20 s. */
   async start(): Promise<boolean> {
-    await this.fork(this.options.port);
+    this.stopping = false;
+    this.crashes = [];
+    await this.fork(this.port || undefined);
     const deadline = Date.now() + HEALTH_MS;
     while (Date.now() < deadline && !this.stopping) {
       if (await this.healthy()) return true;
@@ -126,6 +149,16 @@ export class ServerHost {
     const deadline = setTimeout(() => child.kill(), STOP_MS);
     await exited;
     clearTimeout(deadline);
+  }
+
+  /** The machine slept: the server's own clocks did not run through it. */
+  wake() {
+    this.child?.postMessage({ type: 'wake' });
+  }
+
+  /** A line from main in the server's log, under the same redaction. */
+  note(line: string) {
+    this.log.write(`${redact(`[main] ${line}`, [this.options.token, this.options.secretKey])}\n`);
   }
 
   private async healthy(): Promise<boolean> {
@@ -171,12 +204,20 @@ export class ServerHost {
     child.once('spawn', () => {
       child.postMessage({ type: 'boot', token: this.options.token, secretKey: this.options.secretKey });
     });
-    child.on('message', (message: { type?: string; active?: number; provider?: string }) => {
-      if (message?.type !== 'jobs') return;
-      this.active = message.active ?? 0;
-      this.provider = message.provider ?? '';
+    child.on('message', (message: { type?: string; active?: number; runs?: number; provider?: string }) => {
+      if (message?.type === 'jobs') this.track(message);
     });
     child.once('exit', () => this.onExit(child));
+  }
+
+  private track({ active = 0, runs = 0, provider = '' }: { active?: number; runs?: number; provider?: string }) {
+    this.active = active;
+    this.runs = runs;
+    this.provider = provider;
+    const busy = busyFrom(this);
+    if (busy === this.busy) return;
+    this.busy = busy;
+    this.hooks.onBusyChange(busy);
   }
 
   /** By whole lines, so a secret can never straddle two chunks and slip past the redaction. */
@@ -191,9 +232,9 @@ export class ServerHost {
 
   private async onExit(child: UtilityProcess) {
     if (this.child === child) this.child = undefined;
+    // A new server only reports a change from zero, so it could never clear these.
+    this.track({});
     if (this.stopping) return;
-    this.active = 0;
-    this.provider = '';
     const now = Date.now();
     this.crashes = [...this.crashes.filter((at) => now - at < CRASH_WINDOW_MS), now];
     const delay = BACKOFF_MS[Math.min(this.crashes.length, BACKOFF_MS.length) - 1] ?? 0;

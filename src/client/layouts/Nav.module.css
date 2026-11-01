@@ -1,7 +1,7 @@
 /* The shell's navigation (DESIGN.md 2.7, 3.1, 3.2). Glass over the ambient:
-   the top bar is `.glass`, the dock, the phone tab bar and the Shoot sheet
-   `.glass-thick`. Text on glass is ink or ink 2 only (DESIGN 2.3). One
-   indicator per list glides to the current item; items fill on hover. */
+   the top bar is `.glass`, the page menu's popover and the phone's sheet
+   `.glass-thick`. Text on glass is ink or ink 2 only (DESIGN 2.3). Items fill
+   on hover; the current page wears a check and a border, not a colour. */
 
 /* ---------------------------------------------------------------- top bar */
 
@@ -29,6 +29,36 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+/* The mark and the name, home to the chat, which the menu does not list. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 36px;
+  margin-left: -3px;
+  padding: 0 10px 0 3px;
+  border-radius: var(--r-control);
+  color: inherit;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .brand:hover {
+    background-color: var(--glass-btn-hover);
+  }
+}
+
+.brand:focus-visible {
+  background-color: var(--glass-btn-hover);
+}
+
+.brand:active {
+  background-color: var(--glass-btn-pressed);
 }
 
 .brandName {
@@ -85,45 +115,33 @@
   color: var(--bay-brand-fg);
 }
 
-/* Settings: a 36 px ghost icon button; the current page wears the selected
-   fill and the accent icon, like a dock item. */
-.settings {
+/* The page menu's button: a 36 px ghost icon button. */
+.menuButton {
   display: grid;
   flex: none;
   place-items: center;
   width: 36px;
   height: 36px;
+  padding: 0;
+  border: 0;
   border-radius: var(--r-control);
+  background: transparent;
   color: var(--bay-text-2);
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition:
     background-color var(--dur-1) var(--ease-out),
     color var(--dur-1) var(--ease-out);
 }
 
-.settings[aria-current='page'] {
-  background-color: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  color: var(--bay-accent-fg);
-}
-
-@media (hover: hover) {
-  .settings:hover {
-    background-color: var(--glass-btn-hover);
-    color: var(--bay-text);
-  }
-
-  .settings[aria-current='page']:hover {
-    color: var(--bay-accent-fg);
-  }
-}
-
-.settings:focus-visible {
+.menuButton[data-hovered],
+.menuButton[data-focus-visible],
+.menuButton[aria-expanded='true'] {
   background-color: var(--glass-btn-hover);
   color: var(--bay-text);
 }
 
-.settings:active {
+.menuButton[data-pressed] {
   background-color: var(--glass-btn-pressed);
 }
 
@@ -217,378 +235,95 @@
   }
 }
 
-/* ---------------------------------------------------------------- dock */
+/* ---------------------------------------------------------------- page menu */
 
-/* The tabs, floating at the foot of the window like the macOS dock: a thick
-   glass pill, 56 px tall, holding 44 px items. Corners are concentric: the
-   items and the indicator take the dock's radius less its 6 px padding. */
-.dock {
+/* The popover under the menu button; a phone gets the same list in `.sheet`. */
+.popover {
   composes: glass-thick from global;
-  --dock-pad: 6px;
-  --dock-item-r: calc(var(--r-bar) - var(--dock-pad));
-  position: fixed;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  left: 50%;
-  z-index: 30;
-  height: 56px;
-  max-width: calc(100vw - 24px);
-  padding: var(--dock-pad);
-  border-radius: var(--r-bar);
-  translate: -50% 0;
+  width: min(340px, calc(100vw - 16px));
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: var(--r-card);
+  outline: none;
 }
 
-@media (width < 480px), (width < 900px) and (orientation: portrait) {
-  .dock {
-    display: none;
-  }
+.popover[data-entering] {
+  animation: popIn var(--dur-3) var(--ease-spring);
 }
 
-/* A short window: the dock floats 8 px up (AppShell's `--app-dock` agrees). */
-@media (height < 640px) and (width >= 900px), (height < 640px) and (width >= 480px) and (orientation: landscape) {
-  .dock {
-    bottom: calc(8px + env(safe-area-inset-bottom));
-  }
+.popover[data-exiting] {
+  animation: popOut 160ms var(--ease-out) forwards;
 }
 
-.dockList {
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  outline: none;
+}
+
+.menuItem {
   display: flex;
   align-items: center;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.dockList > li {
-  display: flex;
-  flex: none;
-}
-
-.dockItem {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: var(--dock-item-r);
-  color: var(--bay-text-2);
-  font: var(--text-footnote);
-  font-weight: 500;
-  letter-spacing: var(--track-footnote);
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 10px;
+  border: 2px solid transparent;
+  border-radius: var(--bay-r-sm);
+  color: var(--bay-text);
   text-decoration: none;
-  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    background-color var(--dur-1) var(--ease-out),
-    color var(--dur-1) var(--ease-out);
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
-.dockIcon {
-  flex: none;
-  transition:
-    color var(--dur-1) var(--ease-out),
-    transform var(--dur-2) var(--ease-out);
+/* The page showing: the border and the check say it, not a colour. */
+.menuItem[data-current] {
+  border-color: var(--bay-text);
 }
 
-.dockItem[aria-current='page'] {
-  color: var(--bay-text);
-}
-
-.dockItem[aria-current='page'] .dockIcon {
-  color: var(--bay-accent-fg);
-}
-
-@media (hover: hover) {
-  .dockItem:hover {
-    background-color: var(--glass-btn-hover);
-    color: var(--bay-text);
-  }
-
-  /* The dock's one flourish: the icon rises a pixel under the pointer. */
-  .dockItem:hover .dockIcon {
-    transform: translateY(-1px);
-  }
-}
-
-.dockItem:focus-visible {
+.menuItem[data-hovered],
+.menuItem[data-focused] {
   background-color: var(--glass-btn-hover);
-  color: var(--bay-text);
 }
 
-.dockItem:active {
+.menuItem[data-pressed] {
   background-color: var(--glass-btn-pressed);
 }
 
-.dockItem:active .dockIcon {
-  transform: none;
+.menuItem[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: 1px;
+  box-shadow: none;
 }
 
-/* The group rule: a 1 x 24 px hairline with 6 px of air either side. */
-.dockGap {
-  align-items: center;
-  padding: 0 6px;
+.menuIcon {
+  flex: none;
+  color: var(--bay-text-2);
 }
 
-.dockRule {
-  display: block;
-  width: 1px;
-  height: 24px;
-  background: var(--bay-border);
-}
-
-/* The shared selection: one glass pill, moved by `translate` to the current
-   item (Nav.tsx measures it). Hidden until first placed. */
-.dockIndicator {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: var(--dock-item-r);
-  background: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.dockIndicator[data-ready] {
-  opacity: 1;
-  transition: translate var(--dur-3) var(--ease-spring);
-}
-
-.dock:has(.dockItem[aria-current='page']:active) .dockIndicator {
-  background: var(--glass-btn-pressed);
-}
-
-/* 900 to 1199 px, and a landscape window from 480: icons only, 44 x 44; the
-   label stays for screen readers and the item's `title` names it on hover. */
-@media (900px <= width < 1200px), (480px <= width < 900px) and (orientation: landscape) {
-  .dockItem {
-    justify-content: center;
-    width: 44px;
-    padding: 0;
-  }
-
-  .dockLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-}
-
-/* ---------------------------------------------------------------- Shoot modes */
-
-/* Phones, on a Shoot page: the five modes as a segmented row of 44 px links
-   under the top bar, on the same glass. It scrolls sideways when it runs out
-   of room; the current mode is accent. From 900 px the dock lists them. */
-.modes {
-  composes: glass from global;
-  display: none;
-}
-
-@media (width < 480px), (width < 900px) and (orientation: portrait) {
-  .modes {
-    position: fixed;
-    inset: var(--app-header, 48px) 0 auto;
-    z-index: 19;
-    display: block;
-    height: var(--app-subnav, 52px);
-    border-radius: 0;
-    box-shadow: inset 0 -1px 0 var(--bay-border-hair);
-  }
-}
-
-.modeList {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 100%;
-  margin: 0;
-  padding: 0 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  list-style: none;
-  scroll-padding-inline: 8px;
-  scroll-snap-type: x proximity;
-  scrollbar-width: none;
-}
-
-.modeList > li {
-  display: flex;
-  flex: 1 0 auto;
-  scroll-snap-align: start;
-}
-
-.mode {
+.menuText {
   display: flex;
   flex: 1;
-  align-items: center;
-  justify-content: center;
-  height: 44px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  color: var(--bay-text-2);
-  font: var(--text-subhead);
-  font-weight: 500;
-  letter-spacing: var(--track-subhead);
-  text-decoration: none;
-  white-space: nowrap;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    background-color var(--dur-1) var(--ease-out),
-    color var(--dur-1) var(--ease-out);
-}
-
-.mode[aria-current='page'] {
-  background-color: var(--bay-accent-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-accent) 45%, transparent);
-  color: var(--bay-accent-fg);
-}
-
-@media (hover: hover) {
-  .mode:hover {
-    background-color: var(--glass-btn-hover);
-    color: var(--bay-text);
-  }
-
-  .mode[aria-current='page']:hover {
-    background-color: var(--bay-accent-soft);
-    color: var(--bay-accent-fg);
-  }
-}
-
-.mode:focus-visible {
-  outline: 2px solid var(--bay-border-focus);
-  outline-offset: -2px;
-}
-
-.mode:active {
-  background-color: var(--glass-btn-pressed);
-}
-
-/* ---------------------------------------------------------------- phone */
-
-/* The floating tab bar (DESIGN 3.1): five 44 px tabs over the page. */
-.tabBar {
-  composes: glass-thick from global;
-  display: none;
-}
-
-@media (width < 480px), (width < 900px) and (orientation: portrait) {
-  .tabBar {
-    position: fixed;
-    inset: auto 12px calc(10px + env(safe-area-inset-bottom)) 12px;
-    z-index: 30;
-    display: block;
-    height: 64px;
-    padding: 6px;
-    border-radius: var(--r-bar);
-  }
-}
-
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.tabs > li {
-  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-.tab {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 100%;
-  min-height: 44px;
-  padding: 0 2px;
-  border: 0;
-  border-radius: 22px;
-  background: transparent;
+.menuLabel {
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+}
+
+.menuPurpose {
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
   color: var(--bay-text-2);
-  font: var(--text-caption);
-  letter-spacing: var(--track-caption);
-  text-decoration: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    background-color var(--dur-1) var(--ease-out),
-    color var(--dur-1) var(--ease-out);
 }
 
-.tabIcon {
+.menuCheck {
   flex: none;
-}
-
-.tabLabel {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab[aria-current='page'] {
-  color: var(--bay-text);
-}
-
-.tab[aria-current='page'] .tabIcon {
-  color: var(--bay-accent-fg);
-}
-
-@media (hover: hover) {
-  .tab:hover {
-    background-color: var(--glass-btn);
-    color: var(--bay-text);
-  }
-}
-
-.tab:focus-visible {
-  background-color: var(--glass-btn);
-  color: var(--bay-text);
-}
-
-.tab:active {
-  background-color: var(--glass-btn-pressed);
-}
-
-.tabIndicator {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: 22px;
-  background: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.tabIndicator[data-ready] {
-  opacity: 1;
-  transition: translate var(--dur-3) var(--ease-spring);
-}
-
-/* Something is rendering: a dot on the Library tab. */
-.dot {
-  position: absolute;
-  top: 7px;
-  left: calc(50% + 9px);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--bay-accent);
 }
 
 .srOnly {
@@ -601,7 +336,7 @@
   white-space: nowrap;
 }
 
-/* ---------------------------------------------------------------- Shoot sheet */
+/* ---------------------------------------------------------------- phone sheet */
 
 .sheetOverlay {
   position: fixed;
@@ -683,72 +418,18 @@
   background: var(--glass-btn-pressed);
 }
 
-.sheetList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.sheetItem {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 56px;
-  padding: 8px 12px;
-  border-radius: var(--r-card);
-  color: var(--bay-text);
-  text-decoration: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--dur-1) var(--ease-out);
-}
-
-.sheetIcon {
-  flex: none;
-  color: var(--bay-text-2);
-}
-
-.sheetText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.sheetLabel {
-  font: var(--text-headline);
-  letter-spacing: var(--track-headline);
-}
-
-.sheetPurpose {
-  font: var(--text-subhead);
-  letter-spacing: var(--track-subhead);
-  color: var(--bay-text-2);
-}
-
-.sheetItem[aria-current='page'] {
-  background: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-}
-
-.sheetItem[aria-current='page'] .sheetIcon {
-  color: var(--bay-accent-fg);
-}
-
-@media (hover: hover) {
-  .sheetItem:hover {
-    background-color: var(--glass-btn);
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
   }
 }
 
-.sheetItem:focus-visible {
-  background-color: var(--glass-btn);
-}
-
-.sheetItem:active {
-  background-color: var(--glass-btn-pressed);
+@keyframes popOut {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 
 @keyframes sheetIn {
@@ -777,18 +458,15 @@
   }
 }
 
-/* Reduced motion: the indicators jump (global.css zeroes the durations), the
-   dock icons stay put, the sheet only fades, and the activity sweep stops
-   (the count remains). */
+/* Reduced motion: the popover and the sheet only fade, and the activity sweep
+   stops (the count remains). */
 @media (prefers-reduced-motion: reduce) {
-  .dockItem:hover .dockIcon {
-    transform: none;
-  }
-
+  .popover[data-entering],
   .sheet[data-entering] {
     animation-name: fadeIn;
   }
 
+  .popover[data-exiting],
   .sheet[data-exiting] {
     animation-name: fadeOut;
   }

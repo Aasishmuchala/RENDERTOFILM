@@ -218,6 +218,16 @@ export function requireRunwayUser() {
   return async (_ctx, next) => next();
 }
 
+/**
+ * A tRPC context with no request behind it, for work on the server's own clock.
+ * `req` carries only the client, which is what getRunwayToken() reads, so
+ * ownerKey(req) in src/library.ts answers LOCAL_OWNER.
+ */
+export function localContext() {
+  const runway = new RunwayClient(LOCAL_OWNER);
+  return { req: { [CLIENT]: runway }, res: undefined, user: undefined, runway, viewer: 'member', signInUrl: '' };
+}
+
 // ---------------------------------------------------------------- mock files
 
 const TYPES = {
@@ -226,6 +236,12 @@ const TYPES = {
   '.png': 'image/png',
   '.webp': 'image/webp',
   '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
   '.json': 'application/json',
 };
 

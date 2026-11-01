@@ -1,7 +1,8 @@
-/* Slider (DESIGN 4): a 4 px sunken rail, an accent fill, a 20 px white knob.
-   The knob grows 5% on hover and drag (the `scale` property, because
-   react-aria positions the knob with an inline transform); the ring sits on
-   the knob. The track box is 28 px tall so the whole row is a real target. */
+/* Slider (DESIGN 4): a 4 px sunken rail, a white fill, a 20 px white knob in a
+   2 px dark ring, which is what lifts it off the fill. The knob grows 5% on
+   hover and drag (the `scale` property, because react-aria positions the knob
+   with an inline transform); the focus ring sits on the knob. The track box
+   is 28 px tall so the whole row is a real target. */
 .slider {
   display: flex;
   flex-direction: column;
@@ -62,7 +63,9 @@
   height: 20px;
   border-radius: 50%;
   background: var(--bay-text);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--bay-bg-canvas) 70%, transparent);
+  box-shadow:
+    0 0 0 2px var(--bay-bg-canvas),
+    0 1px 3px color-mix(in srgb, var(--bay-bg-canvas) 70%, transparent);
   transition:
     scale var(--dur-1) var(--ease-out),
     box-shadow var(--dur-2) var(--ease-out);
@@ -71,12 +74,15 @@
 .thumb[data-hovered],
 .thumb[data-dragging] {
   scale: 1.05;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--bay-bg-canvas) 80%, transparent);
+  box-shadow:
+    0 0 0 2px var(--bay-bg-canvas),
+    0 2px 8px color-mix(in srgb, var(--bay-bg-canvas) 80%, transparent);
 }
 
 .thumb[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 /* Disabled: the track fades to 0.45 like every other control; the words stay

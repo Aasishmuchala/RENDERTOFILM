@@ -1,20 +1,20 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import styles from './App.module.css';
-import { CloseupsPage } from './CloseupsPage.tsx';
-import { AppShell } from './layouts/AppShell.tsx';
+import { ChatPage } from './ChatPage.tsx';
 import { DirectorPage } from './DirectorPage.tsx';
 import { EditPage } from './EditPage.tsx';
+import { formatHash, type GoTo, type Handoff, parseHash, parseVideoPreset } from './handoff.ts';
+import { AppShell } from './layouts/AppShell.tsx';
 import { LibraryPage } from './LibraryPage.tsx';
 import { AmbientProvider, PageActiveContext } from './lib/ambient.tsx';
 import { useDocumentTitle } from './lib/useDocumentTitle.ts';
 import { LifestylePage } from './LifestylePage.tsx';
-import { LocationPage } from './LocationPage.tsx';
-import { type PageId, pageById, tabFromHash } from './nav.ts';
+import { type PageId, pageById } from './nav.ts';
 import { SettingsPage } from './SettingsPage.tsx';
-import { StillsPage } from './StillsPage.tsx';
+import { StillModes } from './StillModes.tsx';
 import { trpc } from './trpc.ts';
-import { VideoPage, type VideoPreset } from './VideoPage.tsx';
+import { VideoPage } from './VideoPage.tsx';
 
 const PICKED_KEY = 'render-to-film:picked-still';
 
@@ -43,17 +43,35 @@ function readPicked(): string | null {
 
 export function App() {
   const profile = trpc.profile.useQuery();
-  /** The page named in the address (`#video`), so a reload stays on it. */
-  const [tab, setTab] = useState<PageId>(() => tabFromHash(window.location.hash));
-  const [pickedStillId, setPickedStillId] = useState<string | null>(readPicked);
-  /** Settings that came with the pick (the Lifestyle tab's Animate); the Video tab applies each new one once. */
-  const [videoPreset, setVideoPreset] = useState<VideoPreset | null>(null);
+  /** The address (`#video?still=abc`): the page showing and what it was opened with, so a reload stays on it. */
+  const [handoff, setHandoff] = useState<Handoff>(() => parseHash(window.location.hash));
+  const tab = handoff.page;
+  const goTo = useCallback<GoTo>((page, params = {}) => setHandoff({ page, params }), []);
+  const animate = useCallback((id: string) => goTo('video', { still: id }), [goTo]);
+
+  /** The last still Video was given: the address forgets it on a page switch, Video's pick does not. */
+  const [lastStill, setLastStill] = useState<string | null>(readPicked);
+  const addressedStill = tab === 'video' ? handoff.params['still'] : undefined;
+  const pickedStillId = addressedStill ?? lastStill;
+  /**
+   * Settings that came with the pick (the Lifestyle tab's Animate). One object
+   * per arrival: Video applies it once and it leaves the address, so Back or
+   * Forward to this entry can't set the shot up again over what was changed
+   * since, and the next Animate with the same values is still a new one.
+   */
+  const presetParam = tab === 'video' ? handoff.params['preset'] : undefined;
+  const videoPreset = useMemo(() => parseVideoPreset(presetParam), [presetParam]);
+  useEffect(() => {
+    if (presetParam === undefined) return;
+    setHandoff(({ page, params: { preset: _applied, ...params } }) => ({ page, params }));
+  }, [presetParam]);
 
   useEffect(() => {
-    if (window.location.hash.slice(1) !== tab) {
-      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${tab}`);
+    const hash = formatHash(handoff.page, handoff.params);
+    if (window.location.hash !== hash) {
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
     }
-  }, [tab]);
+  }, [handoff]);
 
   useDocumentTitle(pageById(tab)?.label, 'Render to Film');
 
@@ -68,14 +86,8 @@ export function App() {
   }, [tab]);
 
   useEffect(() => {
-    const onHash = () => {
-      const next = tabFromHash(window.location.hash);
-      setTab(next);
-      // An alias or unknown hash on the page already showing: the effect above won't run, so name it here.
-      if (window.location.hash.slice(1) !== next) {
-        history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${next}`);
-      }
-    };
+    // Always a new object, so an alias or unknown hash on the page already showing is still rewritten above.
+    const onHash = () => setHandoff(parseHash(window.location.hash));
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -94,78 +106,55 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (addressedStill) setLastStill(addressedStill);
+  }, [addressedStill]);
+
+  useEffect(() => {
     try {
-      if (pickedStillId) sessionStorage.setItem(PICKED_KEY, pickedStillId);
+      if (lastStill) sessionStorage.setItem(PICKED_KEY, lastStill);
       else sessionStorage.removeItem(PICKED_KEY);
     } catch {
       // Private mode: the pick just won't survive a reload.
     }
-  }, [pickedStillId]);
+  }, [lastStill]);
 
   return (
     <AmbientProvider>
       <AppShell current={tab} user={profile.data ?? undefined}>
-        <Panel id="director" active={tab === 'director'}>
-          <DirectorPage
-            active={tab === 'director'}
-            onAnimate={(id) => {
-              setPickedStillId(id);
-              setTab('video');
-            }}
-            onGoToEdit={() => setTab('edit')}
-          />
+        <Panel id="chat" active={tab === 'chat'}>
+          <ChatPage active={tab === 'chat'} handoff={handoff} />
         </Panel>
-        <Panel id="stills" active={tab === 'stills'}>
-          <StillsPage
-            onAnimate={(id) => {
-              setPickedStillId(id);
-              setTab('video');
-            }}
-          />
+        <Panel id="director" active={tab === 'director'}>
+          <DirectorPage active={tab === 'director'} handoff={handoff} onAnimate={animate} onGoToEdit={() => goTo('edit', {})} />
         </Panel>
         <Panel id="lifestyle" active={tab === 'lifestyle'}>
           <LifestylePage
             active={tab === 'lifestyle'}
-            onAnimate={(id, preset) => {
-              setPickedStillId(id);
-              setVideoPreset(preset);
-              setTab('video');
-            }}
+            handoff={handoff}
+            onAnimate={(id, preset) => goTo('video', { still: id, preset: JSON.stringify(preset) })}
           />
+        </Panel>
+        <Panel id="stills" active={tab === 'stills'}>
+          <StillModes active={tab === 'stills'} handoff={handoff} goTo={goTo} onAnimate={animate} />
         </Panel>
         <Panel id="video" active={tab === 'video'}>
           <VideoPage
             active={tab === 'video'}
+            handoff={handoff}
             pickedStillId={pickedStillId}
             preset={videoPreset}
-            onPick={setPickedStillId}
-            onGoToStills={() => setTab('stills')}
-          />
-        </Panel>
-        <Panel id="closeups" active={tab === 'closeups'}>
-          <CloseupsPage
-            active={tab === 'closeups'}
-            onGoToStills={() => setTab('stills')}
-            onAnimate={(id) => {
-              setPickedStillId(id);
-              setTab('video');
+            onPick={(id) => {
+              setLastStill(id);
+              goTo('video', id ? { still: id } : {});
             }}
-          />
-        </Panel>
-        <Panel id="location" active={tab === 'location'}>
-          <LocationPage
-            active={tab === 'location'}
-            onAnimate={(id) => {
-              setPickedStillId(id);
-              setTab('video');
-            }}
+            onGoToStills={() => goTo('stills', {})}
           />
         </Panel>
         <Panel id="edit" active={tab === 'edit'}>
-          <EditPage active={tab === 'edit'} onGoToVideo={() => setTab('video')} />
+          <EditPage active={tab === 'edit'} handoff={handoff} onGoToVideo={() => goTo('video', {})} />
         </Panel>
         <Panel id="library" active={tab === 'library'}>
-          <LibraryPage active={tab === 'library'} onGoToStills={() => setTab('stills')} />
+          <LibraryPage active={tab === 'library'} handoff={handoff} onGoTo={goTo} onGoToStills={() => goTo('stills', {})} />
         </Panel>
         <Panel id="settings" active={tab === 'settings'}>
           <SettingsPage active={tab === 'settings'} />

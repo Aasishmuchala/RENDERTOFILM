@@ -1,0 +1,85 @@
+/* A compact list on the popover's thick glass; the popover is the surface, so
+   the tray brings no fill of its own. Rows are pointer targets of 40 px. */
+.tray {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bay-border-strong) transparent;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--bay-r-sm);
+  background: transparent;
+  color: var(--bay-text);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.row svg {
+  flex: none;
+}
+
+.row[data-hovered],
+.row[data-focus-visible] {
+  background-color: var(--glass-btn-hover);
+}
+
+.row[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+/* Inset, so the list's scroller cannot clip the ring. */
+.row[data-focus-visible] {
+  outline: 2px solid var(--bay-border-focus);
+  outline-offset: -2px;
+}
+
+.words {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font: var(--text-subhead);
+  font-weight: 500;
+  letter-spacing: var(--track-subhead);
+}
+
+/* Two lines: a failed Run's state and what to do next both show, and wrapping
+   keeps a long sentence from widening the popover past a phone. */
+.label {
+  display: -webkit-box;
+  overflow: hidden;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.percent {
+  flex: none;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
+}

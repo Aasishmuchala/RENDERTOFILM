@@ -21,6 +21,7 @@ import {
   type UpscaleFactor,
   upscalerName,
 } from '../models.ts';
+import { type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
@@ -72,6 +73,8 @@ export type LocationPageProps = {
   active: boolean;
   /** Animate a finished take on the Video tab. */
   onAnimate: (stillId: string) => void;
+  /** What the address opened the page with (`#stills?mode=location&still=abc`); read from the address itself when not given. */
+  handoff?: Handoff | undefined;
 };
 
 function readTake(): Take | null {
@@ -130,7 +133,10 @@ function rangeError(text: string, min: number, max: number, name: string): strin
   return null;
 }
 
-export function LocationPage({ active, onAnimate }: LocationPageProps) {
+export function LocationPage({ active, onAnimate, handoff }: LocationPageProps) {
+  const address = handoff ?? parseHash(window.location.hash);
+  const addressedStill =
+    address.page === 'stills' && address.params['mode'] === 'location' ? address.params['still'] : undefined;
   const utils = trpc.useUtils();
   const library = trpc.library.useQuery(undefined, {
     refetchInterval: (q) => (active && q.state.data?.stills.some((s) => s.status === 'pending') ? 8_000 : false),
@@ -401,6 +407,19 @@ export function LocationPage({ active, onAnimate }: LocationPageProps) {
       place: s.location ? locationName(s.location) : 'Location',
     });
   }, [upscale]);
+
+  // A location still the address names becomes the current take, once per arrival, when it is in the library.
+  const openedStill = useRef<string | undefined>(undefined);
+  const addressed = addressedStill ? library.data?.stills.find((s) => s.id === addressedStill && s.location) : undefined;
+  useEffect(() => {
+    if (!addressedStill) {
+      openedStill.current = undefined;
+      return;
+    }
+    if (!addressed || openedStill.current === addressedStill) return;
+    openedStill.current = addressedStill;
+    showEarlier(addressed);
+  }, [addressedStill, addressed, showEarlier]);
 
   const aspect = take
     ? `${take.width} / ${take.height}`

@@ -1,6 +1,7 @@
-/* Alerts (DESIGN 4): radius 12, the subhead role, a tone fill from the status
-   tokens with a hairline in the tone's own colour so the fill reads against
-   the dark surface. Solid, never glass. */
+/* Alerts (DESIGN 4): radius 12, the subhead role, a neutral grey tile with a
+   hairline of its own ink so it reads against the dark surface. Every tone is
+   the same black and white; the icon and the words say which it is. Solid,
+   never glass. */
 .alert {
   display: flex;
   gap: 10px;

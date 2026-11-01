@@ -1,0 +1,29 @@
+/* The Chat card's own parts; its card, rows and head are the sheet's
+   (SettingsPage.module.css). */
+
+/* The shape says ready or not, beside the words, so nothing rests on colour. */
+.glyph {
+  flex: none;
+  color: var(--bay-text-2);
+}
+
+/* On a phone the readiness line keeps its width and the button drops under it,
+   instead of the words folding into a column beside the button. */
+.head {
+  flex-wrap: wrap;
+}
+
+.head .title {
+  flex-basis: 200px;
+}
+
+/* A number and its unit, not a line of prose: the field keeps a small width. */
+.allowance {
+  flex: 0 1 200px;
+  min-width: 0;
+}
+
+/* The card's gap is the spacing here, not a paragraph's own margin. */
+.note {
+  margin: 0;
+}

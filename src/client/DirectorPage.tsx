@@ -9,6 +9,7 @@ import {
   Film,
   Image as ImageIcon,
   LayoutGrid,
+  Link2,
   Projector,
   RectangleHorizontal,
   RotateCcw,
@@ -33,6 +34,7 @@ import { FrameControls } from './director/FrameControls.tsx';
 import { FrameViewer, useImageLoads } from './director/FrameViewer.tsx';
 import { slugify } from './director/shared.ts';
 import { TakeImage } from './director/TakeImage.tsx';
+import { formatHash, type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { type CanvasState, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
@@ -94,6 +96,8 @@ export type DirectorPageProps = {
   onAnimate: (stillId: string) => void;
   /** Cut the film's clips on the Edit tab. */
   onGoToEdit: () => void;
+  /** The address (`#director?job=abc`), when App hands it down; without it the page reads it itself. */
+  handoff?: Handoff | undefined;
 };
 
 function uploadErrorFrom(e: unknown): unknown {
@@ -112,8 +116,42 @@ function frameState(take: Still | undefined, shooting: boolean): FrameState {
   return 'unshot';
 }
 
-export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProps) {
+/**
+ * The address: App's when it hands one down, else read here on load and on
+ * every change. App writes a page switch with replaceState, which fires no
+ * hashchange and lands after this page's effects, so that read waits for it.
+ */
+function useHandoff(given: Handoff | undefined, active: boolean): Handoff {
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    if (given) return;
+    const read = () => setHash(window.location.hash);
+    queueMicrotask(read);
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, [given, active]);
+  return useMemo(() => given ?? parseHash(hash), [given, hash]);
+}
+
+/** A plan made here takes over from the job the address names, so a reload lands on the new plan. */
+function dropAddressedJob() {
+  const { page, params } = parseHash(window.location.hash);
+  if (page === 'director' && params['job']) window.location.replace(formatHash('director'));
+}
+
+/** The frames of `board` in a guard keyed `board:image`, as the page's busy state. */
+function framesOn(board: string, guard: ReadonlySet<string>): Record<number, boolean> {
+  const out: Record<number, boolean> = {};
+  for (const key of guard) {
+    if (key.startsWith(`${board}:`)) out[Number(key.slice(board.length + 1))] = true;
+  }
+  return out;
+}
+
+export function DirectorPage({ active, onAnimate, onGoToEdit, handoff }: DirectorPageProps) {
   const utils = trpc.useUtils();
+  const address = useHandoff(handoff, active);
+  const addressedJob = (address.page === 'director' && address.params['job']) || undefined;
   // A take or clip rendering, or one the board knows of that the library
   // hasn't caught up with yet, keeps the library fresh.
   const boardWaiting = useRef(false);
@@ -136,7 +174,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const [imageModel, setImageModel] = useState<ImageModelId>('nano-banana-pro');
   const blocked = modelBlocked('image', imageModel);
   const [resolution, setResolution] = useState(defaultImageResolution('nano-banana-pro'));
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(addressedJob ?? null);
   const [viewing, setViewing] = useState<number | null>(null);
   const [selected, setSelected] = useState<Selection>('job');
   /** The contact sheet on the canvas while a frame is selected. */
@@ -230,8 +268,10 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const pendingUploads = uploads.filter((u) => !u.hostedUrl && !u.error).length;
   const failedUploads = uploads.filter((u) => u.error).length;
   // Until the new plan's first poll lands there is no job to show, and the
-  // button must not start (and bill) a second plan meanwhile.
-  const planning = plan.isPending || (jobId !== null && job.isPending) || current?.status === 'planning';
+  // button must not start (and bill) a second plan meanwhile. A job the address
+  // opened is being read, not planned.
+  const planning =
+    plan.isPending || (jobId !== null && jobId !== addressedJob && job.isPending) || current?.status === 'planning';
   const storyTooLong = story.length > STORY_MAX;
   const ready = uploads.length > 0 && pendingUploads === 0 && failedUploads === 0 && !storyTooLong;
 
@@ -247,6 +287,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
         resolution,
       });
       setJobId(id);
+      dropAddressedJob();
       void utils.storyboard.job.invalidate();
     } catch {
       // Shown by RunwayErrorNotice from plan.error.
@@ -260,8 +301,11 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const [saves, setSaves] = useState<Record<number, SaveState>>({});
   const [shooting, setShooting] = useState<Record<number, boolean>>({});
   const [shootErrors, setShootErrors] = useState<Record<number, unknown>>({});
+  const [pickError, setPickError] = useState<unknown>(undefined);
   const boardId = current?.status === 'planned' ? current.id : undefined;
   const loadedBoard = useRef<string | undefined>(undefined);
+  /** Frames whose shoot request is in flight, by board and image, which the state is too slow to guard. */
+  const shootingNow = useRef(new Set<string>());
   useEffect(() => {
     if (!boardId || loadedBoard.current === boardId || !current) return;
     loadedBoard.current = boardId;
@@ -269,12 +313,47 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     for (const [k, v] of Object.entries(current.choices ?? {})) initial[Number(k)] = v;
     setDrafts(initial);
     setSaves({});
-    setShooting({});
+    // A board read again keeps what it has in flight: a frame stays busy, and is not shot twice.
+    setShooting(framesOn(boardId, shootingNow.current));
     setShootErrors({});
+    setPickError(undefined);
     // A new board opens on its setup and contact sheet.
     setSelected('job');
     setGrid(false);
   }, [boardId, current]);
+
+  // An address opens its job once per arrival: a new job loads as on a reload,
+  // past the guard above even when it is the newest board already showing, and
+  // a plan made here afterwards is not pulled back. The page stays mounted, so
+  // a job it already holds is read again: it may have moved on out of view. One
+  // it held earlier is read afresh too: the cached read lacks what was saved
+  // since, and the drafts load from it.
+  const openedJob = useRef(addressedJob);
+  const refetchJob = job.refetch;
+  useEffect(() => {
+    if (openedJob.current === addressedJob) return;
+    openedJob.current = addressedJob;
+    if (!addressedJob) return;
+    if (addressedJob === jobId) {
+      void refetchJob();
+      return;
+    }
+    loadedBoard.current = undefined;
+    void utils.storyboard.job.reset({ id: addressedJob });
+    setJobId(addressedJob);
+  }, [addressedJob, jobId, refetchJob, utils]);
+
+  // A job that isn't there (gone, another account's, or an id longer than the
+  // server takes) leaves the page on the newest board, and the page says so for
+  // as long as the address names it.
+  const [goneJob, setGoneJob] = useState<string | null>(null);
+  const jobGone = jobId !== null && (job.data === null || jobId.length > 200);
+  useEffect(() => {
+    if (!jobGone) return;
+    setGoneJob(jobId);
+    void utils.storyboard.job.reset();
+    setJobId(null);
+  }, [jobGone, jobId, utils]);
 
   const noteTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   // One frame's saves go one after another, so a quick run of changes is
@@ -282,15 +361,19 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   const saveChains = useRef(new Map<number, Promise<unknown>>());
   const save = useCallback(
     (id: string, image: number, patch: FrameChoice) => {
-      setSaves((s) => ({ ...s, [image]: 'saving' }));
+      // A save that lands after another board loaded is not that board's.
+      const stillLoaded = () => loadedBoard.current === id;
+      if (stillLoaded()) setSaves((s) => ({ ...s, [image]: 'saving' }));
       const chains = saveChains.current;
       const next = (chains.get(image) ?? Promise.resolve())
         .catch(() => undefined)
         .then(() => utils.client.storyboard.choose.mutate({ id, image, ...patch }))
         .then(() => {
-          if (chains.get(image) === next) setSaves((s) => ({ ...s, [image]: 'saved' }));
+          if (chains.get(image) === next && stillLoaded()) setSaves((s) => ({ ...s, [image]: 'saved' }));
         })
-        .catch((error: unknown) => setSaves((s) => ({ ...s, [image]: { error } })));
+        .catch((error: unknown) => {
+          if (stillLoaded()) setSaves((s) => ({ ...s, [image]: { error } }));
+        });
       chains.set(image, next);
     },
     [utils]
@@ -319,30 +402,41 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
 
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
-  const refetchJob = job.refetch;
+  const takesRef = useRef<ReadonlyMap<number, Still>>(new Map());
   const shoot = useCallback(
     async (image: number) => {
-      if (!boardId) return;
+      // The drafts and frame state are the loaded board's: a Shoot all still
+      // running for a board since replaced stops here, with nothing billed.
+      if (!boardId || loadedBoard.current !== boardId) return;
+      const stillLoaded = () => loadedBoard.current === boardId;
+      // A frame already being shot, or whose take is still rendering, is not billed a second time.
+      const flying = `${boardId}:${image}`;
+      if (shootingNow.current.has(flying) || takesRef.current.get(image)?.status === 'pending') return;
+      shootingNow.current.add(flying);
       // A note still waiting to save rides along with the shoot instead.
       const noteWaiting = noteTimers.current.has(image);
       clearTimeout(noteTimers.current.get(image));
       noteTimers.current.delete(image);
+      const picks = draftsRef.current[image];
       setShooting((s) => ({ ...s, [image]: true }));
       setShootErrors((e) => ({ ...e, [image]: undefined }));
       try {
         // The current picks ride along, so a change a moment ago is never lost.
-        await utils.client.storyboard.shoot.mutate({ id: boardId, image, ...draftsRef.current[image], take: undefined });
+        await utils.client.storyboard.shoot.mutate({ id: boardId, image, ...picks, take: undefined });
         // The new take is the one the frame uses from now on.
-        setDrafts((d) => ({ ...d, [image]: { ...d[image], take: undefined } }));
-        if (noteWaiting) setSaves((s) => ({ ...s, [image]: 'saved' }));
+        if (stillLoaded()) {
+          setDrafts((d) => ({ ...d, [image]: { ...d[image], take: undefined } }));
+          if (noteWaiting) setSaves((s) => ({ ...s, [image]: 'saved' }));
+        }
         await Promise.all([refetchJob(), utils.library.invalidate()]);
       } catch (error) {
-        setShootErrors((e) => ({ ...e, [image]: error }));
+        if (stillLoaded()) setShootErrors((e) => ({ ...e, [image]: error }));
         // The shoot didn't go, so the note it carried is saved on its own.
-        const note = draftsRef.current[image]?.note;
+        const note = (stillLoaded() ? draftsRef.current[image] : picks)?.note;
         if (noteWaiting && note !== undefined) save(boardId, image, { note });
       } finally {
-        setShooting((s) => ({ ...s, [image]: false }));
+        shootingNow.current.delete(flying);
+        if (stillLoaded()) setShooting((s) => ({ ...s, [image]: false }));
       }
     },
     [boardId, utils, refetchJob, save]
@@ -369,6 +463,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
     }
     return out;
   }, [allTakes, drafts]);
+  takesRef.current = takes;
   // A shot whose take the library doesn't list yet (the server puts lost ones
   // back as it loads the board) waits for the next library refresh.
   const missingTake = (current?.shots ?? []).some((shot) => !allTakes.has(shot.image));
@@ -410,7 +505,6 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
       ? stillThumbUrl(viewedTake.id)
       : (uploads[0]?.src ?? (firstShot ? stillThumbUrl(firstShot.id) : null))
   );
-  const [pickError, setPickError] = useState<unknown>(undefined);
   function chooseAll() {
     if (!boardId) return;
     // Choosing all keeps frames already chosen that are being re-shot.
@@ -422,13 +516,18 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
       return out;
     });
     setPickError(undefined);
-    utils.client.storyboard.pick.mutate({ id: boardId, images }).catch((error: unknown) => setPickError(error));
+    // A failure that lands after another board loaded is not that board's.
+    utils.client.storyboard.pick.mutate({ id: boardId, images }).catch((error: unknown) => {
+      if (loadedBoard.current === boardId) setPickError(error);
+    });
   }
   const onMade = useCallback(() => Promise.all([refetchJob(), utils.library.invalidate()]), [refetchJob, utils]);
   const unshot = frames.filter((f) => {
     const t = takes.get(f.image);
     return !shooting[f.image] && (!t || t.status === 'failed');
   });
+  const unshotRef = useRef(unshot);
+  unshotRef.current = unshot;
   const [shootingAll, setShootingAll] = useState(false);
   // Every frame has its take: the footer moves on to the film.
   const allShot =
@@ -440,7 +539,10 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
   async function shootAll() {
     setShootingAll(true);
     try {
-      for (const f of unshot) await shoot(f.image);
+      for (const f of unshot) {
+        // The list was made when the button was pressed; a frame shot since is skipped.
+        if (unshotRef.current.some((u) => u.image === f.image)) await shoot(f.image);
+      }
     } finally {
       setShootingAll(false);
     }
@@ -683,6 +785,8 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
         <Expand size={16} aria-hidden />
         <span>Full screen</span>
       </button>
+      <span className={own.toolSep} aria-hidden />
+      <CopyLink job={planned.id} />
     </>
   ) : undefined;
 
@@ -975,6 +1079,7 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
         )}
         {planned && (
           <FilmStep
+            key={planned.id}
             job={planned}
             frames={frames}
             takes={takes}
@@ -1108,7 +1213,16 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
         onDropFiles={!planned && !planning ? (files) => void addFiles(files) : undefined}
         empty={empty ?? { title: 'Drop your project images', hint: '', action: 'Choose project images', label: DROP_LABEL }}
         inspector={inspector}
-        footer={footer}
+        footer={
+          <>
+            {goneJob !== null && goneJob === addressedJob && (
+              <Alert tone="warning" title="That link's storyboard is gone">
+                {planned ? 'This is your newest storyboard.' : 'Add project images to plan a new one.'}
+              </Alert>
+            )}
+            {footer}
+          </>
+        }
         strip={strip}
         stripLabel="Frames"
         raiseSheet={selected}
@@ -1130,6 +1244,35 @@ export function DirectorPage({ active, onAnimate, onGoToEdit }: DirectorPageProp
           onShoot={shoot}
         />
       )}
+    </>
+  );
+}
+
+/** The board's address, for a chat or a note. The note sits before the button, so a phone's scrolled toolbar still shows it. */
+function CopyLink({ job }: { job: string }) {
+  const [note, setNote] = useState('');
+  const clearNote = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(clearNote.current), []);
+  async function copy() {
+    clearTimeout(clearNote.current);
+    try {
+      await navigator.clipboard.writeText(formatHash('director', { job }));
+      setNote('Copied');
+    } catch {
+      // No clipboard on this page, or the browser refused.
+      setNote('Could not copy');
+    }
+    clearNote.current = setTimeout(() => setNote(''), 2500);
+  }
+  return (
+    <>
+      <span className={own.saveState} role="status">
+        {note}
+      </span>
+      <button type="button" className={own.tool} onClick={() => void copy()}>
+        <Link2 size={16} aria-hidden />
+        <span>Copy link</span>
+      </button>
     </>
   );
 }

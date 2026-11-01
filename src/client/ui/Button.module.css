@@ -1,7 +1,6 @@
 /* Buttons (DESIGN 4, 2.7). Four variants, three sizes. Hover comes from
    react-aria's [data-hovered] (it ignores touch), press from [data-pressed].
-   The edge on the filled variants is the glass edge: a lit top line. The
-   glass and ghost buttons answer the pointer as the dock does: the hover
+   The glass and ghost buttons answer the pointer as the dock does: the hover
    fill, ink 1 and a 1 px lift. */
 .button {
   position: relative;
@@ -31,6 +30,7 @@
 .button[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
 }
 
 .sm {
@@ -53,24 +53,31 @@
   gap: 8px;
 }
 
-/* Primary: the tungsten fill. Hover lifts 1 px and glows; press settles. */
+/* Primary: the solid white fill, black text. White on white shows no glow, so
+   hover goes full white with a dark inset line and lifts 1 px; press settles. */
 .primary {
   background-color: var(--bay-accent);
   color: var(--bay-text-on-accent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
 }
 
 .primary[data-hovered] {
   background-color: var(--bay-accent-hover);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bay-text) 40%, transparent),
-    0 6px 16px rgba(var(--bay-accent-rgb), 0.25);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
   transform: translateY(-1px);
 }
 
 .primary[data-pressed] {
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
   transform: scale(0.98);
+}
+
+/* A pointer on a focused primary keeps the inset line and the ring's outer
+   band: the hover shadow alone would drop the band. */
+.primary[data-hovered][data-focus-visible],
+.primary[data-pressed][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 6px var(--bay-bg-canvas);
 }
 
 /* Primary, disabled: a neutral outline with ink 2, so it reads as waiting
@@ -106,19 +113,31 @@
   transform: scale(0.98);
 }
 
-/* Danger: the error colour as a fill, dark text. Hover mixes in a little ink
-   (about brightness 1.08) so the change animates with the other colours. */
+.default[data-hovered][data-focus-visible] {
+  box-shadow:
+    var(--glass-edge),
+    0 0 0 6px var(--bay-bg-canvas),
+    0 4px 12px color-mix(in srgb, var(--bay-stage-frame) 50%, transparent);
+}
+
+/* Danger: a 2 px white line around ink. White fills belong to primary and
+   selected, so a destructive action never takes one. */
 .danger {
-  background-color: var(--bay-err-fg);
-  color: var(--bay-text-on-accent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bay-text) 24%, transparent);
+  background-color: transparent;
+  color: var(--bay-text);
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg);
 }
 
 .danger[data-hovered] {
-  background-color: color-mix(in srgb, var(--bay-err-fg) 90%, var(--bay-text));
+  background-color: var(--glass-btn-hover);
+}
+
+.danger[data-focus-visible] {
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg), 0 0 0 6px var(--bay-bg-canvas);
 }
 
 .danger[data-pressed] {
+  background-color: var(--glass-btn-pressed);
   transform: scale(0.98);
 }
 

@@ -1,0 +1,164 @@
+# Builds a GPL ffmpeg and ffprobe for macOS from FFmpeg's own signed source
+# tarball, on demand. ffmpeg-static's macOS binary reports nonfree parts, so it
+# cannot be handed to anyone else; this artifact is what replaces it. Nothing here
+# touches a release: a person checks the artifact on macOS 13, bundles it, and then
+# takes `--warn` out of desktop/scripts/build.mjs.
+#
+# GitHub only offers a manual run once this file is on the default branch; after
+# that, `gh workflow run ffmpeg.yml --ref <branch>` runs any branch's copy.
+#
+# The application needs libx264, libx265, prores_ks and zscale; the check step
+# below asks for those by name and encodes through them.
+name: ffmpeg
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # A point release on purpose: 7.1 itself passes x265 4.1 and later the wrong
+  # pointer type, and Homebrew's x265 is newer than that.
+  FFMPEG_VERSION: '7.1.5'
+  # The "FFmpeg release signing key" from ffmpeg.org/download.html.
+  FFMPEG_KEY: FCF986EA15E6E293A5644F10B4322F04D67658D8
+  # Electron's own minimum. Left unset, the binary would ask for the runner's macOS.
+  # This binds FFmpeg's own code only: Homebrew built x264, x265 and zimg for the
+  # runner's macOS, ld warns and links them anyway, and vtool still reads 13.0. So
+  # 13.0 is a target, not a result. SOURCE.txt records what the libraries ask for.
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  macos-arm64:
+    # Not macos-14: GitHub ends it on 2026-11-02 and Homebrew bottles no x265 for it.
+    # This label picks the Homebrew libraries too, so moving it moves what they need.
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install dependencies
+        run: brew install x264 x265 zimg nasm pkg-config gnupg
+
+      - name: Fetch and verify the source
+        run: |
+          url="https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          curl -fsSL --retry 3 -o ffmpeg.tar.xz "$url"
+          curl -fsSL --retry 3 -o ffmpeg.tar.xz.asc "$url.asc"
+          curl -fsSL --retry 3 https://ffmpeg.org/ffmpeg-devel.asc | gpg --batch --import
+          gpg --batch --status-fd 1 --verify ffmpeg.tar.xz.asc ffmpeg.tar.xz > gpg.status
+          grep -E "^\[GNUPG:\] VALIDSIG .* $FFMPEG_KEY$" gpg.status
+          mkdir src
+          tar -xJf ffmpeg.tar.xz -C src --strip-components=1
+
+      # -lx264 takes Homebrew's dylib over the .a beside it, and a binary that names
+      # /opt/homebrew runs on no Mac but this one. So the three libraries go to a
+      # private prefix with no dylibs in it, and PKG_CONFIG_LIBDIR shows configure
+      # only that prefix, so it cannot pick up anything else the runner has either.
+      - name: Collect the static libraries
+        run: |
+          deps="$RUNNER_TEMP/deps"
+          mkdir -p "$deps/lib/pkgconfig" "$deps/include"
+          for lib in x264 x265 zimg; do
+            from="$(brew --prefix "$lib")"
+            cp "$from/lib/lib$lib.a" "$deps/lib/"
+            cp -R "$from/include/." "$deps/include/"
+            sed "s|^prefix=.*|prefix=$deps|" "$from/lib/pkgconfig/$lib.pc" > "$deps/lib/pkgconfig/$lib.pc"
+          done
+          echo "PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      # --disable-sdl2 too: configure falls back to sdl2-config, past pkg-config.
+      - name: Configure
+        working-directory: src
+        run: |
+          ./configure \
+            --enable-gpl \
+            --enable-version3 \
+            --enable-libx264 \
+            --enable-libx265 \
+            --enable-libzimg \
+            --enable-videotoolbox \
+            --disable-doc \
+            --disable-sdl2 \
+            --pkg-config-flags=--static
+
+      - name: Build
+        working-directory: src
+        run: make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Refuse nonfree parts
+        working-directory: src
+        run: |
+          ./ffmpeg -L 2>&1 | tee "$RUNNER_TEMP/licence.log"
+          if grep -qi nonfree "$RUNNER_TEMP/licence.log"; then
+            echo '::error::ffmpeg reports nonfree parts; this binary cannot be redistributed'
+            exit 1
+          fi
+
+      - name: Refuse a binary tied to this machine
+        working-directory: src
+        run: |
+          ./ffprobe -version
+          vtool -show-build ffmpeg
+          otool -L ffmpeg ffprobe
+          if otool -L ffmpeg ffprobe | grep -E '^[[:space:]]' | grep -vE '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
+            echo '::error::a library from outside macOS is linked in; this binary runs on no other Mac'
+            exit 1
+          fi
+
+      # VideoToolbox is only listed: a runner's VM has no hardware encoder to open.
+      - name: Check what the app needs
+        working-directory: src
+        run: |
+          ./ffmpeg -hide_banner -encoders > "$RUNNER_TEMP/encoders.txt"
+          ./ffmpeg -hide_banner -filters > "$RUNNER_TEMP/filters.txt"
+          for name in libx264 libx265 prores_ks h264_videotoolbox; do
+            grep -qw "$name" "$RUNNER_TEMP/encoders.txt" || { echo "::error::no encoder $name"; exit 1; }
+          done
+          for name in zscale loudnorm ebur128 sidechaincompress xfade; do
+            grep -qw "$name" "$RUNNER_TEMP/filters.txt" || { echo "::error::no filter $name"; exit 1; }
+          done
+          test='testsrc2=size=320x180:rate=24:duration=1'
+          ./ffmpeg -hide_banner -loglevel error -f lavfi -i "$test" -f lavfi -i sine=duration=1 \
+            -vf format=yuv420p -c:v libx264 -c:a aac -shortest "$RUNNER_TEMP/smoke-h264.mp4"
+          ./ffmpeg -hide_banner -loglevel error -f lavfi -i "$test" \
+            -vf "format=yuv444p,zscale=w=160:h=90:filter=lanczos:primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt709:transfer=bt709:matrix=bt709:range=limited,format=yuv420p10le" \
+            -c:v libx265 -x265-params log-level=error "$RUNNER_TEMP/smoke-hevc10.mp4"
+          ./ffprobe -hide_banner "$RUNNER_TEMP/smoke-h264.mp4"
+          ./ffprobe -hide_banner "$RUNNER_TEMP/smoke-hevc10.mp4"
+
+      # A tarball because upload-artifact drops the executable bit.
+      - name: Pack
+        working-directory: src
+        run: |
+          name=ffmpeg-macos-arm64-gpl
+          pack="$RUNNER_TEMP/$name"
+          mkdir -p "$pack"
+          cp ffmpeg ffprobe COPYING.GPLv3 LICENSE.md "$pack/"
+          ./ffmpeg -hide_banner -L > "$pack/LICENSE.txt"
+          ./ffmpeg -version | sed -n 's/^configuration: //p' > "$pack/CONFIGURE.txt"
+          test -s "$pack/LICENSE.txt"
+          test -s "$pack/CONFIGURE.txt"
+          {
+            echo "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+            shasum -a 256 ../ffmpeg.tar.xz
+            brew list --versions x264 x265 zimg
+            for lib in x264 x265 zimg; do
+              built="$(otool -l "$RUNNER_TEMP/deps/lib/lib$lib.a" | awk '$1 == "minos" { print $2 }' | sort -u | xargs)"
+              echo "lib$lib.a built for macOS $built"
+            done
+          } > "$pack/SOURCE.txt"
+          cat "$pack/CONFIGURE.txt" "$pack/SOURCE.txt"
+          tar -czf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP" "$name"
+
+      - name: Configure log
+        if: failure()
+        run: cat src/ffbuild/config.log || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-arm64-gpl
+          if-no-files-found: error
+          path: ${{ runner.temp }}/ffmpeg-macos-arm64-gpl.tar.gz

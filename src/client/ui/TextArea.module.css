@@ -42,8 +42,9 @@
 .textarea[data-focused],
 .textarea[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
-  outline-offset: 1px;
+  outline-offset: 0;
   border-color: var(--bay-accent);
+  box-shadow: 0 0 0 4px var(--bay-bg-canvas);
 }
 
 .textarea[data-disabled] {
@@ -62,4 +63,16 @@
 
 .counter[data-over] {
   color: var(--bay-err-fg);
+  font-weight: 500;
+}
+
+/* The octagon: with no hue, the shape says the text is over the limit. */
+.counter[data-over]::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
 }

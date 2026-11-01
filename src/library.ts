@@ -29,6 +29,7 @@ import type { LocationLightId, LocationViewId } from './location.ts';
 import type { RecreateRouteId } from './recreate.ts';
 import type { ScopeId, SettingId } from './surroundings.ts';
 import { UserSymbol } from './trpc.ts';
+import { docLimit } from './doc-limit.ts';
 
 export type TaskState = 'pending' | 'succeeded' | 'failed';
 
@@ -209,8 +210,13 @@ export type Clip = {
 
 export type Library = { stills: Still[]; clips: Clip[] };
 
-/** Enough that a busy project's storyboard takes don't fall off the end. */
-const MAX_ITEMS = 600;
+/**
+ * Enough that a busy project's storyboard takes don't fall off the end. The limit
+ * is Bay's, whose document lives in S3. The desktop app (`BAY_ENV=desktop`, set by
+ * desktop/main/server.ts and desktop/scripts/serve.mjs) keeps it in a file on the
+ * owner's own disk, where nothing they made may vanish.
+ */
+const MAX_ITEMS = docLimit(600);
 
 /**
  * One JSON document per person under `library/` in the app's storage. The

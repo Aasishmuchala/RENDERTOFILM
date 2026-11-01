@@ -5,7 +5,7 @@ export declare function consentRequiredFrom(e: unknown): { consent: string } | n
 export declare function runwayConsentNavigationUrl(consent: string): string;
 export declare function goToRunwayConsent(consent: string): 'opened' | 'blocked';
 export declare function SignInPrompt(props: {
-  reauth: string;
+  reauth?: string | undefined;
   title?: string;
   description?: string;
   onSignedIn?: () => void;

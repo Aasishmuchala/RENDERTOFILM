@@ -12,7 +12,7 @@ export type ToggleButtonProps = {
   'aria-label'?: string | undefined;
 };
 
-/** A small on/off pill ("Use in film"): a ring when off, a filled check in the accent when on. */
+/** A small on/off pill ("Use in film"): a ring when off; on, solid white with a check and black text. */
 export function ToggleButton({ selected, onChange, children, disabled = false, 'aria-label': ariaLabel }: ToggleButtonProps) {
   return (
     <AriaToggleButton

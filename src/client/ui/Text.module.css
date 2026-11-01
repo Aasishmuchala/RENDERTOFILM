@@ -23,14 +23,14 @@
   letter-spacing: var(--track-callout);
 }
 
-/* Links: underlined at rest (1 px), 2 px on hover and keyboard focus. The
-   vertical padding with an equal negative margin lifts a link that sits alone
+/* Links: ink, underlined at rest (1 px), 2 px on hover and keyboard focus:
+   with no hue, the line is what says link. The vertical padding with an equal negative margin lifts a link that sits alone
    in a flex row to a 24 px target without moving anything around it; in a
    sentence it is inline, so it changes nothing. */
 .link {
   padding-block: 2px;
   margin-block: -2px;
-  color: var(--bay-accent-fg);
+  color: var(--bay-text);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
@@ -42,16 +42,18 @@
 
 .link[data-hovered],
 .link[data-focus-visible] {
+  color: var(--bay-accent-hover);
   text-decoration-thickness: 2px;
 }
 
 .link[data-pressed] {
-  color: var(--bay-accent-hover);
+  color: var(--bay-text-2);
 }
 
 .link[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--bay-bg-canvas);
   border-radius: var(--bay-r-xs);
 }
 

@@ -1,7 +1,8 @@
 /* The Director tab's own pieces; the canvas, inspector and strip come from
    the Workspace (layouts/Workspace.module.css). Frames and clips are cards
-   (DESIGN 4): solid surface, hairline, continuous corners, and a 2 px accent
-   ring on the frame that is selected. Nothing here is glass. */
+   (DESIGN 4): solid surface, hairline, continuous corners; the selected frame
+   wears a 2 px white ring and a check, a failed one dashes and the octagon.
+   Nothing here is glass. */
 
 @supports (corner-shape: squircle) {
   .dropEmpty,
@@ -183,7 +184,7 @@
 }
 
 /* The canvas toolbar's buttons: 36 px ghosts on the thin glass pill, the
-   view that is showing filled. */
+   view that is showing solid white. */
 .tool {
   display: inline-flex;
   align-items: center;
@@ -222,13 +223,30 @@
 }
 
 .tool[aria-pressed='true'] {
-  background-color: var(--glass-btn-selected);
-  color: var(--bay-text);
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+@media (hover: hover) {
+  .tool[aria-pressed='true']:hover:not(:disabled) {
+    background-color: var(--bay-accent-hover);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+    color: var(--bay-text-on-accent);
+  }
+}
+
+.tool[aria-pressed='true']:active:not(:disabled) {
+  background-color: var(--bay-accent);
 }
 
 .tool:focus-visible {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+}
+
+/* White on a white fill would not show: the ring steps outside it. */
+.tool[aria-pressed='true']:focus-visible {
+  outline-offset: 1px;
 }
 
 .tool:disabled {
@@ -246,6 +264,7 @@
 
 /* ---- The strip: the storyboard's card, then the frames in story order. */
 .jobCard {
+  position: relative;
   display: grid;
   align-content: center;
   justify-items: start;
@@ -348,14 +367,63 @@
   box-shadow: inset 0 0 0 1px var(--bay-text-3);
 }
 
-/* The selected card: a 2 px accent ring over the picture. */
+/* The selected card: a 2 px white ring over the picture and a check, because
+   a ring alone reads as hover. */
 .jobCard[aria-pressed='true'] {
   outline: 2px solid var(--bay-accent);
   outline-offset: -2px;
 }
 
+.jobCard[aria-pressed='true']::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .stripCard[aria-pressed='true']::after {
   box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+.stripCard[aria-pressed='true'] .stripNo {
+  grid-auto-flow: column;
+  gap: 3px;
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.stripCard[aria-pressed='true'] .stripNo::before {
+  content: '\2713' / '';
+  font-weight: 700;
+}
+
+/* Failed: dashes, the one line that is not solid, so failed never reads as
+   selected. A selected frame that failed shows both, the dashes inside the
+   ring. */
+.stripItem[data-state='failed'] .stripCard::before,
+.sheetCard:has(.badge[data-state='failed'])::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 2px dashed var(--bay-err-fg);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.stripItem[data-state='failed'] .stripCard[aria-pressed='true']::before,
+.sheetCard[aria-current='true']:has(.badge[data-state='failed'])::before {
+  inset: 3px;
 }
 
 /* Focus: a ring just outside the card, inside the strip's 4 px padding. */
@@ -419,7 +487,19 @@
   color: var(--bay-err-fg);
 }
 
-/* In the film: a filled accent check in the corner. */
+/* The octagon: errors keep no hue, so this shape says it. */
+.badge[data-state='failed']::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
+}
+
+/* In the film: a solid white check in the corner. */
 .tick {
   position: absolute;
   top: 4px;
@@ -488,6 +568,25 @@
 
 .sheetCard[aria-current='true']::after {
   box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+/* Top left: the film's tick has the other corner. */
+.sheetCard[aria-current='true'] .sheetFrame::before {
+  content: '\2713' / '';
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .sheetCard:focus-visible {
@@ -752,6 +851,31 @@
   .stripCard:hover .thumbPicture,
   .sheetCard:hover .thumbPicture {
     transform: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: a chip on a picture goes opaque. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .thumbState,
+  .stripNo,
+  .badge {
+    background: var(--glass-solid);
+  }
+
+  .stripCard[aria-pressed='true'] .stripNo {
+    background: var(--bay-accent);
+  }
+
+  .thumb .thumbRemove {
+    background: var(--glass-solid);
+  }
+
+  .thumb .thumbRemove[data-hovered] {
+    background: color-mix(in srgb, var(--glass-solid), var(--bay-text) 20%);
+  }
+
+  .thumb .thumbRemove[data-pressed] {
+    background: color-mix(in srgb, var(--glass-solid), var(--bay-text) 24%);
   }
 }
 

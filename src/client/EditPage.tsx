@@ -4,10 +4,13 @@ import {
   ArrowUp,
   Blend,
   BookmarkPlus,
+  Check,
+  Clapperboard,
   Copy,
   Download,
   Film,
   Maximize,
+  Music,
   Palette,
   Pause,
   Play,
@@ -34,16 +37,31 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Checkbox } from 'react-aria-components';
 
 import type { AppRouterType } from '../api.ts';
 import { type CutColour, colourCss, colourSteps, cutEnds, isNeutral, NEUTRAL_COLOUR } from '../colour.ts';
 import { GRADES } from '../grades.ts';
+import { cubeLut, lutFileName } from '../lut.ts';
+import {
+  DELIVERABLE_IDS,
+  DELIVERABLE_LABELS,
+  type DeliverableId,
+  frameLabel,
+  type QcReport,
+  TITLE_CARD,
+  type TitleCard,
+  verticalFrame,
+} from '../master.ts';
+import { SIDECAR_LABELS } from '../sidecars.ts';
 import { derivedLabel, rootClipId, versionChain, type TimelineItem } from '../timeline.ts';
+import { formatHash, type Handoff, parseHash } from './handoff.ts';
 import { Section } from './layouts/Section.tsx';
 import { frameGuidesClass, PHONE_QUERY, Workspace } from './layouts/Workspace.tsx';
 import { useAmbient } from './lib/ambient.tsx';
 import { clipPosterUrl, libraryUrl, useDownload } from './lib/download.ts';
-import { useGradedDownload } from './lib/gradedFilm.ts';
+import { followFilm, musicLevel, useGradedDownload } from './lib/gradedFilm.ts';
+import { cardSizes, renderTitleCard } from './lib/titleCard.ts';
 import { useCapabilities } from './lib/useCapabilities.ts';
 import { useInFlight } from './lib/useInFlight.ts';
 import { trpc } from './trpc.ts';
@@ -53,6 +71,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog.tsx';
 import { CostLine } from './ui/CostLine.tsx';
 import { EmptyState } from './ui/EmptyState.tsx';
 import { FilterChips } from './ui/FilterChips.tsx';
+import { FrameWindow } from './ui/FrameWindow.tsx';
 import { BlockedTip } from './ui/ModelUnavailable.tsx';
 import { NumberInput } from './ui/NumberInput.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
@@ -61,15 +80,20 @@ import { RunwayErrorNotice } from './ui/RunwayErrorNotice.tsx';
 import { Select } from './ui/Select.tsx';
 import { SkeletonBlock, SkeletonText } from './ui/Skeleton.tsx';
 import { Slider } from './ui/Slider.tsx';
-import { Text } from './ui/Text.tsx';
+import { Text, TextLink } from './ui/Text.tsx';
 import { TextArea } from './ui/TextArea.tsx';
 import { TextInput } from './ui/TextInput.tsx';
 import styles from './EditPage.module.css';
 import studio from './Studio.module.css';
 
 type Project = inferRouterOutputs<AppRouterType>['edit']['project'];
-type Cut = Pick<TimelineItem, 'key' | 'clipId' | 'versionId' | 'sourceStart' | 'duration' | 'colour'>;
+type Cut = Pick<TimelineItem, 'key' | 'clipId' | 'versionId' | 'sourceStart' | 'duration' | 'colour' | 'frame'>;
 type Draft = { items: Cut[]; transition: 'hard' | 'fade'; fadeSeconds: number };
+type EditMusic = NonNullable<Project['music']>;
+type ExportRow = Project['exports'][number];
+type Deliverable = NonNullable<ExportRow['deliverables']>[number];
+/** Sends one of the page's writes beside the cut; see `write` in EditPage. */
+type PageWrite = <T extends { rev: number }>(send: () => Promise<T>) => Promise<T>;
 
 /** Longest message `edit.agentSend` takes (it trims first). */
 const EDITOR_MESSAGE_MAX = 2000;
@@ -94,6 +118,23 @@ const ADJUSTMENTS = [
   { id: 'warmth', label: 'Warmth' },
 ] as const;
 const NO_NOTES: string[] = [];
+/** Longest music file `POST /api/upload-audio` takes. */
+const AUDIO_LIMIT = 50 * 1024 * 1024;
+/** Where a new bed starts: full level, a short fade each way. */
+const NEW_MUSIC = { inSeconds: 0, gain: 0, fadeIn: 1.5, fadeOut: 2 };
+/** Each deliverable's file name; desktop/platform/master.js sets the containers. */
+const DELIVERABLE_FILES: Record<DeliverableId, string> = {
+  h264: 'render-to-film-h264.mp4',
+  hevc10: 'render-to-film-hevc10.mp4',
+  prores: 'render-to-film-prores.mov',
+  vertical: 'render-to-film-9x16.mp4',
+};
+/** A clip's size until its file says; the server falls back to the same. */
+const CLIP_SIZE = { width: 1920, height: 1080 };
+/** How long a clip's size may take to read before the page goes on without it. */
+const CLIP_SIZE_MS = 8000;
+/** The title card preview's canvas: twice the 320 px it shows at, for a sharp small picture. */
+const CARD_PREVIEW = { width: 640, height: 360 };
 const signed = (v: number) => (Math.round(v * 100) === 0 ? '0' : `${v > 0 ? '+' : ''}${Math.round(v * 100)}`);
 
 function round(n: number) {
@@ -102,17 +143,162 @@ function round(n: number) {
 
 function fromServer(p: Project): Draft {
   return {
-    items: p.timeline.map(({ key, clipId, versionId, sourceStart, duration, colour }) => ({
+    items: p.timeline.map(({ key, clipId, versionId, sourceStart, duration, colour, frame }) => ({
       key,
       clipId,
       versionId,
       sourceStart,
       duration,
       colour,
+      frame,
     })),
     transition: p.transition,
     fadeSeconds: p.fadeSeconds,
   };
+}
+
+/** What a save would overwrite: order, trims, looks, transitions. A cut's version is the server's own. */
+function cutOf(d: Draft): string {
+  return JSON.stringify({ ...d, items: d.items.map(({ versionId: _serverOwned, ...c }) => c) });
+}
+
+/** A tRPC error's code; anything else has none. */
+function codeOf(err: unknown): string | undefined {
+  return (err as { data?: { code?: string } } | null)?.data?.code;
+}
+
+/** Where a music bed is served from. */
+function assetUrl(key: string): string {
+  return `/api/asset/${key}`;
+}
+
+/** Decibels with a real minus sign, to a tenth: −14.0. */
+function decibels(value: number): string {
+  return `${value < 0 ? '\u2212' : ''}${Math.abs(value).toFixed(1)}`;
+}
+
+/** A finished file's quality check in one line: its readings, or what is wrong with it. */
+function qcLine(qc: QcReport): string {
+  if (!qc.pass) return `QC: ${qc.findings.join(' ')}`;
+  return [
+    qc.integratedLufs !== null && `${decibels(qc.integratedLufs)} LUFS`,
+    qc.truePeakDbfs !== null && `${decibels(qc.truePeakDbfs)} dBTP`,
+    qc.tags.colorspace === 'bt709' ? 'BT.709' : qc.tags.colorspace,
+    qc.frames !== null && `${qc.frames.toLocaleString('en-US')} frames`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** What a 9:16 file did with the cuts: "2 cuts cropped (1 centre, 1 left), 1 fitted on black." */
+function framesLine(frames: NonNullable<ExportRow['frames']>): string {
+  const counted = (n: number) => `${n} ${n === 1 ? 'cut' : 'cuts'}`;
+  const crops = frames.filter((f) => f.mode === 'crop');
+  const fits = frames.length - crops.length;
+  // `frameLabel` holds where left and right begin, so the row says what the cut says.
+  const inPlace = (x: number) => crops.filter((f) => frameLabel(f) === frameLabel({ mode: 'crop', x })).length;
+  const places = [
+    { word: 'centre', n: inPlace(0.5) },
+    { word: 'left', n: inPlace(0) },
+    { word: 'right', n: inPlace(1) },
+  ]
+    .filter((p) => p.n > 0)
+    .map((p) => `${p.n} ${p.word}`);
+  const groups = [
+    crops.length > 0 && `${counted(crops.length)} cropped (${places.join(', ')})`,
+    fits > 0 && `${crops.length > 0 ? fits : counted(fits)} fitted on black`,
+  ];
+  return `${groups.filter(Boolean).join(', ')}.`;
+}
+
+/** The title cards cut into a master: "Title 3 s, End card 2.5 s." */
+function cardsLine(cards: NonNullable<ExportRow['cards']>): string {
+  const sides = [cards.head !== undefined && `Title ${cards.head} s`, cards.tail !== undefined && `End card ${cards.tail} s`];
+  return `${sides.filter(Boolean).join(', ')}.`;
+}
+
+/** A FilmCraft conform: the one kind of export whose row names its own file. */
+const isConform = (job: ExportRow | undefined) => !!job?.deliverables?.some((d) => d.fileName);
+
+/** The name a finished file saves under. */
+const fileNameOf = (file: Deliverable) => file.fileName ?? DELIVERABLE_FILES[file.id];
+
+/**
+ * A video's own size, from its file. The page's list of clips does not carry one, so
+ * this is what stands for the clip's artifact. Null when the file can't say in time.
+ */
+function videoSize(src: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const done = (size: { width: number; height: number } | null) => {
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+      resolve(size);
+    };
+    const timer = setTimeout(() => done(null), CLIP_SIZE_MS);
+    video.preload = 'metadata';
+    video.muted = true;
+    video.onloadedmetadata = () => done(video.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : null);
+    video.onerror = () => done(null);
+    video.src = src;
+  });
+}
+
+/** The size of the clip at `src`, once `on`; `CLIP_SIZE` until its file says. */
+function useClipSize(src: string, on: boolean) {
+  const [read, setRead] = useState<{ src: string; width: number; height: number } | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    void videoSize(src).then((size) => {
+      if (live && size) setRead({ src, ...size });
+    });
+    return () => {
+      live = false;
+    };
+  }, [src, on]);
+  return read?.src === src ? read : CLIP_SIZE;
+}
+
+/** Saves a cut's grade as a `.cube`. It is worked out here, so it asks nothing of the server. */
+function downloadLut(colour: CutColour, title: string) {
+  const href = URL.createObjectURL(new Blob([cubeLut(colour, title)], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = lutFileName(title);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+/**
+ * What the address asks of this page, a new object per arrival: the shell's
+ * `handoff` when it passes one, else the hash. The shell writes the hash in an
+ * effect of its own, after this page's effects, so the read waits for those to end.
+ */
+function useArrival(handoff: Handoff | undefined, active: boolean): Handoff | null {
+  const [address, setAddress] = useState<Handoff | null>(null);
+  useEffect(() => {
+    if (handoff) return;
+    const read = () => setAddress(parseHash(window.location.hash));
+    window.addEventListener('hashchange', read);
+    if (active) queueMicrotask(read);
+    return () => window.removeEventListener('hashchange', read);
+  }, [handoff, active]);
+  const arrival = handoff ?? address;
+  return arrival?.page === 'edit' ? arrival : null;
+}
+
+/**
+ * Takes an acted-on `clip` out of the address, as App does with `preset`: a reload
+ * or a Back to it would be a new arrival, and put back a clip since removed.
+ */
+function clearArrivedClip(clipId: string) {
+  const { page, params: { clip, ...params } } = parseHash(window.location.hash);
+  if (page !== 'edit' || clip !== clipId) return;
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${formatHash(page, params)}`);
 }
 
 export type EditPageProps = {
@@ -120,18 +306,23 @@ export type EditPageProps = {
   onGoToVideo: () => void;
   /** Whether the Edit tab is the one on screen; a hidden tab loads no video and polls slowly. */
   active: boolean;
+  /** The address it was opened with: `export` plays that export, `clip` adds that clip. */
+  handoff?: Handoff | undefined;
 };
 
 const HISTORY_MAX = 20;
 const CLIP_PAGE = 24;
+/** Most cuts `edit.saveTimeline` takes. */
+const MAX_CUTS = 24;
 const NO_DERIVED: Project['derived'] = [];
 /** The server sends a clip's `stillId` only while that still is in the library (src/edit-api.ts). */
 const LIVE_STILLS = { has: (id: string) => id !== '' };
 const FIELD_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="spinbutton"], [role="slider"], [role="listbox"], [role="combobox"], [aria-haspopup]';
 
-export function EditPage({ onGoToVideo, active }: EditPageProps) {
-  const { onBay } = useCapabilities();
+export function EditPage({ onGoToVideo, active, handoff }: EditPageProps) {
+  const { caps, onBay } = useCapabilities();
+  const canMaster = caps.master;
   const utils = trpc.useUtils();
   const project = trpc.edit.project.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -161,7 +352,13 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflight = useRef<Promise<void>>(Promise.resolve());
   const pendingSaves = useRef(0);
-  const [saveState, setSaveState] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>('idle');
+  // The server's rev this draft came from, sent with every save so a stale draft
+  // can't overwrite a newer cut, and that rev's cut. `reloads` counts the drafts
+  // the server has refused; a save queued behind one of them is dropped with it.
+  const base = useRef<{ rev: number; cut: string } | null>(null);
+  const reloads = useRef(0);
+  const conflicted = useRef(false);
+  const [saveState, setSaveState] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'reloaded'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveStateRef = useRef(saveState);
   saveStateRef.current = saveState;
@@ -173,17 +370,32 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
   const past = useRef<Draft[]>([]);
   const future = useRef<Draft[]>([]);
   const lastTag = useRef<{ tag: string; at: number } | null>(null);
+  const [removed, setRemoved] = useState<{ cut: Cut; index: number } | null>(null);
 
   const adoptServer = useCallback((p: Project) => {
+    // A poll that crossed a save says nothing new.
+    if (base.current && p.rev < base.current.rev) return;
     const server = fromServer(p);
+    const cut = cutOf(server);
     const cur = draftRef.current;
     if (rev.current === 0 || !cur) {
+      // Someone else moved the cut, so an Undo from here would put an older draft over theirs.
+      if (base.current && p.rev > base.current.rev && cut !== base.current.cut) {
+        past.current = [];
+        future.current = [];
+        lastTag.current = null;
+        setRemoved(null);
+      }
+      base.current = { rev: p.rev, cut };
       // An unchanged poll keeps the draft as it is, so nothing re-renders.
       if (cur && JSON.stringify(cur) === JSON.stringify(server)) return;
       draftRef.current = server;
       setDraft(server);
       return;
     }
+    // Edits are waiting. A write that left the cut alone (music, memory, an export)
+    // is no conflict for them, so they move on to that rev.
+    if (base.current && (p.rev === base.current.rev || cut === base.current.cut)) base.current = { rev: p.rev, cut };
     const owned = new Map(p.timeline.map((t) => [t.key, t.versionId]));
     let changed = false;
     const items = cur.items.map((c) => {
@@ -222,19 +434,44 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
     wasActive.current = active;
   }, [active, utils]);
 
+  /** The server refused a save: someone else moved the cut. Their copy wins over everything local. */
+  const reloadCut = useCallback(async () => {
+    conflicted.current = true;
+    reloads.current += 1;
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    rev.current = 0;
+    past.current = [];
+    future.current = [];
+    lastTag.current = null;
+    setRemoved(null);
+    setSaveError(null);
+    await utils.edit.project.invalidate();
+    const fresh = utils.edit.project.getData();
+    if (fresh) adoptServer(fresh);
+    // An edit made since then is on the reloaded cut, and has its own save coming.
+    if (rev.current === 0) setSaveState('reloaded');
+  }, [utils, adoptServer]);
+
   const doSave = useCallback(
     (d: Draft) => {
       const at = rev.current;
+      const era = reloads.current;
       const run = async () => {
+        if (era !== reloads.current) return;
         pendingSaves.current += 1;
         setSaveState('saving');
         setSaveError(null);
         try {
-          await saveRef.current({
+          const saved = await saveRef.current({
             items: d.items.map((c) => ({ ...c, versionId: c.versionId ?? undefined, colour: c.colour ?? undefined })),
             transition: d.transition,
             fadeSeconds: d.fadeSeconds,
+            baseRev: base.current?.rev,
           });
+          base.current = { rev: saved.rev, cut: cutOf(d) };
           if (rev.current === at) {
             rev.current = 0;
             setSaveState('saved');
@@ -246,8 +483,12 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
             setSaveState(timer.current ? 'unsaved' : 'saving');
           }
         } catch (err) {
-          setSaveError(err instanceof Error && err.message ? err.message : 'The server did not answer.');
-          setSaveState('error');
+          if (codeOf(err) === 'CONFLICT') {
+            await reloadCut();
+          } else {
+            setSaveError(err instanceof Error && err.message ? err.message : 'The server did not answer.');
+            setSaveState('error');
+          }
         } finally {
           pendingSaves.current -= 1;
         }
@@ -256,18 +497,44 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
       inflight.current = next;
       return next;
     },
-    [utils, adoptServer]
+    [utils, adoptServer, reloadCut]
   );
 
-  /** Save whatever is waiting now; true when the server has the timeline as shown. */
+  /**
+   * One of the page's own writes beside the cut (music, memory, a grade, an export).
+   * It takes its turn with the saves, so neither lands on a rev the other has just
+   * moved, and a save after it goes out on the rev it answered. A rev further on
+   * than that means someone else wrote too, which the next save finds out. That
+   * holds only for a write that moves the rev: one the server would answer with
+   * the rev it already has (a preference the list holds) must not come through
+   * here, or another writer's rev passes for this page's own.
+   */
+  const write = useCallback<PageWrite>((send) => {
+    const turn = async () => {
+      const answer = await send();
+      if (base.current && answer.rev === base.current.rev + 1) base.current = { ...base.current, rev: answer.rev };
+      return answer;
+    };
+    const next = inflight.current.then(turn, turn);
+    const settled = () => undefined;
+    inflight.current = next.then(settled, settled);
+    return next;
+  }, []);
+
+  /**
+   * Save whatever is waiting now; true when the server has the timeline as shown.
+   * False too when this save was refused: what was asked for was meant for a cut
+   * that has just been replaced.
+   */
   const flush = useCallback(async () => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
+    conflicted.current = false;
     await inflight.current;
     if (rev.current !== 0 && draftRef.current) await doSave(draftRef.current);
-    return rev.current === 0;
+    return rev.current === 0 && !conflicted.current;
   }, [doSave]);
 
   const retrySave = useCallback(() => {
@@ -312,19 +579,20 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
     [commit]
   );
 
+  const titleCards = useTitleCards(data?.titles, write);
+  const titlesPending = titleCards.pending;
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (timer.current || ['unsaved', 'saving', 'error'].includes(saveStateRef.current)) {
+      if (timer.current || ['unsaved', 'saving', 'error'].includes(saveStateRef.current) || titlesPending()) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, []);
+  }, [titlesPending]);
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [removed, setRemoved] = useState<{ cut: Cut; index: number } | null>(null);
   const [clipLimit, setClipLimit] = useState(CLIP_PAGE);
 
   const clips = useMemo(() => data?.clips ?? [], [data?.clips]);
@@ -416,18 +684,23 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
   const undoRemove = () => {
     const d = draftRef.current;
     if (!d || !removed) return;
+    setRemoved(null);
+    // Something else has put it back: a second copy would save with the same key.
+    if (d.items.some((c) => c.key === removed.cut.key)) return;
     const next = [...d.items];
     next.splice(Math.min(removed.index, next.length), 0, removed.cut);
-    setRemoved(null);
     change({ ...d, items: next }, 300);
   };
-  const add = (clipId: string, seconds: number) => {
-    const d = draftRef.current;
-    if (!d) return;
-    const cut: Cut = { key: crypto.randomUUID(), clipId, sourceStart: 0, duration: seconds };
-    setSelected(cut.key);
-    change({ ...d, items: [...d.items, cut] }, 300);
-  };
+  const add = useCallback(
+    (clipId: string, seconds: number) => {
+      const d = draftRef.current;
+      if (!d) return;
+      const cut: Cut = { key: crypto.randomUUID(), clipId, sourceStart: 0, duration: seconds };
+      setSelected(cut.key);
+      change({ ...d, items: [...d.items, cut] }, 300);
+    },
+    [change]
+  );
 
   // Going back to an earlier state keeps each cut's version as the server has it now.
   const restore = useCallback(
@@ -506,37 +779,131 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
     );
   };
 
+  // A handoff: the clip goes on the timeline unless it is there already, and the
+  // export goes on the player, until a newer one starts. What it names may be newer
+  // than the page's last answer, so it asks again and acts once on what comes back.
+  const arrival = useArrival(handoff, active);
+  const [askedExport, setAskedExport] = useState<{ id: string; latest: string | undefined } | null>(null);
+  const [showExport, setShowExport] = useState(0);
+  const arrivedAt = useRef(0);
+  const arrivedClip = useRef<Handoff | null>(null);
+  const arrivedExport = useRef<Handoff | null>(null);
+  useEffect(() => {
+    if (!arrival?.params['clip'] && !arrival?.params['export']) return;
+    arrivedAt.current = Date.now();
+    void utils.edit.project.invalidate();
+  }, [arrival, utils]);
+  useEffect(() => {
+    const clipId = arrival?.params['clip'];
+    const d = draftRef.current;
+    if (!arrival || !clipId || !d || locked || arrivedClip.current === arrival) return;
+    if (project.dataUpdatedAt < arrivedAt.current) return;
+    arrivedClip.current = arrival;
+    clearArrivedClip(clipId);
+    if (d.items.some((c) => c.clipId === clipId) || d.items.length >= MAX_CUTS) return;
+    add(clipId, secondsById.get(clipId) ?? 5);
+  }, [arrival, draft, locked, project.dataUpdatedAt, secondsById, add]);
+  useEffect(() => {
+    const exportId = arrival?.params['export'];
+    if (!arrival || !exportId || !data?.exports.some((e) => e.id === exportId) || arrivedExport.current === arrival) return;
+    arrivedExport.current = arrival;
+    setAskedExport({ id: exportId, latest: data.exports[0]?.id });
+    setShowExport((n) => n + 1);
+  }, [arrival, data]);
+
   const [exporting, setExporting] = useState(false);
-  const exportFilm = trpc.edit.exportFilm.useMutation({
+  const [deliverables, setDeliverables] = useState<DeliverableId[]>(['h264']);
+  const exportDone = {
     // Stays "pending" until the refetch shows the running export, so a second click can't slip in.
     onSuccess: () => utils.edit.project.invalidate(),
     onError: () => void utils.edit.project.invalidate(),
-  });
-  const runExport = async () => {
-    if (exporting || exportFilm.isPending) return;
-    setExporting(true);
+  };
+  const exportFilm = trpc.edit.exportFilm.useMutation(exportDone);
+  const exportMaster = trpc.edit.exportMaster.useMutation(exportDone);
+  const conform = trpc.edit.conformFilmcraft.useMutation(exportDone);
+  const sending = exporting || exportFilm.isPending || exportMaster.isPending || conform.isPending;
+  // A master takes the bed the server has, so one still on its way would be left out.
+  const [musicUploading, setMusicUploading] = useState(false);
+  const [drawingCards, setDrawingCards] = useState(false);
+  const [cardsError, setCardsError] = useState<Error | null>(null);
+  /** Draws the title cards in `titles` and keeps them with the server, for `exportMaster`. */
+  const drawCards = async (titles: Project['titles']) => {
+    const { head, tail } = titles ?? {};
+    if (!head && !tail) return undefined;
+    setDrawingCards(true);
     try {
+      const first = draftRef.current?.items[0];
+      const sizes = cardSizes((first ? await videoSize(mediaOf(first)) : null)?.width);
+      const vertical = deliverables.includes('vertical');
+      return {
+        ...(head ? { head: await drawCard(head, sizes, vertical) } : {}),
+        ...(tail ? { tail: await drawCard(tail, sizes, vertical) } : {}),
+      };
+    } catch (err) {
+      setCardsError(err instanceof Error ? err : new Error('The title cards were not drawn. Try again.'));
+      throw err;
+    } finally {
+      setDrawingCards(false);
+    }
+  };
+  const runExport = async () => {
+    if (sending || musicUploading) return;
+    setExporting(true);
+    setCardsError(null);
+    try {
+      // A change still on its way to the server is on the cards too; the section says when it can't go.
+      if (canMaster && !(await titleCards.save())) return;
       if (!(await flush())) return;
-      await exportFilm.mutateAsync();
+      if (canMaster) {
+        await write(async () => {
+          // The bed as the server has it once the writes ahead of this one (a Remove,
+          // a new file) have landed, not as the page last heard: the server masters
+          // whatever key it is handed, so a stale one would put a removed bed back.
+          const fresh = await utils.edit.project.fetch().catch(() => undefined);
+          const music = fresh ? fresh.music : data?.music;
+          const cards = await drawCards(fresh ? fresh.titles : data?.titles);
+          return exportMaster.mutateAsync({ deliverables, musicAssetKey: music?.assetKey ?? null, ...(cards ? { cards } : {}) });
+        });
+      } else {
+        await write(() => exportFilm.mutateAsync());
+      }
     } catch {
       // The notice under the button shows the error.
     } finally {
       setExporting(false);
     }
   };
+  // A second press lands while the first still waits on the save, before `sending` shows.
+  const conformGuard = useInFlight();
+  const runConform = async () => {
+    if (sending || musicUploading || !conformGuard.start()) return;
+    setExporting(true);
+    try {
+      if (!(await flush())) return;
+      await write(() => conform.mutateAsync({ output: 'mp4' }));
+    } catch {
+      // The notice under the button shows the error.
+    } finally {
+      setExporting(false);
+      conformGuard.end();
+    }
+  };
   const anyPending = data?.timeline.some((t) => t.pendingId) ?? false;
   const latestExport = data?.exports[0];
+  const shownExport =
+    (askedExport?.latest === latestExport?.id ? data?.exports.find((e) => e.id === askedExport?.id) : undefined) ?? latestExport;
   // The finished export against the timeline as it is now, from what the
   // export recorded (no new query): how many of the timeline's cuts it has as
   // they are (same place, length and look). Null while it matches.
   const exportStale = useMemo(() => {
-    if (!draft || latestExport?.status !== 'succeeded' || !items.length) return null;
-    const grades = latestExport.grades ?? [];
+    if (!draft || shownExport?.status !== 'succeeded' || !items.length) return null;
+    // A title card holds its place in `grades` for the film's timing; a row with a key is a cut.
+    const grades = (shownExport.grades ?? []).filter((g) => g.key);
     const total = items.length;
-    const again = 'Export again.';
+    const again = canMaster ? 'Master it again.' : 'Export again.';
     if (!grades.length) {
-      if (latestExport.cuts === total) return null;
-      return `Exported before your last changes: ${Math.min(latestExport.cuts, total)} of ${total} cuts. ${again}`;
+      if (shownExport.cuts === total) return null;
+      return `Exported before your last changes: ${Math.min(shownExport.cuts, total)} of ${total} cuts. ${again}`;
     }
     const matched = items.filter((c, i) => {
       const g = grades[i];
@@ -548,10 +915,26 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
     }
     const transitionChanged =
       total > 1 &&
-      (latestExport.transition !== draft.transition ||
-        (draft.transition === 'fade' && round(latestExport.fadeSeconds ?? 0.5) !== round(draft.fadeSeconds)));
+      (shownExport.transition !== draft.transition ||
+        (draft.transition === 'fade' && round(shownExport.fadeSeconds ?? 0.5) !== round(draft.fadeSeconds)));
     return transitionChanged ? `Exported before your last changes to the transitions. ${again}` : null;
-  }, [draft, items, latestExport]);
+  }, [draft, items, shownExport, canMaster]);
+  // A conform is a row of its own, so the export on the player does not push the other
+  // kind off the list. Masters first, whichever is shown, so no row moves under a press.
+  const beside = data?.exports.find((e) => e.status === 'succeeded' && e.deliverables && isConform(e) !== isConform(shownExport));
+  const finished = [shownExport, beside]
+    .filter((job): job is ExportRow => !!job?.deliverables)
+    .sort((a, b) => Number(isConform(a)) - Number(isConform(b)))
+    .flatMap((job) => (job.deliverables ?? []).map((file) => ({ job, file })));
+  // A finished row puts its file on the player, through the handoff's own path.
+  const [pickedFile, setPickedFile] = useState<string | undefined>(undefined);
+  const watch = (job: ExportRow, file: Deliverable) => {
+    setAskedExport({ id: job.id, latest: latestExport?.id });
+    setPickedFile(file.finalId);
+    setShowExport((n) => n + 1);
+  };
+  const framing = canMaster && deliverables.includes('vertical');
+  const exportBlocked = !items.length || anyPending || musicUploading || latestExport?.status === 'pending' || locked;
 
   const inspector = (
     <>
@@ -580,7 +963,7 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
                 poster={thumbOf(c.id)}
                 src={libraryUrl('clip', c.id)}
                 addLabel={`Add to timeline: ${c.label}`}
-                disabled={items.length >= 24 || locked}
+                disabled={items.length >= MAX_CUTS || locked}
                 onAdd={() => add(c.id, c.seconds)}
               />
             ))}
@@ -631,17 +1014,20 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
                     label={clipById.get(c.clipId)?.label ?? 'A clip no longer in your library'}
                     poster={thumbOf(c.clipId)}
                     frame={thumbOf(c.clipId) ? undefined : `${mediaOf(c)}#t=${c.sourceStart + 0.05}`}
+                    media={mediaOf(c)}
                     length={secondsById.get(c.versionId ?? c.clipId) ?? 5}
                     currentGrade={currentGrade(data, c)}
                     derived={data?.derived ?? NO_DERIVED}
                     locked={locked}
                     open={selected === c.key}
+                    showFrame={framing}
                     onToggle={toggle}
                     onChange={update}
                     onColourAll={colourAll}
                     onMove={move}
                     onRemove={remove}
                     flush={flush}
+                    write={write}
                   />
                 ))}
               </ol>
@@ -696,11 +1082,82 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
         )}
       </Section>
 
+      <Section
+        step={4}
+        title="Music"
+        description={
+          canMaster
+            ? 'A bed under the film. It plays under the timeline preview and goes into the master.'
+            : 'A bed under the film. It plays under the timeline preview and goes into the graded download; the exported film stays silent.'
+        }
+      >
+        {project.isLoading ? <SkeletonText rows={2} /> : <MusicRow music={data?.music} write={write} onUploading={setMusicUploading} />}
+      </Section>
+
+      {canMaster && (
+        <Section
+          step={5}
+          title="Title cards"
+          description="A title at the head and an end card at the tail, drawn in the film's own type on black."
+        >
+          <TitleCards cards={titleCards.cards} onChange={titleCards.change} error={titleCards.error} />
+        </Section>
+      )}
+
+      {(canMaster || finished.length > 0) && (
+        <Section
+          step={canMaster ? 6 : 5}
+          title="Master"
+          description="One finished file per format, with the music mixed in and the sound mastered."
+        >
+          <div className={studio.stack}>
+            {canMaster && (
+              <div role="group" aria-label="Files to master" className={styles.checks}>
+                {DELIVERABLE_IDS.map((id) => (
+                  <Checkbox
+                    key={id}
+                    className={styles.check}
+                    isSelected={deliverables.includes(id)}
+                    onChange={(on) => setDeliverables(DELIVERABLE_IDS.filter((d) => (d === id ? on : deliverables.includes(d))))}
+                  >
+                    <span className={styles.checkBox} aria-hidden>
+                      <Check size={14} />
+                    </span>
+                    {DELIVERABLE_LABELS[id]}
+                  </Checkbox>
+                ))}
+              </div>
+            )}
+            {framing && (
+              <Text size="sm" tone="muted" as="p">
+                A 9:16 cut shows a window of each clip, never more than the clip holds. Set the window on each cut in the timeline; a clip already taller than 9:16 is fitted on black.
+              </Text>
+            )}
+            {caps.desktop && (
+              <FilmcraftAction
+                active={active}
+                disabled={exportBlocked}
+                loading={conform.isPending}
+                error={conform.error}
+                onConform={() => void runConform()}
+              />
+            )}
+            {finished.length > 0 && (
+              <ul aria-label="Finished files" className={styles.deliverables}>
+                {finished.map(({ job, file }) => (
+                  <DeliverableRow key={`${job.id}:${file.id}`} job={job} file={file} onWatch={() => watch(job, file)} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </Section>
+      )}
+
       <Section title="AI editor" description="Tell it what you want, the way you would brief an editor. It changes the timeline for you.">
-        <EditorChat data={data} flush={flush} loading={project.isLoading} />
+        <EditorChat data={data} flush={flush} write={write} loading={project.isLoading} />
       </Section>
       <Section title="Memory" description="Standing preferences the editor follows in every session.">
-        <Memory memory={data?.memory} loading={project.isLoading} />
+        <Memory memory={data?.memory} write={write} loading={project.isLoading} />
       </Section>
     </>
   );
@@ -711,20 +1168,32 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
         variant="primary"
         size="lg"
         icon={<Film size={18} />}
-        loading={exporting || exportFilm.isPending}
-        disabled={!items.length || anyPending || latestExport?.status === 'pending' || locked}
+        loading={sending}
+        disabled={exportBlocked || (canMaster && !deliverables.length)}
         onPress={() => void runExport()}
       >
-        {latestExport?.status === 'pending' ? 'Exporting…' : 'Export film'}
+        {canMaster
+          ? drawingCards
+            ? 'Drawing the title cards…'
+            : latestExport?.status === 'pending'
+              ? isConform(latestExport) ? 'Conforming…' : 'Mastering…'
+              : 'Master'
+          : latestExport?.status === 'pending' ? 'Exporting…' : 'Export film'}
       </Button>
-      <RunwayErrorNotice error={exportFilm.error} modelName="the export" onRetry={() => void runExport()} />
+      <RunwayErrorNotice
+        error={canMaster ? (cardsError ?? exportMaster.error) : exportFilm.error}
+        modelName={canMaster ? 'the master' : 'the export'}
+        onRetry={() => void runExport()}
+      />
       <CostLine
         summary={
           <>
             <SaveNote state={saveState} error={saveError} onRetry={retrySave} />
             {anyPending
               ? ' A cut is still re-rendering; export once it is done.'
-              : ` ${total}s, ${draft?.transition === 'fade' ? `${draft.fadeSeconds}s fades` : 'hard cuts'}. ${onBay ? 'Exporting runs on your own Runway credits.' : 'Exporting runs on this computer.'}`}
+              : musicUploading
+                ? ' The music is still uploading; export once it is in.'
+                : ` ${total}s, ${draft?.transition === 'fade' ? `${draft.fadeSeconds}s fades` : 'hard cuts'}. ${onBay ? 'Exporting runs on your own Runway credits.' : canMaster ? 'Mastering runs on this computer.' : 'Exporting runs on this computer.'}${!canMaster && (deliverables.includes('vertical') || titleCards.any) ? ' Nothing here calls a model.' : ''}`}
           </>
         }
       />
@@ -792,7 +1261,7 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
                       style={steps ? { filter: colourCss(steps).filter } : undefined}
                     />
                   )}
-                  <span className={styles.segmentNumber}>{i + 1}</span>
+                  <span className={styles.segmentNumber}>{failed ? `Failed: ${i + 1}` : i + 1}</span>
                   <span className={styles.segmentTime}>{round(c.duration)}s</span>
                 </button>
               </li>
@@ -813,8 +1282,12 @@ export function EditPage({ onGoToVideo, active }: EditPageProps) {
           selected={selected}
           mediaOf={mediaOf}
           posterOf={posterOf}
-          latestExport={latestExport}
+          shownExport={shownExport}
+          shownFile={pickedFile}
+          showExport={showExport}
+          music={data?.music}
           stale={exportStale}
+          write={write}
         />
       }
       inspector={inspector}
@@ -897,6 +1370,7 @@ function currentGrade(data: Project | undefined, c: Cut): string {
 function SaveNote({ state, error, onRetry }: { state: string; error: string | null; onRetry: () => void }) {
   if (state === 'saving' || state === 'unsaved') return <>Saving…</>;
   if (state === 'saved') return <>Saved.</>;
+  if (state === 'reloaded') return <span role="status">The cut changed elsewhere; reloaded.</span>;
   if (state === 'error')
     return (
       <>
@@ -919,17 +1393,22 @@ type CutRowProps = {
   poster: string | undefined;
   /** With no poster: the cut's own media at its in point, shown as its frame. */
   frame?: string | undefined;
+  /** The file the cut plays. */
+  media: string;
   length: number;
   currentGrade: string;
   derived: Project['derived'];
   locked: boolean;
   open: boolean;
+  /** A 9:16 file is on the way out, so an open cut sets its window. */
+  showFrame: boolean;
   onToggle: (key: string) => void;
   onChange: (key: string, patch: Partial<Cut>, delay?: number) => void;
   onColourAll: (colour: CutColour | undefined) => void;
   onMove: (key: string, by: -1 | 1) => void;
   onRemove: (key: string) => void;
   flush: () => Promise<boolean>;
+  write: PageWrite;
 };
 
 /** One cut on the timeline. Memoised: its callbacks are stable, so editing
@@ -943,17 +1422,20 @@ const CutRow = memo(function CutRow({
   label,
   poster,
   frame,
+  media,
   length,
   currentGrade,
   derived,
   locked,
   open,
+  showFrame,
   onToggle,
   onChange,
   onColourAll,
   onMove,
   onRemove,
   flush,
+  write,
 }: CutRowProps) {
   const { caps, providerNote } = useCapabilities();
   const alephOff = caps.aleph ? null : 'Grades and AI edits need the Runway API provider.';
@@ -978,6 +1460,9 @@ const CutRow = memo(function CutRow({
     },
   });
   const setVersion = trpc.edit.setVersion.useMutation({ onSuccess: done });
+  // The notice under the select shows an error.
+  const pickVersion = (versionId: string | null) =>
+    void write(() => setVersion.mutateAsync({ key: cut.key, versionId })).catch(() => undefined);
   // The original plus every finished copy of this cut, newest first, so any can be picked again.
   const versions = useMemo(() => {
     const copies = derived.filter((d) => d.status === 'succeeded' && rootClipId(derived, d.id) === cut.clipId);
@@ -996,6 +1481,7 @@ const CutRow = memo(function CutRow({
   const graded = !isNeutral(cut.colour);
   const thumbSteps = colourSteps(cut.colour);
   const setColour = (patch: Partial<CutColour>) => onChange(cut.key, { colour: { ...colour, ...patch } }, 800);
+  const clipSize = useClipSize(media, open && showFrame);
   // Both re-render the clip on Aleph (billed): a double-click's second press
   // lands while the first still waits on the save, before `isPending` shows.
   const alephGuard = useInFlight();
@@ -1003,7 +1489,7 @@ const CutRow = memo(function CutRow({
     if (alephOff || instruction.trim().length < 3 || !alephGuard.start()) return;
     try {
       if (!(await flush())) return;
-      await edit.mutateAsync({ key: cut.key, instruction });
+      await write(() => edit.mutateAsync({ key: cut.key, instruction }));
     } catch {
       // The notice under the field shows the error.
     } finally {
@@ -1018,7 +1504,7 @@ const CutRow = memo(function CutRow({
         setConfirmGrade(null);
         return;
       }
-      await grade.mutateAsync({ key: cut.key, gradeId: id as (typeof GRADES)[number]['id'] });
+      await write(() => grade.mutateAsync({ key: cut.key, gradeId: id as (typeof GRADES)[number]['id'] }));
     } catch {
       // The notice under the select shows the error.
     } finally {
@@ -1083,7 +1569,7 @@ const CutRow = memo(function CutRow({
             size="sm"
             variant="ghost"
             loading={setVersion.isPending}
-            onPress={() => setVersion.mutate({ key: cut.key, versionId: null })}
+            onPress={() => pickVersion(null)}
           >
             Use the original
           </Button>
@@ -1132,7 +1618,7 @@ const CutRow = memo(function CutRow({
             {mode === 'builtin' ? (
               <>
                 <div className={styles.gradePanel}>
-                  <div className={styles.gradeWide}>
+                  <div className={`${styles.gradeWide} ${styles.lookRow}`}>
                     <Select
                       label="Look"
                       options={LOOK_OPTIONS}
@@ -1140,6 +1626,15 @@ const CutRow = memo(function CutRow({
                       disabled={locked}
                       onChange={(id) => onChange(cut.key, { colour: { ...colour, gradeId: id as CutColour['gradeId'] } }, 400)}
                     />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Download size={14} />}
+                      disabled={!graded}
+                      onPress={() => downloadLut(colour, `${colour.gradeId !== 'none' && lookName ? lookName : 'Adjusted'} grade`)}
+                    >
+                      Download LUT
+                    </Button>
                   </div>
                   <Slider
                     label="Strength"
@@ -1233,13 +1728,28 @@ const CutRow = memo(function CutRow({
                 onChange={async (id) => {
                   if (id === (cut.versionId ?? 'original') && !pending) return;
                   if (!(await flush())) return;
-                  setVersion.mutate({ key: cut.key, versionId: id === 'original' ? null : id });
+                  pickVersion(id === 'original' ? null : id);
                 }}
               />
               {setVersion.error && <Alert tone="error" title="The version was not changed">{setVersion.error.message}</Alert>}
               <Text size="sm" tone="muted" as="p">
                 Every finished grade and edit is kept, so you can switch back to any of them.
               </Text>
+            </div>
+          )}
+          {showFrame && (
+            <div className={styles.versionRow}>
+              <Text size="sm" tone="secondary" as="p">
+                Its window in the 9:16 file
+              </Text>
+              <FrameWindow
+                poster={poster ?? null}
+                width={clipSize.width}
+                height={clipSize.height}
+                value={cut.frame ?? verticalFrame(clipSize.width, clipSize.height)}
+                onChange={(next) => onChange(cut.key, { frame: next }, 400)}
+                disabled={locked}
+              />
             </div>
           )}
           <ConfirmDialog
@@ -1261,11 +1771,22 @@ const CutRow = memo(function CutRow({
 
 /** A player with its built-in grade: the filter on the video, the white
  * balance and lifted blacks as layers over it (src/colour.ts `colourCss`). */
-function Graded({ colour, hidden, children }: { colour: CutColour | undefined; hidden?: boolean; children: ReactElement<{ style?: CSSProperties }> }) {
+function Graded({
+  colour,
+  hidden,
+  portrait,
+  children,
+}: {
+  colour: CutColour | undefined;
+  hidden?: boolean;
+  /** A 9:16 file: the block takes the picture's shape, so the grade's layers stop at its edges. */
+  portrait?: boolean;
+  children: ReactElement<{ style?: CSSProperties }>;
+}) {
   const steps = colourSteps(colour);
   const css = steps ? colourCss(steps) : null;
   return (
-    <div className={styles.graded} data-hidden={hidden || undefined}>
+    <div className={styles.graded} data-picture data-hidden={hidden || undefined} data-portrait={portrait || undefined}>
       {cloneElement(children, { style: css && css.filter !== 'none' ? { filter: css.filter } : undefined })}
       {css?.balance && <div className={styles.balance} style={{ background: css.balance }} aria-hidden />}
       {css?.lift && <div className={styles.lift} style={{ background: css.lift.color, opacity: css.lift.opacity }} aria-hidden />}
@@ -1279,21 +1800,30 @@ type PlayerProps = {
   selected: string | null;
   mediaOf: (c: Cut) => string;
   posterOf: (clipId: string) => string | undefined;
-  latestExport: Project['exports'][number] | undefined;
-  /** The export line when the latest export is older than the timeline's last change. */
+  /** The export on the player: the latest, or the one a handoff asked for. */
+  shownExport: Project['exports'][number] | undefined;
+  /** The file of that export a finished row put on the player; else the export's first good one. */
+  shownFile: string | undefined;
+  /** Moves each time a handoff asks for that export to be shown. */
+  showExport: number;
+  music: Project['music'];
+  /** The export line when the shown export is older than the timeline's last change. */
   stale: string | null;
+  write: PageWrite;
 };
 
 /**
  * Plays the picked cut within its trim, the whole timeline in order, or the
- * latest export. While the timeline plays, the next cut is already loading in
- * a hidden player seeked to its in point, so each cut starts the moment the
- * one before it ends.
+ * export. While the timeline plays, the next cut is already loading in a hidden
+ * player seeked to its in point, so each cut starts the moment the one before
+ * it ends, and the music plays under it on the film's clock.
  */
-function Player({ active, items, selected, mediaOf, posterOf, latestExport, stale }: PlayerProps) {
+function Player({ active, items, selected, mediaOf, posterOf, shownExport, shownFile, showExport, music, stale, write }: PlayerProps) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
   const exportRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
+  const musicRef = useRef<HTMLAudioElement>(null);
   /** The player on screen, for the transport. */
   const [onScreen, setOnScreen] = useState<HTMLVideoElement | null>(null);
   const [mode, setMode] = useState<'cut' | 'timeline' | 'export'>('cut');
@@ -1309,25 +1839,51 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
   useEffect(() => {
     if (selected) setMode('cut');
   }, [selected]);
-  const exportReady = latestExport?.status === 'succeeded' && latestExport.finalId;
+  const exportReady = shownExport?.status === 'succeeded' && shownExport.finalId;
   useEffect(() => {
     if (exportReady) setMode('export');
   }, [exportReady]);
+  // Sent here for this export: it goes on the screen and the screen into view.
+  useEffect(() => {
+    if (!showExport) return;
+    if (exportReady) setMode('export');
+    playerRef.current?.scrollIntoView({ block: 'nearest' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showExport]);
 
   const cut =
     mode === 'timeline'
       ? (items[at] ?? items[0])
       : (items.find((c) => c.key === selected) ?? items[0]);
-  const exportSrc = exportReady ? libraryUrl('edit', latestExport.finalId!) : null;
-  const exportGrades = latestExport?.grades ?? [];
+  // A master downloads as the file it plays: the one its row asked for, else its first
+  // good one, in that file's own container.
+  const filmFile =
+    shownExport?.deliverables?.find((d) => d.status === 'succeeded' && d.finalId === shownFile) ??
+    shownExport?.deliverables?.find((d) => d.finalId === shownExport.finalId);
+  const filmId = filmFile?.finalId ?? shownExport?.finalId;
+  const exportSrc = exportReady ? libraryUrl('edit', filmId!) : null;
+  const exportGrades = shownExport?.grades ?? [];
   const exportGraded = exportGrades.some((g) => !isNeutral(g.colour));
+  const portrait = filmFile?.id === 'vertical';
+  // A format with no picture this player can show (ProRes, on most machines) can
+  // be downloaded but not played, so not graded here either. H.264, the 9:16 file
+  // included, always can be, so a failure there is the connection's.
+  const [noPicture, setNoPicture] = useState<string | null>(null);
+  const unplayable = !!exportSrc && noPicture === exportSrc && !!filmFile && filmFile.id !== 'h264' && filmFile.id !== 'vertical';
+  const master = !!shownExport?.deliverables;
+  const conformed = isConform(shownExport);
+  // The button that starts this kind of export again.
+  const startOver = conformed ? 'Conform in FilmCraft' : master ? 'Master' : 'Export film';
+  const canResume = master
+    ? shownExport.deliverables?.some((d) => d.status === 'pending' && d.finalId)
+    : shownExport?.finalId || shownExport?.parts;
   // Which cut of the export is on screen, so its grade can be shown over it.
   const trackExport = (v: HTMLVideoElement) => {
-    if (!exportGraded || !latestExport || !v.duration) return;
+    if (!exportGraded || !shownExport || !v.duration) return;
     const ends = cutEnds(
       exportGrades.map((g) => g.seconds),
-      latestExport.transition,
-      latestExport.fadeSeconds ?? 0.5,
+      shownExport.transition,
+      shownExport.fadeSeconds ?? 0.5,
       v.duration
     );
     let i = ends.findIndex((end) => v.currentTime < end);
@@ -1382,6 +1938,56 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, at, cut?.key, cut?.sourceStart, cut?.duration, items.length]);
 
+  // The music under the playing timeline: it plays and pauses with the shown cut,
+  // stays on the film's clock and level, and keeps quiet while a video seeks.
+  useEffect(() => {
+    const bed = musicRef.current;
+    if (!bed) return;
+    const v = cut && videos.current.get(slot(cut));
+    if (mode !== 'timeline' || !cut || !v || !music) {
+      bed.pause();
+      return;
+    }
+    const before = items.slice(0, at).reduce((sum, c) => sum + c.duration, 0);
+    const length = items.reduce((sum, c) => sum + c.duration, 0);
+    const filmAt = () => before + Math.max(0, v.currentTime - cut.sourceStart);
+    const onPlay = () => {
+      followFilm(bed, music, filmAt());
+      // A bed shorter than the film stays out; the master has silence there too.
+      if (music.inSeconds + filmAt() >= bed.duration) return;
+      void bed.play().catch(() => undefined);
+    };
+    const onPause = () => bed.pause();
+    const onSeeking = () => {
+      bed.muted = true;
+    };
+    const onSeeked = () => {
+      followFilm(bed, music, filmAt());
+      bed.muted = false;
+    };
+    v.addEventListener('play', onPlay);
+    v.addEventListener('pause', onPause);
+    v.addEventListener('seeking', onSeeking);
+    v.addEventListener('seeked', onSeeked);
+    if (!v.paused) onPlay();
+    let raf = 0;
+    const tick = () => {
+      followFilm(bed, music, filmAt());
+      bed.volume = Math.min(1, musicLevel(music, filmAt(), length));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      v.removeEventListener('play', onPlay);
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('seeking', onSeeking);
+      v.removeEventListener('seeked', onSeeked);
+      bed.muted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, at, cut?.key, cut?.sourceStart, music, active]);
+
   // The player fills the canvas: the picture contain-fits at 16:9 in the
   // space left by its caption, its buttons and the export's status.
   if (!exportSrc && !cut) {
@@ -1395,25 +2001,40 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
       </div>
     );
   }
+  const noPlayback = mode === 'export' && unplayable;
+  // Until the file exists `seconds` is the timeline's sum, and a faded conform runs longer than that.
+  const filmLength = exportSrc ? `${shownExport?.seconds}s, ` : '';
   const status =
-    graded.pending || !!saver.error || !!graded.error || latestExport?.status === 'pending' || latestExport?.status === 'failed';
+    noPlayback ||
+    graded.pending ||
+    !!saver.error ||
+    !!graded.error ||
+    shownExport?.status === 'pending' ||
+    shownExport?.status === 'failed';
   return (
-    <div className={styles.player} data-status={status || undefined}>
+    <div className={styles.player} data-status={status || undefined} ref={playerRef}>
+      {active && music && <audio ref={musicRef} src={assetUrl(music.assetKey)} preload="metadata" hidden />}
       <div className={styles.fit}>
         <div className={`${styles.screen} ${frameGuidesClass}`} ref={screenRef}>
           {!active ? null : mode === 'export' && exportSrc ? (
-            <Graded colour={exportGrades[exportCut]?.colour}>
+            <Graded colour={exportGrades[exportCut]?.colour} portrait={portrait}>
               <video
                 key={exportSrc}
                 ref={exportRef}
                 src={exportSrc}
-                poster={exportPoster}
+                poster={portrait ? undefined : exportPoster}
                 playsInline
-                muted
+                // A master has sound of its own; a plain export is silent.
+                muted={!shownExport?.deliverables}
                 preload="metadata"
                 onTimeUpdate={(e) => trackExport(e.currentTarget)}
                 onSeeked={(e) => trackExport(e.currentTarget)}
                 onLoadedData={() => setExportFrame(true)}
+                // With a track it can't decode, a player either refuses the file or plays only its sound.
+                onLoadedMetadata={(e) => {
+                  if (!e.currentTarget.videoWidth) setNoPicture(exportSrc);
+                }}
+                onError={() => setNoPicture(exportSrc)}
                 aria-label="Exported film"
               />
             </Graded>
@@ -1463,12 +2084,12 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
           )}
         </div>
       </div>
-      {mode === 'export' && exportSrc ? (
+      {noPlayback ? null : mode === 'export' && exportSrc ? (
         <Transport
           video={onScreen}
           inPoint={0}
           length={undefined}
-          fallback={latestExport?.seconds}
+          fallback={shownExport?.seconds}
           name="the exported film"
           stage={screenRef}
         />
@@ -1496,7 +2117,7 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
       ) : null}
       <p className={styles.caption} data-stale={(mode === 'export' && stale) || undefined}>
         {mode === 'export'
-          ? (stale ?? `The exported film, ${latestExport?.seconds}s, ${latestExport?.cuts} cuts.`)
+          ? (stale ?? `${conformed ? 'The FilmCraft conform' : 'The exported film'}, ${filmLength}${shownExport?.cuts} cuts.`)
           : mode === 'timeline'
             ? `Playing cut ${at + 1} of ${items.length}, with its look. The preview plays hard cuts; fades appear in the export.`
             : cut
@@ -1531,20 +2152,29 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
             variant="ghost"
             icon={<Download size={16} />}
             loading={saver.pending}
-            onPress={() => saver.start(libraryUrl('edit', latestExport.finalId!), 'render-to-film.mp4')}
+            onPress={() =>
+              saver.start(libraryUrl('edit', filmId!), filmFile ? fileNameOf(filmFile) : 'render-to-film.mp4')
+            }
           >
             {saver.label(exportGraded ? 'Download ungraded' : 'Download film')}
           </Button>
         )}
-        {exportReady && exportGraded && (
+        {exportReady && exportGraded && !unplayable && (
           <Button
             variant="ghost"
             icon={<Palette size={16} />}
             loading={graded.pending}
             onPress={() =>
               graded.start(
-                libraryUrl('edit', latestExport.finalId!),
-                { grades: exportGrades, transition: latestExport.transition, fadeSeconds: latestExport.fadeSeconds },
+                libraryUrl('edit', filmId!),
+                {
+                  grades: exportGrades,
+                  transition: shownExport.transition,
+                  fadeSeconds: shownExport.fadeSeconds,
+                  // A master has its own mixed sound; a plain export is silent, so the bed goes under it.
+                  ownSound: !!shownExport.deliverables?.length,
+                  music: music && !shownExport.deliverables?.length ? { ...music, src: assetUrl(music.assetKey) } : null,
+                },
                 'render-to-film-graded'
               )
             }
@@ -1558,6 +2188,7 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
           </Button>
         )}
       </div>
+      {noPlayback && <Alert title="This format plays outside the app; download it." className={styles.exportStatus} />}
       {graded.pending && (
         <Text tone="secondary" size="sm" as="p" className={styles.exportStatus}>
           Grading plays the film through once in this tab, so it takes about as long as the film. Keep the tab open.
@@ -1578,24 +2209,31 @@ function Player({ active, items, selected, mediaOf, posterOf, latestExport, stal
           </div>
         </Alert>
       )}
-      {latestExport?.status === 'pending' && (
+      {shownExport?.status === 'pending' && (
         <div className={styles.exportBand}>
-          <RenderingStatus label="Exporting the film…" runKey={latestExport.id} />
+          <RenderingStatus
+            label={conformed ? 'Conforming in FilmCraft…' : master ? 'Mastering the film…' : 'Exporting the film…'}
+            runKey={shownExport.id}
+          />
         </div>
       )}
-      {latestExport?.status === 'failed' && (
-        <Alert tone="error" title="The export stopped" className={styles.exportStatus}>
-          {latestExport.error ?? 'Runway could not put the film together.'}{' '}
-          {latestExport.finalId || latestExport.parts
-            ? 'Check again to pick it up where it left off, or press Export film to start over.'
-            : 'Press Export film to start over.'}
-          {(latestExport.finalId || latestExport.parts) && (
+      {shownExport?.status === 'failed' && (
+        <Alert
+          tone="error"
+          title={conformed ? 'The conform stopped' : master ? 'The master stopped' : 'The export stopped'}
+          className={styles.exportStatus}
+        >
+          {shownExport.error ?? 'Runway could not put the film together.'}{' '}
+          {canResume
+            ? `Check again to pick it up where it left off, or press ${startOver} to start over.`
+            : `Press ${startOver} to start over.`}
+          {canResume && (
             <div className={styles.alertActions}>
               <Button
                 size="sm"
                 icon={<RotateCw size={14} />}
                 loading={resume.isPending}
-                onPress={() => resume.mutate({ id: latestExport.id })}
+                onPress={() => void write(() => resume.mutateAsync({ id: shownExport.id })).catch(() => undefined)}
               >
                 Check again
               </Button>
@@ -1747,7 +2385,17 @@ function Transport({ video, inPoint, length, fallback, timeline, name, stage }: 
   );
 }
 
-function EditorChat({ data, flush, loading }: { data: Project | undefined; flush: () => Promise<boolean>; loading: boolean }) {
+function EditorChat({
+  data,
+  flush,
+  write,
+  loading,
+}: {
+  data: Project | undefined;
+  flush: () => Promise<boolean>;
+  write: PageWrite;
+  loading: boolean;
+}) {
   const { onBay } = useCapabilities();
   const utils = trpc.useUtils();
   const [text, setText] = useState('');
@@ -1781,7 +2429,7 @@ function EditorChat({ data, flush, loading }: { data: Project | undefined; flush
     if (!message.trim() || message.length > EDITOR_MESSAGE_MAX || working || !sendGuard.start()) return;
     try {
       if (!(await flush())) return;
-      await send.mutateAsync({ text: message.trim() });
+      await write(() => send.mutateAsync({ text: message.trim() }));
     } catch {
       // The conversation shows the error.
     } finally {
@@ -1879,7 +2527,7 @@ function EditorChat({ data, flush, loading }: { data: Project | undefined; flush
         confirmLabel="Clear"
         loading={clear.isPending}
         error={clear.error?.message}
-        onConfirm={() => void clearGuard.wrap(() => clear.mutateAsync().catch(() => undefined))()}
+        onConfirm={() => void clearGuard.wrap(() => write(() => clear.mutateAsync()).catch(() => undefined))()}
         onCancel={() => setConfirmClear(false)}
       >
         The messages go; the timeline and the editor's memory stay.
@@ -1888,7 +2536,472 @@ function EditorChat({ data, flush, loading }: { data: Project | undefined; flush
   );
 }
 
-function Memory({ memory, loading }: { memory: string[] | undefined; loading: boolean }) {
+/** Keep the file with the server; answers its storage key and the name to show. */
+async function uploadMusic(file: File): Promise<{ key: string; name: string }> {
+  if (file.size > AUDIO_LIMIT) throw new Error('That file is over 50 MB.');
+  let res: Response;
+  try {
+    res = await fetch(`/api/upload-audio?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    });
+  } catch {
+    throw new Error('The upload was cut off. Check your connection and try again.');
+  }
+  const body = await uploadAnswer(res, `The music could not be uploaded (${res.status}). Try again.`);
+  return { key: body.key, name: body.name ?? file.name };
+}
+
+/** What an upload route answered; a refusal throws the server's own sentence, else `failed`. */
+async function uploadAnswer(res: Response, failed: string): Promise<{ key: string; name?: string }> {
+  const body = (await res.clone().json().catch(() => null)) as { key?: string; name?: string; message?: string; error?: string } | null;
+  if (!res.ok || !body?.key) {
+    const text = await res.text().catch(() => '');
+    const said = res.headers.get('content-type')?.startsWith('text/plain') && text.length <= 200 ? text : '';
+    throw new Error(body?.message ?? body?.error ?? (said || failed));
+  }
+  return { ...body, key: body.key };
+}
+
+/** Keep a drawn title card with the server; answers its storage key. */
+async function uploadCard(png: Blob): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch('/api/chat/asset', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: png });
+  } catch {
+    throw new Error('The upload was cut off. Check your connection and try again.');
+  }
+  return (await uploadAnswer(res, `The title card could not be uploaded (${res.status}). Try again.`)).key;
+}
+
+/** One title card on every shape this master cuts it into, as `exportMaster` takes it. */
+async function drawCard(card: TitleCard, sizes: ReturnType<typeof cardSizes>, vertical: boolean) {
+  const key = await uploadCard(await renderTitleCard(card, sizes.landscape.width, sizes.landscape.height));
+  if (!vertical) return { key };
+  return { key, verticalKey: await uploadCard(await renderTitleCard(card, sizes.vertical.width, sizes.vertical.height)) };
+}
+
+type CardSide = 'head' | 'tail';
+/** A card as its fields hold it. An empty one is no card, so a draft may have no text. */
+type CardDraft = { text: string; subtitle: string; seconds: number };
+type CardDrafts = Record<CardSide, CardDraft>;
+
+const NO_CARD: CardDraft = { text: '', subtitle: '', seconds: TITLE_CARD.defaultSeconds };
+
+function cardDraft(card: TitleCard | null | undefined): CardDraft {
+  return card ? { text: card.text, subtitle: card.subtitle ?? '', seconds: card.seconds } : NO_CARD;
+}
+
+function cardOf(draft: CardDraft): TitleCard | null {
+  const text = draft.text.trim();
+  if (!text) return null;
+  const subtitle = draft.subtitle.trim();
+  return { text, ...(subtitle ? { subtitle } : {}), seconds: draft.seconds };
+}
+
+const titlesOf = (cards: CardDrafts) => ({ head: cardOf(cards.head), tail: cardOf(cards.tail) });
+
+/**
+ * The title cards as the fields hold them, saved 600 ms after the last change. `save`
+ * sends what is waiting now, and is false when the server refused it, so a master
+ * never draws cards the page has moved on from. A save that changes nothing is not
+ * sent: `write` is only for a write that moves the rev.
+ */
+function useTitleCards(titles: Project['titles'], write: PageWrite) {
+  const utils = trpc.useUtils();
+  const setTitles = trpc.edit.setTitles.useMutation({ onSuccess: () => utils.edit.project.invalidate() });
+  const sendRef = useRef(setTitles.mutateAsync);
+  sendRef.current = setTitles.mutateAsync;
+  const [cards, setCards] = useState<CardDrafts>({ head: NO_CARD, tail: NO_CARD });
+  const cardsRef = useRef(cards);
+  // The titles the server has, or will have once the save on its way lands.
+  const onServer = useRef<string | null>(JSON.stringify(titlesOf(cards)));
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saving = useRef(0);
+
+  useEffect(() => {
+    if (timer.current || saving.current) return;
+    const server: CardDrafts = { head: cardDraft(titles?.head), tail: cardDraft(titles?.tail) };
+    const said = JSON.stringify(titlesOf(server));
+    onServer.current = said;
+    // The same cards: the fields keep what they hold, such as a space on its way to a next word.
+    if (said === JSON.stringify(titlesOf(cardsRef.current))) return;
+    cardsRef.current = server;
+    setCards(server);
+  }, [titles]);
+
+  const save = useCallback(async () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const next = titlesOf(cardsRef.current);
+    const said = JSON.stringify(next);
+    if (said === onServer.current) return true;
+    onServer.current = said;
+    saving.current += 1;
+    try {
+      await write(() => sendRef.current(next));
+      return true;
+    } catch {
+      // Sent again with the next change or the next press; the section shows why.
+      onServer.current = null;
+      return false;
+    } finally {
+      saving.current -= 1;
+    }
+  }, [write]);
+
+  const change = useCallback(
+    (side: CardSide, patch: Partial<CardDraft>) => {
+      const next = { ...cardsRef.current, [side]: { ...cardsRef.current[side], ...patch } };
+      cardsRef.current = next;
+      setCards(next);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void save(), 600);
+    },
+    [save]
+  );
+
+  // Asked as the window closes, so it reads the refs: a change waiting on the timer, on its way, or refused.
+  const pending = useCallback(() => !!timer.current || saving.current > 0 || onServer.current === null, []);
+
+  const { head, tail } = titlesOf(cards);
+  return { cards, change, save, pending, any: !!(head || tail), error: setTitles.error };
+}
+
+/** The two title cards, and when they go into the film. */
+function TitleCards({
+  cards,
+  onChange,
+  error,
+}: {
+  cards: CardDrafts;
+  onChange: (side: CardSide, patch: Partial<CardDraft>) => void;
+  error: { message: string } | null;
+}) {
+  const headText = cards.head.text.trim();
+  return (
+    <div className={styles.titleCards}>
+      <TitleCardRow name="Title" card={cards.head} onChange={(patch) => onChange('head', patch)} />
+      <TitleCardRow
+        name="End card"
+        card={cards.tail}
+        onChange={(patch) => onChange('tail', patch)}
+        action={
+          <Button size="sm" variant="ghost" disabled={!headText} onPress={() => onChange('tail', { text: headText })}>
+            Use the title
+          </Button>
+        }
+      />
+      {error && <Alert tone="error" title="The title cards were not saved">{error.message}</Alert>}
+      <Text size="sm" tone="muted" as="p">
+        Titles are drawn when you press Master here, so a film mastered from chat or conformed in FilmCraft has none.
+      </Text>
+    </div>
+  );
+}
+
+function TitleCardRow({
+  name,
+  card,
+  onChange,
+  action,
+}: {
+  name: string;
+  card: CardDraft;
+  onChange: (patch: Partial<CardDraft>) => void;
+  action?: ReactElement;
+}) {
+  const shown = cardOf(card);
+  return (
+    <div role="group" aria-label={name} className={styles.titleCard}>
+      <div className={styles.titleCardHead}>
+        <span className={styles.titleCardName}>{name}</span>
+        {action}
+        <Button size="sm" variant="ghost" icon={<X size={14} />} disabled={!card.text && !card.subtitle} onPress={() => onChange(NO_CARD)}>
+          Remove
+        </Button>
+      </div>
+      <TextInput label={`${name} text`} value={card.text} onChange={(text) => onChange({ text })} maxLength={TITLE_CARD.maxTitle} />
+      <Text size="sm" tone="muted" className={styles.titleCount}>
+        {`${card.text.length}/${TITLE_CARD.maxTitle}`}
+      </Text>
+      <div className={styles.titleCardFields}>
+        <TextInput label="Subtitle" value={card.subtitle} onChange={(subtitle) => onChange({ subtitle })} maxLength={TITLE_CARD.maxSubtitle} />
+        <NumberInput
+          label="Seconds"
+          unit="s"
+          value={card.seconds}
+          min={TITLE_CARD.minSeconds}
+          max={TITLE_CARD.maxSeconds}
+          step={0.5}
+          onChange={(seconds) => onChange({ seconds })}
+        />
+      </div>
+      {shown && <CardPreview text={shown.text} subtitle={shown.subtitle} label={`Preview of the ${name.toLowerCase()}`} />}
+    </div>
+  );
+}
+
+/** A card as it will come out, drawn by the same code that draws the master's. */
+function CardPreview({ text, subtitle, label }: { text: string; subtitle: string | undefined; label: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let live = true;
+    void renderTitleCard({ text, subtitle, seconds: TITLE_CARD.defaultSeconds }, CARD_PREVIEW.width, CARD_PREVIEW.height)
+      .then((png) => createImageBitmap(png))
+      .then((picture) => {
+        if (live) canvas.current?.getContext('2d')?.drawImage(picture, 0, 0);
+        picture.close();
+      })
+      // The picture stays as it was; the card itself is drawn again for the master.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [text, subtitle]);
+  return <canvas ref={canvas} width={CARD_PREVIEW.width} height={CARD_PREVIEW.height} className={styles.titlePreview} role="img" aria-label={label} />;
+}
+
+/** The bed under the film: pick a file, then its licence note, level and fades. */
+function MusicRow({
+  music,
+  write,
+  onUploading,
+}: {
+  music: Project['music'];
+  write: PageWrite;
+  onUploading: (uploading: boolean) => void;
+}) {
+  const utils = trpc.useUtils();
+  const done = () => utils.edit.project.invalidate();
+  const setMusic = trpc.edit.setMusic.useMutation({ onSuccess: done });
+  const clearMusic = trpc.edit.clearMusic.useMutation({ onSuccess: done });
+  const picker = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // What the sliders and the field show until the server's copy catches up.
+  const [moving, setMoving] = useState<Partial<EditMusic>>({});
+  const [licence, setLicence] = useState(music?.licence ?? '');
+  useEffect(() => setMoving({}), [music]);
+  useEffect(() => setLicence(music?.licence ?? ''), [music?.licence]);
+
+  const onPick = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    onUploading(true);
+    setUploadError(null);
+    try {
+      const { key, name } = await uploadMusic(file);
+      await write(() => setMusic.mutateAsync({ assetKey: key, name, ...NEW_MUSIC }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'The music could not be uploaded. Try again.');
+    } finally {
+      setUploading(false);
+      onUploading(false);
+      if (picker.current) picker.current.value = '';
+    }
+  };
+
+  if (!music) {
+    return (
+      <div className={studio.stack}>
+        <input
+          ref={picker}
+          type="file"
+          accept="audio/*"
+          hidden
+          tabIndex={-1}
+          aria-label="Music file"
+          onChange={(e) => void onPick(e.currentTarget.files?.[0])}
+        />
+        <div>
+          <Button icon={<Music size={16} />} loading={uploading} onPress={() => picker.current?.click()}>
+            Add music
+          </Button>
+        </div>
+        {uploadError && <Alert tone="error" title="The music was not added">{uploadError}</Alert>}
+      </div>
+    );
+  }
+
+  const shown = { ...music, ...moving };
+  const save = (patch: Partial<EditMusic>) => {
+    setMoving((m) => ({ ...m, ...patch }));
+    void write(() => setMusic.mutateAsync({ ...shown, ...patch })).catch(() => undefined);
+  };
+  const saveLicence = () => {
+    const text = licence.trim();
+    if (text !== (music.licence ?? '')) save({ licence: text || undefined });
+  };
+  const seconds = (v: number) => `${v}s`;
+  return (
+    <div className={studio.stack}>
+      <div className={styles.musicHead}>
+        <Music size={16} aria-hidden />
+        <span className={styles.musicName}>{music.name}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<X size={14} />}
+          loading={clearMusic.isPending}
+          onPress={() => void write(() => clearMusic.mutateAsync()).catch(() => undefined)}
+        >
+          Remove
+        </Button>
+      </div>
+      <div onBlur={saveLicence}>
+        <TextInput
+          label="Where this music is licensed from"
+          value={licence}
+          onChange={setLicence}
+          maxLength={500}
+          onPressEnter={saveLicence}
+        />
+      </div>
+      <div className={styles.gradePanel}>
+        <div className={styles.gradeWide}>
+          <Slider
+            label="Music gain"
+            value={shown.gain}
+            min={-24}
+            max={12}
+            step={0.5}
+            onChange={(gain) => setMoving((m) => ({ ...m, gain }))}
+            onChangeEnd={(gain) => save({ gain })}
+            format={(v) => `${v > 0 ? '+' : v < 0 ? '\u2212' : ''}${Math.abs(v)} dB`}
+          />
+        </div>
+        <Slider
+          label="Fade in"
+          value={shown.fadeIn}
+          min={0}
+          max={10}
+          step={0.1}
+          onChange={(fadeIn) => setMoving((m) => ({ ...m, fadeIn }))}
+          onChangeEnd={(fadeIn) => save({ fadeIn })}
+          format={seconds}
+        />
+        <Slider
+          label="Fade out"
+          value={shown.fadeOut}
+          min={0}
+          max={10}
+          step={0.1}
+          onChange={(fadeOut) => setMoving((m) => ({ ...m, fadeOut }))}
+          onChangeEnd={(fadeOut) => save({ fadeOut })}
+          format={seconds}
+        />
+      </div>
+      {setMusic.error && <Alert tone="error" title="The music was not saved">{setMusic.error.message}</Alert>}
+      {clearMusic.error && <Alert tone="error" title="The music was not removed">{clearMusic.error.message}</Alert>}
+    </div>
+  );
+}
+
+/**
+ * FilmCraft, a second way out of the page, once Power tools has it; until then a line
+ * saying where it is set up. The app works without it, so nothing here asks or nags.
+ */
+function FilmcraftAction({
+  active,
+  disabled,
+  loading,
+  error,
+  onConform,
+}: {
+  active: boolean;
+  disabled: boolean;
+  loading: boolean;
+  error: unknown;
+  onConform: () => void;
+}) {
+  // Every answer runs the tool with `--version`, so it never polls, and only asks on screen.
+  const sidecars = trpc.settings.sidecars.useQuery(undefined, { enabled: active, refetchOnWindowFocus: false });
+  if (!sidecars.data && !sidecars.error) return null;
+  if (!sidecars.data?.find((s) => s.id === 'filmcraft')?.ok) {
+    return (
+      <Text size="sm" tone="muted" as="p">
+        FilmCraft is not set up on this computer. <TextLink href={formatHash('settings')}>Power tools in Settings</TextLink> sets it up.
+      </Text>
+    );
+  }
+  return (
+    <>
+      <div>
+        <Button icon={<Clapperboard size={16} />} loading={loading} disabled={disabled} onPress={onConform}>
+          Conform in FilmCraft
+        </Button>
+      </div>
+      <RunwayErrorNotice error={error} modelName="FilmCraft" onRetry={onConform} />
+    </>
+  );
+}
+
+/** One finished file of a master: how it went, what is in it, its download, and what QC read back. */
+function DeliverableRow({ job, file, onWatch }: { job: ExportRow; file: Deliverable; onWatch: () => void }) {
+  const saver = useDownload();
+  const conformed = !!file.fileName;
+  const label = conformed ? SIDECAR_LABELS.filmcraft : DELIVERABLE_LABELS[file.id];
+  const failed = file.status === 'failed';
+  const ready = file.status === 'succeeded' && !!file.finalId;
+  // The player takes a finished master, and only then is a conform's length its own.
+  const finished = ready && job.status === 'succeeded';
+  const caption = [file.id === 'vertical' && job.frames?.length ? framesLine(job.frames) : '', job.cards ? cardsLine(job.cards) : '']
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <li className={styles.deliverable} data-status={file.status}>
+      <div className={styles.deliverableHead}>
+        <span className={file.status === 'pending' ? styles.pulse : styles.deliverableGlyph} aria-hidden />
+        <span className={styles.deliverableName}>{failed ? `Failed: ${label}` : label}</span>
+        {finished && <Button size="sm" variant="ghost" icon={<Play size={14} />} aria-label={`Watch ${label}`} onPress={onWatch} />}
+        {ready && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Download size={14} />}
+            aria-label={`Download ${label}`}
+            loading={saver.pending}
+            onPress={() => saver.start(libraryUrl('edit', file.finalId!), fileNameOf(file))}
+          >
+            {saver.label('Download')}
+          </Button>
+        )}
+      </div>
+      {file.status === 'pending' && (
+        <Text size="sm" tone="secondary" as="p">
+          {conformed ? 'Conforming in FilmCraft…' : 'Mastering…'}
+        </Text>
+      )}
+      {failed && file.error && (
+        <Text size="sm" tone="secondary" as="p">
+          {file.error}
+        </Text>
+      )}
+      {conformed && finished && (
+        <Text size="sm" tone="muted" as="p">
+          {`${job.seconds}s, the file's own length. No paid call: FilmCraft runs on this computer.`}
+        </Text>
+      )}
+      {caption && (
+        <Text size="sm" tone="muted" as="p">
+          {caption}
+        </Text>
+      )}
+      {file.qc && (
+        <Text size="sm" tone="muted" as="p" className={styles.qc}>
+          {qcLine(file.qc)}
+        </Text>
+      )}
+      {saver.error && <Alert tone="error" title="Download failed">{saver.error}</Alert>}
+    </li>
+  );
+}
+
+function Memory({ memory, write, loading }: { memory: string[] | undefined; write: PageWrite; loading: boolean }) {
   const utils = trpc.useUtils();
   const [text, setText] = useState('');
   const [forgetting, setForgetting] = useState<string | null>(null);
@@ -1909,8 +3022,15 @@ function Memory({ memory, loading }: { memory: string[] | undefined; loading: bo
   // One save per press: a double-click's second press lands before `isPending` shows.
   const guard = useInFlight();
   const submit = () => {
-    if (text.trim().length < 2) return;
-    void guard.wrap(() => add.mutateAsync({ text: text.trim() }).catch(() => undefined))();
+    const next = text.trim();
+    if (next.length < 2) return;
+    // Already remembered: the server would change nothing and answer the rev it has,
+    // maybe another writer's, so it never goes through `write`. The field just clears.
+    if (list.some((m) => m.toLowerCase() === next.toLowerCase())) {
+      setText('');
+      return;
+    }
+    void guard.wrap(() => write(() => add.mutateAsync({ text: next })).catch(() => undefined))();
   };
 
   if (loading) return <SkeletonText rows={2} />;
@@ -1951,7 +3071,7 @@ function Memory({ memory, loading }: { memory: string[] | undefined; loading: bo
         loading={forget.isPending}
         error={forget.error?.message}
         onConfirm={() => {
-          if (forgetting) void guard.wrap(() => forget.mutateAsync({ text: forgetting }).catch(() => undefined))();
+          if (forgetting) void guard.wrap(() => write(() => forget.mutateAsync({ text: forgetting })).catch(() => undefined))();
         }}
         onCancel={() => setForgetting(null)}
       >

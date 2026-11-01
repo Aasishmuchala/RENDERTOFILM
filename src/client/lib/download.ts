@@ -91,7 +91,7 @@ export function stillViewUrl(id: string): string {
 
 /** A neutral frame for a clip with no picture to show (no poster, and no still left). */
 export const NO_POSTER = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#1e1b18"/><path d="M72 38v24l20-12z" fill="#a59c90"/></svg>'
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#161616"/><path d="M72 38v24l20-12z" fill="#9a9a9a"/></svg>'
 )}`;
 
 /**

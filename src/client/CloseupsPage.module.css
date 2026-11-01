@@ -36,7 +36,7 @@
 
 /* A card (DESIGN 4): solid surface, hairline, continuous corners; the
    picture on the left, what it frames on the right. Hover lifts it 2 px and
-   zooms the picture; selected is a 2 px accent ring. */
+   zooms the picture; selected is a 2 px white ring and a check. */
 .card {
   position: relative;
   display: flex;
@@ -79,9 +79,41 @@
   box-shadow: 0 0 0 1px var(--bay-accent);
 }
 
+/* On the picture's corner, clear of the title's two lines. */
+.card[data-selected]::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Failed: dashes, the one line that is not solid, so failed never reads as
+   selected. After the selected rule, so a selected card that failed keeps its
+   ring outside the dashes. The padding gives back the border's extra pixel. */
+.card[data-shot='failed'] {
+  padding: 4px 11px 4px 4px;
+  border: 2px dashed var(--bay-err-fg);
+}
+
 .card[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 1px;
+}
+
+.card[data-selected][data-focus-visible] {
+  box-shadow:
+    0 0 0 1px var(--bay-accent),
+    0 0 0 4px var(--bay-bg-canvas);
 }
 
 .thumb {
@@ -129,11 +161,27 @@
 }
 
 .badge > svg {
+  grid-area: 1 / 1;
   box-sizing: content-box;
   padding: 6px;
   border-radius: var(--r-pill);
   background-color: var(--glass-fill-thick);
   box-shadow: var(--glass-edge);
+}
+
+/* The octagon on the failed card's chip: the shape says it, not a colour. The
+   page's own round glyph hides under it. */
+.card[data-shot='failed'] .badge > svg {
+  color: transparent;
+}
+
+.card[data-shot='failed'] .badge::after {
+  content: '';
+  grid-area: 1 / 1;
+  width: 10px;
+  height: 10px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
 }
 
 .cardText {
@@ -180,6 +228,13 @@
 
   .card[data-hovered] .thumb > img {
     transform: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: the chip on the picture goes opaque. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .badge > svg {
+    background-color: var(--glass-solid);
   }
 }
 

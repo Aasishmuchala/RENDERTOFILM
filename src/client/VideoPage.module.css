@@ -88,16 +88,27 @@
   color: var(--bay-text);
 }
 
+.viewItem[data-pressed] {
+  background-color: var(--glass-btn-pressed);
+}
+
+/* The view that is showing: solid white with black text. Hover and focus go
+   full white with a dark inset line, as the primary does. */
 .viewItem[data-selected] {
-  background-color: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  color: var(--bay-text);
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
 }
 
 .viewItem[data-selected][data-hovered],
-.viewItem[data-selected][data-focus-visible],
-.viewItem[data-pressed] {
-  background-color: var(--glass-btn-pressed);
+.viewItem[data-selected][data-focus-visible] {
+  background-color: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+}
+
+.viewItem[data-selected][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 4px var(--bay-bg-canvas);
 }
 
 .viewItem[data-focus-visible] {
@@ -148,13 +159,45 @@
   grid-row: 3;
 }
 
+/* Laid flat, the card's check would sit on the title: it moves to the frame's
+   corner. */
+.takes label[data-selected]::after {
+  top: 9px;
+  right: auto;
+  left: 9px;
+}
+
+/* The strip's scroller clips at 4 px: 2 px of white, then 2 px of TakeStrip's
+   black band. */
 .takes label[data-focus-visible] {
-  outline-offset: 1px;
+  outline-offset: 0;
+}
+
+/* Failed: dashes, the one line that is not solid, so failed never reads as
+   selected, whose solid ring stays outside them. A take we lost touch with may
+   still finish: a warning, the fainter line. The padding gives back the
+   border's extra pixel. */
+.takes label:is([data-state='failed'], [data-state='lost']) {
+  padding: 4px 7px 4px 4px;
+}
+
+.takes label[data-state='failed'] {
+  border: 2px dashed var(--bay-err-fg);
+}
+
+.takes label[data-state='lost'] {
+  border: 2px dashed var(--bay-border-strong);
 }
 
 @media (width < 480px), (width < 900px) and (orientation: portrait) {
   .takes label {
     grid-template-columns: auto 112px;
+  }
+
+  /* The phone's frame is narrow: the failed wording wraps, never clipped. */
+  .takes label[data-state='failed'] > span:nth-child(2) > span:last-child {
+    border-radius: var(--bay-r-sm);
+    white-space: normal;
   }
 }
 
@@ -247,5 +290,14 @@
   .play:hover,
   .play:active {
     transform: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: a chip on a picture goes opaque. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .play,
+  .takes label[data-state] > span:nth-child(2) > span:last-child,
+  .takes label:not([data-state]) svg {
+    background-color: var(--glass-solid);
   }
 }

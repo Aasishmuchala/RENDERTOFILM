@@ -19,17 +19,17 @@
 .row {
   display: flex;
   gap: 12px;
-  margin: -6px -6px -2px;
-  padding: 6px 6px 10px;
+  margin: -9px -9px -2px;
+  padding: 9px 9px 10px;
   overflow-x: auto;
-  scroll-padding-inline: 6px;
+  scroll-padding-inline: 9px;
   scrollbar-width: thin;
   scrollbar-color: var(--bay-border-strong) transparent;
 }
 
 /* A card (DESIGN 4): solid surface, hairline, continuous corners. Hover
    lifts it 2 px and zooms the still inside its frame; selected is a 2 px
-   accent ring. */
+   white ring and a check, because a ring alone reads as hover. */
 /* Positioned too: each card's hidden radio input must sit inside the row,
    which clips it; held by `.group` alone, the inputs of cards scrolled past
    the edge widened the page (the phone scrolled sideways once a take was in). */
@@ -67,9 +67,33 @@
   box-shadow: 0 0 0 1px var(--bay-accent);
 }
 
+.card[data-selected]::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .card[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: 3px;
+  box-shadow: 0 0 0 7px var(--bay-bg-canvas);
+}
+
+.card[data-selected][data-focus-visible] {
+  box-shadow:
+    0 0 0 1px var(--bay-accent),
+    0 0 0 7px var(--bay-bg-canvas);
 }
 
 .frame {
@@ -158,6 +182,7 @@
 
 .card[data-state='failed'] .badge,
 .card[data-state='lost'] .badge {
+  box-shadow: inset 0 0 0 2px var(--bay-err-fg);
   color: var(--bay-err-fg);
 }
 

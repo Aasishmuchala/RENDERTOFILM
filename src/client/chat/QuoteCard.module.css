@@ -1,0 +1,104 @@
+/* A Quote in the transcript. A card, so a solid surface (DESIGN 2.4), and every
+   word on it is ink 1 or 2. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+  padding: 16px;
+  border: 1px solid var(--bay-border-hair);
+  border-radius: var(--r-card);
+  background-color: var(--bay-bg-surface);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+}
+
+/* The exact inputs, every one of them: up to 24 wrap into a small contact sheet. */
+.inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item,
+.total {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+}
+
+.item {
+  font: var(--text-callout);
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+}
+
+.amount,
+.totalAmount {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount {
+  flex: none;
+  color: var(--bay-text-2);
+}
+
+.total {
+  padding-top: 10px;
+  border-top: 1px solid var(--bay-border);
+  font: var(--text-headline);
+  letter-spacing: var(--track-headline);
+  color: var(--bay-text);
+}
+
+.line {
+  margin: 0;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  color: var(--bay-text-2);
+  text-wrap: pretty;
+}
+
+/* The two buttons, and the clock on the far side; the clock drops under them on a phone. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.clock {
+  margin-left: auto;
+  font: var(--text-footnote);
+  letter-spacing: var(--track-footnote);
+  font-variant-numeric: tabular-nums;
+  color: var(--bay-text-2);
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font: var(--text-callout);
+  font-weight: 500;
+  letter-spacing: var(--track-callout);
+  color: var(--bay-text);
+}

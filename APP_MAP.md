@@ -2,6 +2,8 @@
 
 How the app works, tab by tab, and what looks fragile. Written 2026-10-28 from a full read of `src/`.
 Line numbers are approximate pointers (`file:line`). Findings marked **verified** were re-checked against the code.
+Updated 2026-11-01 for the chat-first shell (Phase 13): the page list and the hash routes are in "Pages and hash
+routes" below, and each page's own behaviour is still the tab-by-tab text. "Tab" and "page" mean the same thing here.
 
 ## The big picture
 
@@ -26,11 +28,47 @@ film stills and clips, all on the visitor's own Runway account and credits.
 | `edits/<owner>.json` | Edit timeline, versions, exports, chat, memory | see Edit |
 | `connections/<owner>.json` | MCP servers, tokens, Seevio key (Settings) | 20 servers |
 
-- **Tabs share data only through the `library` query cache.** All tab panels stay mounted, so switching tabs never
-  loses work in progress. `onAnimate(stillId)` from Stills, Director, Close-ups and Location sets `pickedStillId`
-  (sessionStorage) and opens the Video tab.
+- **Pages share data through the `library` query cache and, for a selection, through the address hash.** All page
+  panels stay mounted, so switching pages never loses work in progress. `onAnimate(stillId)` from Stills (and its
+  Close-ups and Location modes), Director and Lifestyle opens `#video?still=<id>`; the Video page also keeps the last
+  pick in sessionStorage (`pickedStillId`).
+
+## Pages and hash routes
+
+`DEFAULT_PAGE` is `chat` (`src/client/nav.ts`): a bare address, or one that names no page, opens the chat. One menu
+button in the top bar lists the other pages, in this order. Each page is one panel that stays mounted; its id is the
+address hash, so deep links never change. `src/client/handoff.ts` (`parseHash`, `formatHash`) reads and writes them.
+
+| Hash | Page (menu label) | Notes |
+|---|---|---|
+| `#chat` | Chat (the brand link, not in the menu) | Home. `#chat?gallery=1` shows the chat's cards on their own, for the screenshot gate |
+| `#director` | Director | `?job=<id>` opens a storyboard job |
+| `#lifestyle` | Lifestyle | `?job=<id>&frame=<n>` opens a job and a frame |
+| `#stills` | Still | Three modes in a row under the top bar: Still, Close-ups, Location. `?mode=closeups` or `?mode=location` picks one; `?job=`, `?clip=`, `?still=` load a selection into it |
+| `#video` | Video | `?still=<id>` or `?clip=<id>` loads the first frame or a reference clip; `?preset=<json>` is a whole Video preset (`parseVideoPreset` accepts it whole or not at all) |
+| `#edit` | Editing | `?clip=<id>` adds a clip, `?export=<id>` opens a finished export (a master) |
+| `#library` | Library | `?q=<text>`, `?still=<id>`, `?clip=<id>` search or select |
+| `#settings` | Settings | |
+
+Aliases: `#closeups` is `#stills?mode=closeups`, `#location` and `#surroundings` are `#stills?mode=location`.
+`formatHash` sorts the keys, so one handoff is one address. Only these keys ride in an address; anything else is
+dropped: `job`, `frame`, `still`, `clip`, `export`, `mode`, `preset`, `q`, `gallery`.
+
+A chat result links out with the same hashes ("Open in Editing" is `#edit?export=<id>`), and a page link back to
+the chat is `#chat`.
 
 ## Tabs
+
+### Chat — home, plans and runs a film (Phase 13)
+Drop up to 24 renders (images, 25 MB each) and say what you need. A manual streaming loop on `@anthropic-ai/sdk`
+(`src/chat/loop.ts`) calls 12 tools (`src/chat/contracts.ts`): read tools look at the project, text tools run the
+existing planners, local tools crop and edit the cut, and `propose_run` makes a priced Quote. The model never starts
+paid work: only a click on the Quote card, a typed yes, an Allowance that covers it, or a price of zero does
+(`src/chat/gate.ts`). An approved Quote becomes a Run (plan, cast, stills, direct, clips, cut, master, qc) that goes
+on in the background and ends in a finished master and a link into Editing. Needs the owner's own Anthropic key
+(Settings, Chat). Code: `src/chat/`, router `chat` in `src/chat-api.ts`, the event stream in `src/chat-events.ts`,
+the page in `src/client/ChatPage.tsx` and `src/client/chat/`. Vocabulary: `GLOSSARY.md`; the plan is
+`.router/PLAN-13.md`.
 
 ### Director — a storyboard planned by Claude
 1. Upload up to 12 renders (ephemeral Runway assets, ~1–2 days).
@@ -73,13 +111,13 @@ move / style / speed, length and direction. **Make the video** → `createVideo`
 preset onto that model's own Runway options (`submitVideo`, `:1311`). Up to 6 takes run at once in a take strip.
 Clip upscale: Runway Video Upscale (4×) or FLUX Video Upscale (2×, ≤20 s / 50 MB / 2560×1440).
 
-### Close-ups — detail shots from one source
+### Close-ups — detail shots from one source (a mode of Still)
 Source is a library clip, still or upload. A small job state machine
 (`capturing → captured → finding → picked → rendering → done`):
 grab 6 frames from a clip (`media_processing_v2` `capture_frames`) → Claude picks 2–6 subjects → one long-lens
 "re-shoot" Still per pick through `submitStill`. Code: `src/closeups-api.ts`, `src/client/CloseupsPage.tsx`.
 
-### Location — Google Earth screenshot → aerial photograph
+### Location — Google Earth screenshot → aerial photograph (a mode of Still)
 Lat/lng (paste "12.97, 77.59" into either field), place name, screenshot, view (match / top-down / oblique),
 light (5 options), direction, model. One Still through `submitStill`, then an automatic 2× Magnific Creative
 upscale (on by default). Code: `src/location-api.ts`, `src/location.ts`, `src/client/LocationPage.tsx`.
@@ -98,6 +136,11 @@ upscale (on by default). Code: `src/location-api.ts`, `src/location.ts`, `src/cl
   is ungraded; "Download graded film" re-encodes it in the browser (WebGL + MediaRecorder, no audio, the tab must
   stay in front).
 
+On the desktop app, Export film is Master: a music bed (`edit.setMusic`), title cards, and one finished file per
+Deliverable (H.264, HEVC 10-bit, ProRes 422 HQ, 9:16), each with a QC report (`edit.exportMaster`, `src/master.ts`,
+`desktop/platform/master.js`). The cut carries a `rev`, and `saveTimeline` answers `CONFLICT` when its `baseRev` is
+stale, so a page draft cannot overwrite a change the chat made.
+
 Code: `src/edit-api.ts`, `src/editor.ts`, `src/edits.ts`, `src/timeline.ts`, `src/colour.ts`, `src/grades.ts`,
 `src/client/EditPage.tsx`, `src/client/lib/gradedFilm.ts`.
 
@@ -106,7 +149,8 @@ Search, kind filter, tags (automatic plus your own), zoom, download, delete. No 
 Delete also removes upscaled children, the S3 files and the storyboard reference.
 
 ### Settings — accounts and connections (added in this session)
-Runway sign-in, Runway MCP, Higgsfield MCP, other MCP servers, Seevio key. See the project notes in `CLAUDE.md`.
+Runway sign-in, Runway MCP, Higgsfield MCP, other MCP servers, Seevio key, and since Phase 13 the Chat key,
+model and Allowance, and on the desktop the Power tools (FilmCraft, LightCraft). See the project notes in `CLAUDE.md`.
 
 ## Models
 

@@ -157,11 +157,29 @@
   transform: scale(0.99);
 }
 
-/* Selected: an accent ring around the picture, the title in ink 1. */
+/* Selected: a 2 px white ring around the picture and a check in its free
+   corner, the title in ink 1. */
 .select[aria-pressed='true'] .media {
   box-shadow:
     inset 0 0 0 1px var(--bay-border-hair),
     0 0 0 2px var(--bay-accent);
+}
+
+.select[aria-pressed='true'] .media::after {
+  content: '\2713' / '';
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
 }
 
 .select[aria-pressed='true'] .caption {
@@ -469,6 +487,17 @@
   color: var(--bay-err-fg);
 }
 
+/* The octagon: with no hue, the shape says this line is an error. */
+.saveError::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
+}
+
 /* ---------------------------------------------------------------- phone */
 
 /* Two columns of square-ish pictures; the search shares the toolbar with
@@ -505,5 +534,20 @@
 
   .pending {
     animation: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: a chip on a picture goes opaque, and
+   the pointer still shows on it. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .zoom,
+  .badge,
+  .play {
+    background-color: var(--glass-solid);
+  }
+
+  .zoom:hover,
+  .play:hover {
+    background-color: color-mix(in srgb, var(--glass-solid), var(--bay-text) 20%);
   }
 }

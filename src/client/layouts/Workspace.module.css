@@ -213,8 +213,8 @@
   min-width: 0;
 }
 
-/* A file dragged over the canvas: an accent ring and wash, never in the way
-   of a click. */
+/* A file dragged over the canvas: a solid white ring and a wash, never in the
+   way of a click. */
 .canvas::after {
   content: '';
   position: absolute;
@@ -950,5 +950,13 @@
 @media (prefers-reduced-motion: reduce) {
   .workspace:not([data-open]) .inspector {
     translate: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: glass.css makes the panels solid;
+   the one line over a picture follows. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .note {
+    background: var(--glass-solid);
   }
 }

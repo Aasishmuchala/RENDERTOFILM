@@ -17,9 +17,16 @@
   padding: 20px 20px 56px;
   border: 1px dashed var(--bay-border-strong);
   border-radius: var(--r-card);
-  background: var(--bay-bg-subtle);
+  background: var(--bay-bg-sunken);
   color: var(--bay-text-3);
   text-align: center;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .dropEmpty:hover {
+    background: var(--bay-bg-subtle);
+  }
 }
 
 /* The uploaded set: small 16:10 tiles, three or four to a row. */
@@ -62,12 +69,23 @@
   background: var(--bay-bg-surface);
 }
 
-/* The remove button sits on the picture: a solid backing so the cross reads. */
-.thumbRemove {
+/* The remove button sits on the picture: a dark chip so the cross reads on any
+   image. The two-class selectors keep these ahead of the ghost button's own
+   states, which are see-through. */
+.thumb .thumbRemove {
   position: absolute;
   top: 4px;
   right: 4px;
-  background-color: var(--bay-bg-surface);
+  background-color: var(--scrim-chip);
+  color: var(--bay-text);
+}
+
+.thumb .thumbRemove[data-hovered] {
+  background-color: var(--scrim-chip-hover);
+}
+
+.thumb .thumbRemove[data-pressed] {
+  background-color: var(--scrim-chip-pressed);
 }
 
 .uploadError {
@@ -163,17 +181,27 @@
   color: var(--bay-text);
 }
 
-.passCountItem[data-selected] {
-  background-color: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  color: var(--bay-text);
-}
-
-/* As ui/Tabs: the selected half brightens a step on hover and focus. */
-.passCountItem[data-selected][data-hovered],
-.passCountItem[data-selected][data-focus-visible],
 .passCountItem[data-pressed] {
   background-color: var(--glass-btn-pressed);
+}
+
+/* Selected is solid white with black text: a faint fill alone cannot say it.
+   Hover and focus go full white with a dark inset line, as the primary does. */
+.passCountItem[data-selected] {
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.passCountItem[data-selected][data-hovered],
+.passCountItem[data-selected][data-focus-visible] {
+  background-color: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+}
+
+.passCountItem[data-selected][data-focus-visible] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent),
+    0 0 0 4px var(--bay-bg-canvas);
 }
 
 .passCountItem[data-focus-visible] {
@@ -390,12 +418,26 @@
   justify-self: start;
   margin: 12px;
   padding: 2px 8px;
+  border: 1px dashed var(--bay-border-strong);
   border-radius: var(--r-pill);
   font: var(--text-caption);
   letter-spacing: var(--track-caption);
   color: var(--bay-warn-fg);
   background: var(--scrim-chip);
   pointer-events: none;
+}
+
+/* The triangle: a warning keeps no hue, so its shape says it. */
+.passChip::before,
+.badge[data-take='pass2-failed']::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M5 0 L10 9.5 H0 Z M4.35 3.5 H5.65 V6.5 H4.35 Z M4.35 7 H5.65 V8.3 H4.35 Z');
 }
 
 /* ---- Two passes: pass 1 stepped back under the status while pass 2 finishes it. */
@@ -488,25 +530,30 @@
   color: var(--bay-text);
 }
 
+/* The view that is showing: solid white with black text. */
 .tool[data-selected] {
-  background-color: var(--glass-btn-selected);
-  box-shadow: var(--glass-edge);
-  color: var(--bay-text);
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
 }
 
-.tool[data-selected] > svg {
-  color: var(--bay-accent-fg);
+.tool[data-selected][data-hovered] {
+  background-color: var(--bay-accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
 }
 
-.tool[data-selected][data-hovered],
 .tool[data-selected][data-pressed] {
-  background-color: var(--glass-btn-pressed);
+  background-color: var(--bay-accent);
 }
 
 .tool[data-focus-visible],
 .toolIcon[data-focus-visible] {
   outline: 2px solid var(--bay-border-focus);
   outline-offset: -2px;
+}
+
+/* White on a white fill would not show: the ring steps outside it. */
+.tool[data-selected][data-focus-visible] {
+  outline-offset: 1px;
 }
 
 .tool[data-disabled],
@@ -526,6 +573,7 @@
 
 /* ---- The filmstrip: the film's card, then each chapter's name and frames. */
 .filmCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -573,13 +621,34 @@
   background-color: var(--bay-bg-subtle);
 }
 
+/* Selected: a 2 px white ring and a check, because a ring alone reads as hover. */
 .filmCard[aria-pressed='true'] {
   border-color: var(--bay-accent);
+  box-shadow: 0 0 0 1px var(--bay-accent);
   color: var(--bay-text);
 }
 
 .filmCard[aria-pressed='true'] > svg {
   color: var(--bay-accent-fg);
+}
+
+.filmCard[aria-pressed='true']::after,
+.gridCard[aria-pressed='true'] .gridPic::after {
+  content: '\2713' / '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+  font: var(--text-footnote);
+  font-weight: 700;
+  pointer-events: none;
 }
 
 .filmCard:focus-visible,
@@ -686,7 +755,16 @@
 
 .chapterCast[aria-pressed='true'] {
   border-color: var(--bay-accent);
-  color: var(--bay-accent-fg);
+  background-color: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+@media (hover: hover) {
+  .chapterCast[aria-pressed='true']:hover {
+    background-color: var(--bay-accent-hover);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bay-stage-frame) 40%, transparent);
+    color: var(--bay-text-on-accent);
+  }
 }
 
 .frames {
@@ -719,7 +797,8 @@
   cursor: pointer;
 }
 
-/* The edge, drawn over the picture: a hairline at rest, the accent when selected. */
+/* The edge, drawn over the picture: a hairline at rest, a 2 px white ring when
+   selected, with a check on the frame's number. */
 .stripCard::after {
   content: '';
   position: absolute;
@@ -732,6 +811,43 @@
 
 .stripCard[aria-pressed='true']::after {
   box-shadow: inset 0 0 0 2px var(--bay-accent);
+}
+
+.stripCard[aria-pressed='true'] .cardNumber {
+  display: inline-flex;
+  gap: 3px;
+  background: var(--bay-accent);
+  color: var(--bay-text-on-accent);
+}
+
+.stripCard[aria-pressed='true'] .cardNumber::before {
+  content: '\2713' / '';
+  font-weight: 700;
+}
+
+/* Failed: dashes, the one line that is not solid, so failed never reads as
+   selected. A selected frame that failed shows both, the dashes inside the
+   ring. */
+.stripCard:is([data-take='failed'], [data-take='pass2-failed'])::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.stripCard[data-take='failed']::before {
+  border: 2px dashed var(--bay-err-fg);
+}
+
+/* Pass 2 failed, pass 1 stands: a warning, the fainter line. */
+.stripCard[data-take='pass2-failed']::before {
+  border: 2px dashed var(--bay-border-strong);
+}
+
+.stripCard[aria-pressed='true']:is([data-take='failed'], [data-take='pass2-failed'])::before {
+  inset: 3px;
 }
 
 .thumbPic,
@@ -822,6 +938,18 @@
   color: var(--bay-err-fg);
 }
 
+/* The octagon: errors keep no hue, so this shape says it. */
+.badge[data-take='failed']::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  background-color: currentColor;
+  clip-path: path(evenodd, 'M3 0 H7 L10 3 V7 L7 10 H3 L0 7 V3 Z M4.25 2 H5.75 V6 H4.25 Z M4.25 7 H5.75 V8.5 H4.25 Z');
+}
+
 .badge[data-take='pass2-failed'] {
   color: var(--bay-warn-fg);
 }
@@ -889,6 +1017,22 @@
 .gridCard[aria-pressed='true'] {
   border-color: var(--bay-accent);
   box-shadow: 0 0 0 1px var(--bay-accent);
+}
+
+.gridCard[aria-pressed='true']:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--bay-accent),
+    0 0 0 6px var(--bay-bg-canvas);
+}
+
+/* After the selected rule, so a selected frame that failed shows the dashes
+   inside its ring. */
+.gridCard[data-take='failed'] {
+  border: 2px dashed var(--bay-err-fg);
+}
+
+.gridCard[data-take='pass2-failed'] {
+  border: 2px dashed var(--bay-border-strong);
 }
 
 .gridPic {
@@ -979,7 +1123,9 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: inset 0 0 0 2px var(--bay-border-focus);
+  box-shadow:
+    inset 0 0 0 2px var(--bay-border-focus),
+    inset 0 0 0 4px var(--bay-bg-canvas);
   opacity: 0;
   pointer-events: none;
 }
@@ -1066,6 +1212,31 @@
   :is(.stripCard, .gridPic)::before,
   .gridCard .gridPic::before {
     animation: none;
+  }
+}
+
+/* Reduced transparency, or more contrast: a chip on a picture goes opaque. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .passChip,
+  .cardNumber,
+  .badge {
+    background: var(--glass-solid);
+  }
+
+  .stripCard[aria-pressed='true'] .cardNumber {
+    background: var(--bay-accent);
+  }
+
+  .thumb .thumbRemove {
+    background-color: var(--glass-solid);
+  }
+
+  .thumb .thumbRemove[data-hovered] {
+    background-color: color-mix(in srgb, var(--glass-solid), var(--bay-text) 20%);
+  }
+
+  .thumb .thumbRemove[data-pressed] {
+    background-color: color-mix(in srgb, var(--glass-solid), var(--bay-text) 24%);
   }
 }
 

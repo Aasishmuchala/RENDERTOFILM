@@ -12,6 +12,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 
+import { isSpareCopy } from './durable.js';
 import { isSealed } from './secrets.js';
 
 const OWNER_KEY = /^[0-9a-f]{24}$/;
@@ -30,14 +31,18 @@ function overlaps(a, b) {
   return a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
 }
 
-/** Every file and folder under `dir`, as paths from the data folder. Symlinks stay behind: they could point anywhere. */
+/**
+ * Every file and folder under `dir`, as paths from the data folder. Symlinks stay
+ * behind: they could point anywhere. So do backups, which would come over with
+ * the old owner still inside them; the first write here makes new ones.
+ */
 async function walk(dir, rel, found = []) {
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
     const child = path.join(rel, entry.name);
     if (entry.isDirectory()) {
       found.push({ rel: child, folder: true });
       await walk(path.join(dir, entry.name), child, found);
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() && !isSpareCopy(entry.name)) {
       found.push({ rel: child, folder: false });
     }
   }
