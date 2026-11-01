@@ -1,3 +1,4 @@
+import { imageBlockOf, imageRef } from './chat/images.ts';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -23,7 +24,6 @@ import { runView } from './chat/pipeline.ts';
 import { createStore } from './chat/store.ts';
 import { readChatSettings, writeChatSettings } from './connections.ts';
 import { ownsAsset } from './edits.ts';
-import { imageSlot, MAX_INPUT_PIXELS, sharp } from './imaging.ts';
 import { ownerKey } from './library.ts';
 import { documentStore, getObject } from './storage.ts';
 import { type Context, publicProcedure, router, signedInProcedure } from './trpc.ts';
@@ -48,8 +48,6 @@ const DECIDED = 'That quote has already been decided.';
 /** What a card says when a click found the work dearer than the Quote it pressed. */
 const PRICE_CHANGED = 'The price changed since this quote was made. Check the new quote and run that one.';
 /** The long edge a render is sent to the model at. */
-const LONG_EDGE = 1920;
-const JPEG_QUALITY = 85;
 const AUDIO = /\.(mp3|wav|m4a|aac|flac)$/i;
 /** `chat.thread` resends this many seqs behind `since`: a seq is given out before its Event lands, so one can arrive late. */
 const OVERLAP_SEQS = 20;
@@ -169,19 +167,6 @@ function auditCsv(rows: AuditRow[]): string {
 
 type AssetInput = { key: string; width: number; height: number; name: string };
 
-async function imageBlock(bytes: Buffer) {
-  const jpeg = await imageSlot(() =>
-    sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
-      .autoOrient()
-      .resize({ width: LONG_EDGE, height: LONG_EDGE, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: JPEG_QUALITY })
-      .toBuffer()
-  ).catch((cause: unknown) => {
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'That file is not a picture that can be read.', cause });
-  });
-  return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } };
-}
-
 /** The asset's document and the block the model reads it by: an image as itself, audio as a line naming it. */
 async function attachment(input: AssetInput): Promise<{ asset: Asset; block: unknown }> {
   const stored = await getObject(input.key);
@@ -194,10 +179,11 @@ async function attachment(input: AssetInput): Promise<{ asset: Asset; block: unk
       block: { type: 'text', text: `Music attached: ${input.name} (${input.key})` },
     };
   }
-  return {
-    asset: { ...common, kind: 'image', width: input.width, height: input.height },
-    block: await imageBlock(bytes),
-  };
+  // Read once now, so a bad file is refused here. The thread keeps only the key.
+  await imageBlockOf(input.key).catch((cause: unknown) => {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'That file is not a picture that can be read.', cause });
+  });
+  return { asset: { ...common, kind: 'image', width: input.width, height: input.height }, block: imageRef(input.key) };
 }
 
 /** What the model is told after a typed yes that released nothing. */

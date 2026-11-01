@@ -63,3 +63,6 @@ events.jsonl
 .bay-studio-last-deploy.json
 .bay-prewarm/
 /.bay-deps-snapshot/
+
+# Test runs that started the desktop server without --data-dir
+desktop/data/

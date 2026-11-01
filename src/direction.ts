@@ -61,6 +61,7 @@ export const SHOT_CRAFT = [
   'Delete test: what would be lost without this shot? If nothing, drop it. Cover only what the relation, the information and the cut need.',
   'Pacing comes from contrast. A slow shot earns its length only while something stays unanswered, and a key piece of information is delayed only if the answer is worth the wait.',
   'Join shots with a reason: continuity to keep the space clear, a match on shape or movement to carry the eye, a hard cut only for impact.',
+  'Stage in depth: use foreground, middle ground and background, and let people enter, cross and leave the frame through what is really there, so a still frame already has movement in it.',
   'Rewrite any shot that is only a director name, only gear, a move with no new information, or a mood stated as a rule.',
   'The house rule outranks all of this: everything you choose must already be in the render. A reveal may only uncover what the image contains.',
 ].join('\n');
@@ -72,6 +73,7 @@ export const REVEAL_ARC = [
   'Opening, the first third: slow and withheld. Start close or partial: a detail, a threshold, a reflection, light on a surface, a fragment of the place. Show something and hold back what it belongs to, so the viewer wants to see more.',
   'Build, the middle: the place assembles. Each frame shows more than the last, widening step by step and adding one new piece of geography, scale or life, with rising energy. Never repeat a viewpoint.',
   'Reveal, the last frame or two: the payoff. Save the single most complete, most striking view of the project for here and do not use it earlier. It must answer what the opening withheld.',
+  'Before answering, pass five gates. Cause: each shot follows from the one before. Space: the geography stays clear and the axis holds. Physics: nothing is impossible, and light, scale and contact agree. Time: the pace rises and every cut has a reason. Delivery: the last frame pays off the first.',
   'If two images could be the finale, put the stronger one last and use the other in the build. All of this is the order and framing of what the images already show: nothing is added.',
 ].join('\n');
 

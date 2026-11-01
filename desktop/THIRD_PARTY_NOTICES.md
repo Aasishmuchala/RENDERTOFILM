@@ -657,7 +657,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## AI Film Knowledge Base
 
-The Director's shot craft is adapted from note A2-08 of AI Film Knowledge Base by 62656456 (https://github.com/62656456/ai-film-knowledge-base), used under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The text was condensed, translated into English and fitted to shooting from a finished render.
+The Director's shot craft and reveal arc are adapted from notes A2-01, A2-02, A2-08 and C1-04 of AI Film Knowledge Base by 62656456 (https://github.com/62656456/ai-film-knowledge-base), used under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The text was condensed, translated into English and fitted to shooting from a finished render.
 
 ## FFmpeg
 

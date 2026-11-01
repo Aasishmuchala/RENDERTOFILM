@@ -4,6 +4,7 @@
 // touches is injected through LoopDeps, so a scripted fake model drives every test
 // and the real SDK is one adapter. No tool here spends: the most a Turn can do is
 // leave a Quote open and stop.
+import { withImages } from './images.ts';
 import { randomUUID } from 'node:crypto';
 
 import { parseToolInput } from './contracts.ts';
@@ -164,7 +165,7 @@ async function request(t: Live, maxTokens: number): Promise<ModelRequest> {
     model: MODEL,
     system: [{ type: 'text', text: SYSTEM_PROMPT }, ...(mode ? [{ type: 'text' as const, text: MODE_BRIEF[mode] }] : [])],
     tools: t.deps.tools.defs,
-    messages: await threadMessages(t),
+    messages: await withImages(await threadMessages(t)),
     maxTokens,
     effort: 'high',
     betas: [], // the adapter adds its own, and only when it talks to Anthropic itself
